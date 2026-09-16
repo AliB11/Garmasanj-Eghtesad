@@ -7,12 +7,15 @@
   window.GS = window.GS || {};
   var U = {};
 
-  /* ---------- اعداد فارسی ---------- */
+  /* ---------- اعداد فارسی و عربی ---------- */
   var FA = '۰۱۲۳۴۵۶۷۸۹';
+  var AR = '٠١٢٣٤٥٦٧٨٩';
   U.fa = function (s) { return String(s).replace(/\d/g, function (d) { return FA[+d]; }); };
   U.toEn = function (s) {
     return String(s == null ? '' : s)
       .replace(/[۰-۹]/g, function (d) { return String(FA.indexOf(d)); })
+      .replace(/[٠-٩]/g, function (d) { return String(AR.indexOf(d)); })
+      .replace(/[−–—]/g, '-')
       .replace(/[^\d.\-]/g, '');
   };
   U.fmt = function (n) {
@@ -42,12 +45,14 @@
   };
   U.clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
 
-  /** عددخوان مقاوم: تگ HTML، ارقام فارسی و جداکننده‌ها را تحمل می‌کند */
+  /** عددخوان مقاوم: تگ HTML، ارقام فارسی/عربی، علامت منفی و جداکننده‌ها را تحمل می‌کند */
   U.num = function (x) {
     if (x == null) return null;
     if (typeof x === 'number') return isFinite(x) ? x : null;
     var s = String(x).replace(/<[^>]*>/g, '');
     s = s.replace(/[۰-۹]/g, function (d) { return String(FA.indexOf(d)); });
+    s = s.replace(/[٠-٩]/g, function (d) { return String(AR.indexOf(d)); });
+    s = s.replace(/[−–—]/g, '-');
     var v = parseFloat(s.replace(/[٬،,\s]/g, ''));
     return isFinite(v) ? v : null;
   };

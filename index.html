@@ -47,7 +47,7 @@
 
 <!-- تیکر زنده -->
 <div class="ticker" role="marquee" aria-label="قیمت‌های زنده بازار">
-  <div class="tk-label"><span class="live-dot"></span>نبض بازار — قیمت روز</div>
+  <div class="tk-label"><span class="live-dot"></span><span class="tk-label-txt">نبض بازار — قیمت روز</span></div>
   <div class="tk-vp"><div class="tk-track" id="tickerTrack"></div></div>
 </div>
 
@@ -413,6 +413,15 @@
     <h3>عیب‌یابی منابع داده</h3>
     <p class="dg-sub">این گزارش دقیقاً نشان می‌دهد هر مسیر چه پاسخی داده، کدام منابع با هم توافق کردند و هر عدد نهایی از کجا آمده.</p>
     <div id="diagBody" class="dg-body"></div>
+  </div>
+</div>
+
+<!-- مودال جزئیات دارایی -->
+<div class="modal" id="assetModal" aria-hidden="true">
+  <div class="m-back" data-am-close></div>
+  <div class="m-card" role="dialog" aria-modal="true" aria-label="جزئیات دارایی">
+    <button class="m-x" data-am-close aria-label="بستن"><svg class="ic s16"><use href="#i-x"/></svg></button>
+    <div id="assetModalBody"></div>
   </div>
 </div>
 

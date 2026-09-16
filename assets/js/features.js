@@ -15,7 +15,9 @@
   function heatOf(sym) {
     var q = D().quote(sym);
     if (!q || !(q.p > 0)) return 0;
-    var day = q.chgPct || 0, sl = D().slope(sym);
+    var day = (q.chgPct != null && isFinite(q.chgPct)) ? q.chgPct : 0;
+    var sl = D().slope(sym);
+    sl = isFinite(sl) ? sl : 0;
     return U.clamp(day * 8 + sl * 5, -40, 60);
   }
 
@@ -29,7 +31,9 @@
       })
       .map(function (a) {
         var q = D().quote(a.sym), sl = D().slope(a.sym);
-        var sDay = U.clamp((q.chgPct || 0) / H.dayScale, -1, 1);
+        var day = (q.chgPct != null && isFinite(q.chgPct)) ? q.chgPct : 0;
+        sl = isFinite(sl) ? sl : 0;
+        var sDay = U.clamp(day / H.dayScale, -1, 1);
         var sSlope = U.clamp(sl / H.slopeScale, -1, 1);
         var score = (H.wDay * sDay + H.wSlope * sSlope) * 100;
         return { a: a, q: q, slope: sl, score: score };
@@ -134,12 +138,12 @@
       fill.style.background = U.tempColor(a.r - simState.inf);
       g.style.right = U.clamp(simState.P / max * 100, 0, 99) + '%';
       U.animateNum(el.querySelector('.js-v'), a.real, U.fmtMoney);
-      el.querySelector('.js-r').innerHTML = '<span dir="ltr">' + U.pct(a.ratio * 100, 0) + '</span> سرمایه‌ی اولیه';
+      el.querySelector('.js-r').innerHTML = '<span dir="ltr">' + U.fa(Math.round(a.ratio * 100)) + '٪</span> سرمایه‌ی اولیه';
     });
     var best = res[0], worst = res[res.length - 1];
     U.$('#simReport').innerHTML =
       '<div class="rp"><span class="rp-k" style="color:' + U.tempColor(best.r - simState.inf) + '">گرم‌ترین سرنوشت</span><b>' + U.esc(best.name) + ' — ' + U.fmtMoney(best.real) + ' تومان</b><small>یعنی ' + U.fa(best.ratio.toFixed(2)) + ' برابر قدرت خرید امروز</small></div>' +
-      '<div class="rp"><span class="rp-k" style="color:' + U.tempColor(worst.r - simState.inf) + '">سردترین سرنوشت</span><b>' + U.esc(worst.name) + ' — ' + U.fmtMoney(worst.real) + ' تومان</b><small>فقط <span dir="ltr">' + U.pct(worst.ratio * 100, 0) + '</span> سرمایه‌ی اولیه باقی می‌ماند</small></div>' +
+      '<div class="rp"><span class="rp-k" style="color:' + U.tempColor(worst.r - simState.inf) + '">سردترین سرنوشت</span><b>' + U.esc(worst.name) + ' — ' + U.fmtMoney(worst.real) + ' تومان</b><small>فقط <span dir="ltr">' + U.fa(Math.round(worst.ratio * 100)) + '٪</span> سرمایه‌ی اولیه باقی می‌ماند</small></div>' +
       '<div class="rp"><span class="rp-k">شکاف گرمایی</span><b>' + U.fa((best.ratio / worst.ratio).toFixed(1)) + ' برابر تفاوت</b><small>بین انتخاب درست و اشتباه، فقط ' + U.fa(simState.t) + ' سال فاصله است</small></div>';
     U.$('#simTitleAmt').textContent = simState.P >= 1e6 ? U.fmtMoney(simState.P) : 'پولِ';
     U.$('#simTitleYears').textContent = U.fa(simState.t);
@@ -286,7 +290,7 @@
       w.gold += cold * 0.45;
     }
     Object.keys(w).forEach(function (key) { w[key] = U.clamp(w[key], 0, 45); });
-    var s = Object.values(w).reduce(function (a, b) { return a + b; }, 0) || 1;
+    var s = Object.keys(w).reduce(function (a, b) { return a + w[b]; }, 0) || 1;
     Object.keys(w).forEach(function (key) { w[key] = w[key] / s * 100; });
     return { w: w, tilt: tilt };
   }
@@ -348,6 +352,7 @@
   var OLD_ID_MAP = { usd: 'USD', eur: 'EUR', usdt: 'USDT', coin: 'EMAMI', gold: 'G18', btc: 'BTC_TM', tse: null, fund: null };
 
   function alertsLoad() {
+    ALERTS.length = 0;
     var a = U.store.get(LS_ALERTS, []);
     if (Array.isArray(a)) a.forEach(function (x) {
       if (!x || !(x.target > 0)) return;

@@ -234,7 +234,8 @@ label{display:block;font-size:.85rem;color:var(--mut);margin:14px 0 6px;font-wei
 /* کارت‌های دارایی */
 .asset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:14px}
 .qcard{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);
-  border-radius:var(--rad);padding:16px;transition:border-color .25s,transform .2s,box-shadow .25s;position:relative}
+  border-radius:var(--rad);padding:16px;transition:border-color .25s,transform .2s,box-shadow .25s;position:relative;cursor:pointer}
+.qcard:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .qcard:hover{border-color:var(--line2);transform:translateY(-2px);box-shadow:var(--sh)}
 .qcard.flash{animation:flash 1.6s}
 @keyframes flash{0%,60%{border-color:var(--gold);box-shadow:0 0 0 3px rgba(232,163,61,.25)}100%{border-color:var(--line)}}
@@ -262,6 +263,9 @@ label{display:block;font-size:.85rem;color:var(--mut);margin:14px 0 6px;font-wei
 .qc-spark{flex:1;display:flex;justify-content:flex-end}
 .spark{width:132px;height:36px}
 .qc-range{margin-bottom:10px}
+.rbar-wrap{display:flex;flex-direction:column;gap:5px}
+.rbar-labels{display:flex;justify-content:space-between;align-items:center;font-size:.68rem;color:var(--dim);font-variant-numeric:tabular-nums}
+.rbar-labels small{font-size:.68rem}
 .rbar{display:block;height:5px;border-radius:3px;background:#222B35;position:relative}
 .rbar i{position:absolute;top:-2.5px;width:10px;height:10px;border-radius:50%;background:var(--gold2);
   box-shadow:0 0 8px rgba(232,163,61,.6);transform:translateX(50%)}
@@ -475,9 +479,25 @@ footer{border-top:1px solid var(--line);background:rgba(255,255,255,.012);paddin
 .dg-val span{font-weight:800;color:var(--gold2);min-width:110px}
 .dg-val small{color:var(--dim);font-size:.7rem}
 
+/* مودال جزئیات دارایی */
+.am-head{display:flex;align-items:center;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.am-price-box{background:#0D1319;border:1px solid var(--line2);border-radius:14px;padding:14px 18px;margin-bottom:14px}
+.am-main-p b{font-size:1.6rem;font-weight:900;color:var(--gold2);font-variant-numeric:tabular-nums}
+.am-main-p small{font-size:.85rem;color:var(--dim)}
+.am-chg-row{margin-top:6px;font-size:.85rem;display:flex;align-items:center;gap:8px}
+.am-metrics-box,.am-source-box{margin-bottom:14px;background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.am-metrics-box h4,.am-source-box h4{margin:0 0 10px;font-size:.82rem;color:var(--gold2)}
+.am-metric,.am-src-row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:.8rem;padding:7px 0;border-bottom:1px dashed var(--line)}
+.am-metric:last-child,.am-src-row:last-child{border-bottom:none}
+.am-k{color:var(--mut)}
+.am-v{color:var(--txt);font-variant-numeric:tabular-nums;text-align:left}
+
 /* ---------------- ریسپانسیو ---------------- */
 @media (max-width:1020px){
-  .nav{display:none}
+  .head-in{flex-wrap:wrap;gap:8px 12px;padding:8px 16px}
+  .nav{display:flex;order:10;width:100%;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;gap:4px}
+  .nav::-webkit-scrollbar{display:none}
+  .nav a{white-space:nowrap;font-size:.8rem;padding:6px 11px}
   .hero-grid{grid-template-columns:1fr}
   .verdict{grid-template-columns:1fr}
   .v-side{border-left:none;padding-left:0;border-bottom:1px solid var(--line);padding-bottom:18px}
@@ -502,7 +522,7 @@ footer{border-top:1px solid var(--line);background:rgba(255,255,255,.012);paddin
   .v-cols{grid-template-columns:1fr}
   .pulse-row{grid-template-columns:1fr}
   .asset-grid{grid-template-columns:1fr}
-  .ticker .tk-label span:last-child{display:none}
+  .ticker .tk-label .tk-label-txt{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}

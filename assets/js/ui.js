@@ -227,9 +227,9 @@
   }
 
   function cardHTML(a) {
-    return '<article class="qcard skel" data-sym="' + a.sym + '" data-cat="' + a.cat + '" tabindex="0" aria-label="' + U.esc(a.fa) + '">' +
+    return '<article class="qcard skel" data-sym="' + a.sym + '" data-cat="' + a.cat + '" tabindex="0" role="button" aria-label="' + U.esc(a.fa) + '">' +
       '<div class="qc-top"><span class="qc-ic"><svg class="ic s22"><use href="#' + a.icon + '"/></svg></span>' +
-      '<span class="qc-names"><b>' + U.esc(a.fa) + '</b><small>' + U.esc(a.sub || catFa(a.cat)) + '</small></span>' +
+      '<span class="qc-names"><b>' + U.esc(a.fa) + '</b><small data-f="sub">' + U.esc(a.sub || catFa(a.cat)) + '</small></span>' +
       '<span class="qc-badge" data-f="badge"></span></div>' +
       '<div class="qc-price"><b data-f="price">—</b><small>' + U.esc(a.unit) + '</small></div>' +
       '<div class="qc-mid"><span class="qc-chg z" data-f="chg">—</span><span class="qc-spark" data-f="spark"></span></div>' +
@@ -249,6 +249,16 @@
     var grid = U.$('#assetGrid');
     if (!grid) return;
     grid.innerHTML = CFG().ASSETS.map(cardHTML).join('');
+    grid.addEventListener('click', function (e) {
+      var card = e.target.closest('.qcard');
+      if (card && card.dataset.sym) openAssetModal(card.dataset.sym);
+    });
+    grid.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        var card = e.target.closest('.qcard');
+        if (card && card.dataset.sym) { e.preventDefault(); openAssetModal(card.dataset.sym); }
+      }
+    });
     U.$$('.cat-tab').forEach(function (btn) {
       btn.addEventListener('click', function () {
         activeCat = btn.dataset.cat || 'all';
@@ -297,6 +307,21 @@
           ch.className = 'qc-chg ' + (Math.abs(q.chgPct) < 0.05 ? 'z' : q.chgPct > 0 ? 'up' : 'down');
           ch.innerHTML = dayHTML(q.chgPct);
         }
+      }
+      // زیرعنوان و بینش تحلیلی (حباب و انحراف)
+      var subEl = F('sub');
+      if (subEl) {
+        var subTxt = a.sub || catFa(a.cat);
+        var dv = D().derived();
+        if (a.sym === 'EMAMI' && dv.bubble != null) subTxt = 'طرح جدید · حباب ' + U.fa(dv.bubble.toFixed(1)) + '٪';
+        else if (a.sym === 'BAHAR' && dv.bubbleBahar != null) subTxt = 'طرح قدیم · حباب ' + U.fa(dv.bubbleBahar.toFixed(1)) + '٪';
+        else if (a.sym === 'NIM' && dv.bubbleNim != null) subTxt = 'نیم سکه · حباب ' + U.fa(dv.bubbleNim.toFixed(1)) + '٪';
+        else if (a.sym === 'ROB' && dv.bubbleRob != null) subTxt = 'ربع سکه · حباب ' + U.fa(dv.bubbleRob.toFixed(1)) + '٪';
+        else if (a.sym === 'GERAMI' && dv.bubbleGerami != null) subTxt = 'سکه گرمی · حباب ' + U.fa(dv.bubbleGerami.toFixed(1)) + '٪';
+        else if (a.sym === 'G18' && dv.goldPrem != null) subTxt = 'هر گرم · انحراف ' + U.pct(dv.goldPrem, 1);
+        else if (a.sym === 'USDT' && dv.usdtPrem != null) subTxt = 'صرافی‌ها · پریمیوم ' + U.pct(dv.usdtPrem, 1);
+        else if (a.sym === 'MESGHAL' && dv.mesghalDev != null) subTxt = 'مظنه · انحراف ' + U.pct(dv.mesghalDev, 1);
+        subEl.textContent = subTxt;
       }
       // اسپارک‌لاین
       var sp = F('spark');
@@ -421,6 +446,93 @@
     document.body.style.overflow = '';
   }
 
+  function openAssetModal(sym) {
+    var a = D().asset(sym);
+    if (!a) return;
+    var q = D().quote(sym) || {};
+    var dv = D().derived();
+    var modal = U.$('#assetModal'), body = U.$('#assetModalBody');
+    if (!modal || !body) return;
+    var priceStr = (q.p > 0) ? dispPrice(a, q) : '—';
+    var chgStr = (q.chgPct != null) ? dayHTML(q.chgPct) : '—';
+    var chgVal = (q.chg != null && isFinite(q.chg)) ? ((q.chg >= 0 ? '+' : '') + U.fmt(q.chg) + ' ' + a.unit) : '';
+
+    var metrics = [];
+    if (sym === 'EMAMI' && dv.bubble != null) {
+      metrics.push({ k: 'ارزش طلای خالص (۲۴ عیار)', v: U.fmt(Math.round(dv.intrinsicEmami)) + ' تومان' });
+      metrics.push({ k: 'حباب اسمی سکه', v: U.fa(dv.bubble.toFixed(1)) + '٪ (' + U.fmt(Math.round(q.p - dv.intrinsicEmami)) + ' تومان)' });
+    } else if (sym === 'BAHAR' && dv.bubbleBahar != null) {
+      metrics.push({ k: 'ارزش طلای خالص (۲۴ عیار)', v: U.fmt(Math.round(dv.intrinsicBahar)) + ' تومان' });
+      metrics.push({ k: 'حباب اسمی سکه', v: U.fa(dv.bubbleBahar.toFixed(1)) + '٪ (' + U.fmt(Math.round(q.p - dv.intrinsicBahar)) + ' تومان)' });
+    } else if (sym === 'NIM' && dv.bubbleNim != null) {
+      metrics.push({ k: 'ارزش طلای خالص (۲۴ عیار)', v: U.fmt(Math.round(dv.intrinsicNim)) + ' تومان' });
+      metrics.push({ k: 'حباب اسمی سکه', v: U.fa(dv.bubbleNim.toFixed(1)) + '٪ (' + U.fmt(Math.round(q.p - dv.intrinsicNim)) + ' تومان)' });
+    } else if (sym === 'ROB' && dv.bubbleRob != null) {
+      metrics.push({ k: 'ارزش طلای خالص (۲۴ عیار)', v: U.fmt(Math.round(dv.intrinsicRob)) + ' تومان' });
+      metrics.push({ k: 'حباب اسمی سکه', v: U.fa(dv.bubbleRob.toFixed(1)) + '٪ (' + U.fmt(Math.round(q.p - dv.intrinsicRob)) + ' تومان)' });
+    } else if (sym === 'GERAMI' && dv.bubbleGerami != null) {
+      metrics.push({ k: 'ارزش طلای خالص (۲۴ عیار)', v: U.fmt(Math.round(dv.intrinsicGerami)) + ' تومان' });
+      metrics.push({ k: 'حباب اسمی سکه', v: U.fa(dv.bubbleGerami.toFixed(1)) + '٪ (' + U.fmt(Math.round(q.p - dv.intrinsicGerami)) + ' تومان)' });
+    } else if (sym === 'G18' && dv.fairG18 != null) {
+      metrics.push({ k: 'طلای منصفانه (اونس × دلار)', v: U.fmt(Math.round(dv.fairG18)) + ' تومان' });
+      metrics.push({ k: 'انحراف از ارزش جهانی', v: U.pct(dv.goldPrem, 2) });
+    } else if (sym === 'MESGHAL' && dv.mesghalDev != null) {
+      metrics.push({ k: 'معادل طلای ۱۸ (× ۴٫۳۵۲)', v: dv.g18 ? U.fmt(Math.round(dv.g18 * GS.config.CHAIN.MESGHAL_K)) + ' تومان' : '—' });
+      metrics.push({ k: 'انحراف مظنه از طلا', v: U.pct(dv.mesghalDev, 2) });
+    } else if (sym === 'USDT' && dv.usdtPrem != null) {
+      metrics.push({ k: 'پریمیوم نسبت به دلار بازار', v: U.pct(dv.usdtPrem, 2) });
+    } else if (sym === 'BTC_TM' && dv.btcUsdGap != null) {
+      metrics.push({ k: 'دلار ضمنی بیت‌کوین', v: dv.btcImpliedUsd ? U.fmt(Math.round(dv.btcImpliedUsd)) + ' تومان' : '—' });
+      metrics.push({ k: 'انحراف از دلار آزاد', v: U.pct(dv.btcUsdGap, 2) });
+    } else if (sym === 'EUR' && dv.eurUsdImplied != null) {
+      metrics.push({ k: 'برابری ضمنی با دلار آزاد', v: dv.eurUsdImplied.toFixed(4) });
+    }
+
+    if (q.high > 0 && q.low > 0) {
+      metrics.push({ k: 'بیشترین قیمت امروز', v: (a.kind === 'usd' ? U.fa(q.high.toFixed(a.dec || 0)) : U.fmt(q.high)) + ' ' + a.unit });
+      metrics.push({ k: 'کمترین قیمت امروز', v: (a.kind === 'usd' ? U.fa(q.low.toFixed(a.dec || 0)) : U.fmt(q.low)) + ' ' + a.unit });
+    }
+
+    var metricHTML = metrics.map(function (m) {
+      return '<div class="am-metric"><span class="am-k">' + U.esc(m.k) + '</span><b class="am-v">' + m.v + '</b></div>';
+    }).join('');
+
+    body.innerHTML =
+      '<div class="am-head">' +
+        '<span class="qc-ic"><svg class="ic s24"><use href="#' + a.icon + '"/></svg></span>' +
+        '<div><h3 style="margin:0">' + U.esc(a.fa) + ' <small class="am-sym" style="font-size:.85rem;color:var(--dim)">(' + a.sym + ')</small></h3>' +
+        '<span class="am-cat" style="font-size:.8rem;color:var(--mut)">' + catFa(a.cat) + (a.sub ? ' · ' + a.sub : '') + '</span></div>' +
+      '</div>' +
+      '<div class="am-price-box">' +
+        '<div class="am-main-p"><b>' + priceStr + '</b> <small>' + U.esc(a.unit) + '</small></div>' +
+        '<div class="am-chg-row">' + chgStr + (chgVal ? ' <span class="am-abs" style="font-size:.8rem;color:var(--mut)">(' + chgVal + ')</span>' : '') + '</div>' +
+      '</div>' +
+      (metricHTML ? '<div class="am-metrics-box"><h4>تحلیل و فرمول‌های بازار</h4>' + metricHTML + '</div>' : '') +
+      '<div class="am-source-box">' +
+        '<h4>شناسنامه منبع</h4>' +
+        '<div class="am-src-row"><span>منبع استخراج:</span><b>' + U.esc(q.srcFa || q.src || '—') + '</b></div>' +
+        '<div class="am-src-row"><span>وضعیت داده:</span><b>' + (q.live ? 'زنده' : (q.src === 'snapshot' ? 'اسنپ‌شات اولیه' : 'کش شده')) + '</b></div>' +
+        '<div class="am-src-row"><span>آخرین به‌روزرسانی:</span><b>' + U.relLabel(q.ts) + '</b></div>' +
+      '</div>' +
+      '<div class="am-actions" style="margin-top:16px">' +
+        '<button class="btn btn-primary sm" id="amRadarBtn" style="width:100%;justify-content:center"><svg class="ic s16"><use href="#i-bell"/></svg>تنظیم رادار قیمت برای ' + U.esc(a.short) + '</button>' +
+      '</div>';
+
+    var rBtn = U.$('#amRadarBtn');
+    if (rBtn) {
+      rBtn.addEventListener('click', function () {
+        closeModal('#assetModal');
+        var sel = U.$('#radarMarket');
+        if (sel) sel.value = sym;
+        var targetIn = U.$('#radarTarget');
+        if (targetIn && q.p > 0) targetIn.value = U.fmt(q.p);
+        var radarSec = U.$('#radar');
+        if (radarSec) radarSec.scrollIntoView({ behavior: 'smooth' });
+      });
+    }
+    openModal('#assetModal');
+  }
+
   function buildDiag() {
     var d = U.$('#diagBody');
     if (!d) return;
@@ -481,6 +593,7 @@
     refreshAllFeeds: refreshAllFeeds,
     renderPulse: renderPulse, renderMacro: renderMacro,
     openModal: openModal, closeModal: closeModal, buildDiag: buildDiag,
+    openAssetModal: openAssetModal,
     initReveal: initReveal, initCounters: initCounters,
     dayHTML: dayHTML, dispPrice: dispPrice, feedText: feedText
   };
