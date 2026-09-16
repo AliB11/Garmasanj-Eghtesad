@@ -1,0 +1,24 @@
+{
+  "name": "گرماسنج — ترمینال دمای بازارهای ایران",
+  "short_name": "گرماسنج",
+  "description": "پایش زنده ارز، طلا، سکه، رمزارز و بورس ایران با اجماع چندمنبعی، ردیاب پول داغ و پیشنهاد سبد سرمایه‌گذاری",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0B0908",
+  "theme_color": "#FF7A2F",
+  "icons": [
+    {
+      "src": "assets/img/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "assets/img/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

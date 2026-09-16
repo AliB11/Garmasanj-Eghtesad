@@ -1,0 +1,133 @@
+/* ============================================================
+   گرماسنج — config.js (نسل ۳)
+   تنها نقطه‌ی تنظیمات: دارایی‌ها، منابع راستی‌آزمایی‌شده،
+   آینه‌های TGJU، فرمول‌های زنجیره و آستانه‌ها.
+   همه‌ی منابع این فهرست در شهریور ۱۴۰۵ با پاسخ واقعی تست شده‌اند.
+   ============================================================ */
+(function () {
+  'use strict';
+  window.GS = window.GS || {};
+
+  /** تورم مرجع (نقطه‌به‌نقطه). چون API عمومی پایدار ندارد،
+      به‌صورت دوره‌ای دستی به‌روزرسانی می‌شود و تاریخش شفاف است. */
+  var INFLATION = {
+    value: 42,
+    source: 'مرکز آمار ایران — تورم نقطه‌به‌نقطه (تقریبی)',
+    updatedFa: 'شهریور ۱۴۰۵',
+    note: 'اگر عدد رسمی جدید منتشر شد، همین‌جا به‌روزرسانی می‌شود و تاریخش ثبت می‌ماند.'
+  };
+
+  /** چرخه‌های به‌روزرسانی (میلی‌ثانیه) */
+  var REFRESH = {
+    fastMs: 45000,   // گروه‌های اصلی: TGJU / صرافی‌ها / جهانی / مرجع ارز
+    slowMs: 180000,  // ناواسان (کلیددار) + تاریخچه + بازبینی سلامت
+    clockMs: 1000,
+    freshMs: 5000    // بازرسم «تازگی» بدون درخواست شبکه
+  };
+
+  /** آستانه‌های تازگی داده (میلی‌ثانیه) */
+  var FRESH = {
+    liveMs: 120000,    // سبز: زنده
+    agingMs: 600000,   // کهربایی: در حال قدیمی شدن
+    staleMs: 3600000   // خاکستری: قدیمی (نمایش با برچسب صادقانه)
+  };
+
+  /** آینه‌های TGJU — هر ۵ آینه موازی مسابقه می‌دهند، اولین پاسخ معتبر می‌برد */
+  var TGJU_MIRRORS = [
+    'https://call5.tgju.org',
+    'https://call4.tgju.org',
+    'https://call2.tgju.org',
+    'https://call1.tgju.org',
+    'https://call.tgju.org'
+  ];
+
+  /**
+   * رجیستری دارایی‌ها — ترتیب نمایش در شبکه‌ی بازار.
+   * kind: toman (تومان) | usd (دلار) — مقیاس نمایش و محاسبات مشتق.
+   * tgju: کلیدهای کاندید در آبجکت current پاسخ ajax.json (اولین برخورد می‌برد).
+   * rial: true یعنی قیمت TGJU ریالی است و بر ۱۰ تقسیم می‌شود (پیش‌فرض true؛
+   *       انس و نسبت‌های جهانی دلاری‌اند و تقسیم نمی‌شوند).
+   */
+  var ASSETS = [
+    // ارز (بازار آزاد تهران)
+    { sym: 'USD', fa: 'دلار آمریکا', short: 'دلار', cat: 'currency', unit: 'تومان', icon: 'i-usd', kind: 'toman', tgju: ['price_dollar_rl', 'price_dollar_dt'] },
+    { sym: 'EUR', fa: 'یورو', short: 'یورو', cat: 'currency', unit: 'تومان', icon: 'i-eur', kind: 'toman', tgju: ['price_eur', 'eur'] },
+    { sym: 'GBP', fa: 'پوند انگلیس', short: 'پوند', cat: 'currency', unit: 'تومان', icon: 'i-cur', kind: 'toman', tgju: ['price_gbp', 'gbp'] },
+    { sym: 'AED', fa: 'درهم امارات', short: 'درهم', cat: 'currency', unit: 'تومان', icon: 'i-cur', kind: 'toman', tgju: ['price_aed', 'aed'] },
+    { sym: 'CHF', fa: 'فرانک سوئیس', short: 'فرانک', cat: 'currency', unit: 'تومان', icon: 'i-cur', kind: 'toman', tgju: ['price_chf', 'chf'] },
+    { sym: 'CNY', fa: 'یوان چین', short: 'یوان', cat: 'currency', unit: 'تومان', icon: 'i-cur', kind: 'toman', tgju: ['price_cny', 'cny'] },
+    { sym: 'TRY', fa: 'لیر ترکیه', short: 'لیر', cat: 'currency', unit: 'تومان', icon: 'i-cur', kind: 'toman', tgju: ['price_try', 'try'] },
+    // طلا
+    { sym: 'G18', fa: 'طلای ۱۸ عیار', short: 'طلای ۱۸', cat: 'gold', unit: 'تومان', sub: 'هر گرم', icon: 'i-gold', kind: 'toman', tgju: ['geram18'] },
+    { sym: 'G24', fa: 'طلای ۲۴ عیار', short: 'طلای ۲۴', cat: 'gold', unit: 'تومان', sub: 'هر گرم', icon: 'i-gold', kind: 'toman', tgju: ['geram24'] },
+    { sym: 'MESGHAL', fa: 'مثقال طلا (مظنه)', short: 'مثقال', cat: 'gold', unit: 'تومان', icon: 'i-gold', kind: 'toman', tgju: ['mesghal'] },
+    { sym: 'OUNCE_USD', fa: 'انس جهانی طلا', short: 'اونس', cat: 'gold', unit: 'دلار', icon: 'i-gold', kind: 'usd', dec: 2, tgju: ['ons', 'once', 'ounce'], rial: false },
+    { sym: 'OUNCE_TM', fa: 'انس جهانی به تومان', short: 'اونس (تومان)', cat: 'gold', unit: 'تومان', icon: 'i-gold', kind: 'toman', derived: true },
+    // سکه
+    { sym: 'EMAMI', fa: 'سکه امامی', short: 'امامی', cat: 'coin', unit: 'تومان', sub: 'طرح جدید', icon: 'i-coin', kind: 'toman', tgju: ['sekee'] },
+    { sym: 'BAHAR', fa: 'سکه بهار آزادی', short: 'بهار', cat: 'coin', unit: 'تومان', sub: 'طرح قدیم', icon: 'i-coin', kind: 'toman', tgju: ['sekeb'] },
+    { sym: 'NIM', fa: 'نیم سکه', short: 'نیم', cat: 'coin', unit: 'تومان', icon: 'i-coin', kind: 'toman', tgju: ['nim', 'retail_nim'] },
+    { sym: 'ROB', fa: 'ربع سکه', short: 'ربع', cat: 'coin', unit: 'تومان', icon: 'i-coin', kind: 'toman', tgju: ['rob', 'retail_rob'] },
+    { sym: 'GERAMI', fa: 'سکه گرمی', short: 'گرمی', cat: 'coin', unit: 'تومان', icon: 'i-coin', kind: 'toman', tgju: ['gerami', 'retail_gerami'] },
+    // رمزارز
+    { sym: 'USDT', fa: 'تتر', short: 'تتر', cat: 'crypto', unit: 'تومان', sub: 'صرافی‌های ایران', icon: 'i-usdt', kind: 'toman', tgju: ['crypto-tether-irr', 'crypto-usd-coin-irr'] },
+    { sym: 'BTC_USD', fa: 'بیت‌کوین (دلاری)', short: 'بیت‌کوین $', cat: 'crypto', unit: 'دلار', icon: 'i-btc', kind: 'usd', dec: 0, tgju: [] },
+    { sym: 'BTC_TM', fa: 'بیت‌کوین (تومانی)', short: 'بیت‌کوین', cat: 'crypto', unit: 'تومان', sub: 'معادل تومانی', icon: 'i-btc', kind: 'toman', tgju: ['crypto-bitcoin-irr', 'btc-irr'] }
+  ];
+
+  var CATS = [
+    { id: 'all', fa: 'همه' },
+    { id: 'currency', fa: 'ارز' },
+    { id: 'gold', fa: 'طلا' },
+    { id: 'coin', fa: 'سکه' },
+    { id: 'crypto', fa: 'رمزارز' }
+  ];
+
+  /** ثابت‌های فیزیکی زنجیره‌ی طلا و سکه (استاندارد بازار) */
+  var CHAIN = {
+    OUNCE_G: 31.1035,   // هر انس تروا چند گرم است
+    K18: 0.75,           // عیار ۱۸ از ۲۴
+    MESGHAL_K: 4.352,    // مظنه = گرم ۱۸ × ۴٫۳۵۲
+    G24_K: 4 / 3,        // گرم ۲۴ ≈ گرم ۱۸ × ۴/۳
+    EMAMI_G: 7.3197,     // طلای خالص سکه امامی/بهار: ۸٫۱۳۳ گرم × ۰٫۹
+    NIM_G: 3.6599,       // ۴٫۰۶۶۵ × ۰٫۹
+    ROB_G: 1.8299,       // ۲٫۰۳۲۲۵ × ۰٫۹
+    GERAMI_G: 1.01,      // ۱٫۰۱ گرم ۱۸ عیار
+    AED_PEG: 3.6725      // پگ درهم به دلار
+  };
+
+  /** منابع داده — انتشار سرور اول، بعد مستقیم‌ها، بعد فرمول‌ها */
+  var SOURCES = [
+    { id: 'live', name: 'انتشار زنده', scope: 'تازه‌ترین انتشار سرور — هر ۱۵ دقیقه', phase: 'fast' },
+    { id: 'tgju', name: 'TGJU', scope: 'دلار، یورو، طلا، سکه، اونس — ۵ آینه', phase: 'fast' },
+    { id: 'nobitex', name: 'نوبیتکس', scope: 'تتر و بیت‌کوین تومانی', phase: 'fast' },
+    { id: 'wallex', name: 'والکس', scope: 'تتر و بیت‌کوین تومانی', phase: 'fast' },
+    { id: 'bitpin', name: 'بیت‌پین', scope: 'تتر و بیت‌کوین (پشتیبان)', phase: 'fast' },
+    { id: 'coingecko', name: 'CoinGecko', scope: 'بیت‌کوین و PAXG دلاری', phase: 'fast' },
+    { id: 'kraken', name: 'Kraken', scope: 'بیت‌کوین و PAXG دلاری', phase: 'fast' },
+    { id: 'binance', name: 'Binance Vision', scope: 'بیت‌کوین دلاری (آینه عمومی)', phase: 'fast' },
+    { id: 'coinbase', name: 'Coinbase', scope: 'بیت‌کوین دلاری', phase: 'fast' },
+    { id: 'frankfurter', name: 'Frankfurter', scope: 'برابری‌های جهانی ارز', phase: 'fast' },
+    { id: 'erapi', name: 'ExchangeRate-API', scope: 'برابری‌های جهانی (پشتیبان)', phase: 'fast' },
+    { id: 'navasan', name: 'ناواسان', scope: 'دلار، طلا، سکه (نیاز به کلید رایگان)', phase: 'slow' },
+    { id: 'snapshot', name: 'اسنپ‌شات', scope: 'بوت‌استرپ اولیه + کش مرورگر', phase: 'boot' }
+  ];
+
+  /** تنظیمات رد پول داغ (روی نبض لحظه‌ای) */
+  var HOTMONEY = {
+    wDay: 0.6, wSlope: 0.4,
+    dayScale: 3, slopeScale: 2
+  };
+
+  GS.config = {
+    INFLATION: INFLATION,
+    REFRESH: REFRESH,
+    FRESH: FRESH,
+    TGJU_MIRRORS: TGJU_MIRRORS,
+    ASSETS: ASSETS,
+    CATS: CATS,
+    CHAIN: CHAIN,
+    SOURCES: SOURCES,
+    HOTMONEY: HOTMONEY
+  };
+})();
