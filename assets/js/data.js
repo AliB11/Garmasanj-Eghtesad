@@ -126,20 +126,35 @@
     var validate = opt.validate, timeout = opt.timeout || 9000;
     return new Promise(function (resolve) {
       var settled = false, pending = 1 + IR_PROXY_BUILDERS.length;
-      function done(v) { if (!settled) { settled = true; resolve(v); } }
+      var proxyStarted = false, timer = null;
+      function done(v) {
+        if (!settled) {
+          settled = true;
+          if (timer) clearTimeout(timer);
+          resolve(v);
+        }
+      }
       function oneFail() { if (--pending <= 0) done(null); }
-      fetchJSON(url, { timeout: timeout, validate: validate }).then(function (r) {
-        r.via = 'direct'; done(r);
-      }, oneFail);
-      setTimeout(function () {
-        if (settled) return;
+      function startProxies() {
+        if (proxyStarted || settled) return;
+        proxyStarted = true;
+        if (timer) { clearTimeout(timer); timer = null; }
         IR_PROXY_BUILDERS.forEach(function (b) {
           var pu = b(url);
           fetchJSON(pu, { timeout: 12000, validate: validate }).then(function (r) {
             r.via = 'proxy'; r.proxyUrl = pu; done(r);
           }, oneFail);
         });
-      }, IR_DELAY);
+      }
+
+      fetchJSON(url, { timeout: timeout, validate: validate }).then(function (r) {
+        r.via = 'direct'; done(r);
+      }, function () {
+        oneFail();
+        startProxies();
+      });
+
+      timer = setTimeout(startProxies, IR_DELAY);
     });
   }
 
@@ -527,14 +542,17 @@
   function slope(sym) {
     var h = HIST[sym] || [];
     if (h.length < 4) return 0;
-    var pts = h.slice(-24), n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0, t0 = pts[0].t;
+    var pts = h.slice(-24).filter(function (pt) { return pt && pt.p > 0; }), n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    if (n < 4) return 0;
+    var t0 = pts[0].t;
     pts.forEach(function (pt) {
       var x = (pt.t - t0) / 3600000, y = Math.log(pt.p);
       sx += x; sy += y; sxx += x * x; sxy += x * y;
     });
     var den = n * sxx - sx * sx;
     if (!den) return 0;
-    return U.clamp((n * sxy - sx * sy) / den * 100, -10, 10);
+    var res = (n * sxy - sx * sy) / den * 100;
+    return isFinite(res) ? U.clamp(res, -10, 10) : 0;
   }
 
   /* ============================================================
@@ -572,11 +590,16 @@
     try { recompute(); } catch (e) {}
   }
 
+  function clearCache() {
+    U.store.del(LS_Q);
+    U.store.del(LS_HIST);
+  }
+
   function cacheSave() {
     var q = {};
     Object.keys(QUOTES).forEach(function (s) {
       var x = QUOTES[s];
-      if (x && x.p > 0 && x.live) q[s] = { p: x.p, chg: x.chg, chgPct: x.chgPct, src: x.src, srcFa: x.srcFa, ts: x.ts };
+      if (x && x.p > 0 && x.live) q[s] = { p: x.p, chg: x.chg, chgPct: x.chgPct, high: x.high, low: x.low, src: x.src, srcFa: x.srcFa, ts: x.ts };
     });
     if (!Object.keys(q).length) return;
     U.store.set(LS_Q, { ts: Date.now(), q: q });
@@ -591,7 +614,8 @@
       if (x && x.p > 0) {
         QUOTES[s] = {
           p: x.p, chg: x.chg != null ? x.chg : null, chgPct: x.chgPct != null ? x.chgPct : null,
-          high: null, low: null, src: x.src || 'cache', srcFa: (x.srcFa || 'کش') + ' (کش)',
+          high: x.high != null ? x.high : null, low: x.low != null ? x.low : null,
+          src: x.src || 'cache', srcFa: (x.srcFa || 'کش') + ' (کش)',
           ts: x.ts || c.ts || 0, live: false, stale: true, agree: 1
         };
       }
@@ -612,7 +636,8 @@
         if (x && x.p > 0 && QUOTES[s].p == null) {
           QUOTES[s] = {
             p: x.p, chg: x.chg != null ? x.chg : null, chgPct: x.chgPct != null ? x.chgPct : null,
-            high: null, low: null, src: 'snapshot', srcFa: x.derived ? 'اسنپ‌شات (مشتق)' : 'اسنپ‌شات انتشار',
+            high: x.high != null ? x.high : null, low: x.low != null ? x.low : null,
+            src: 'snapshot', srcFa: x.derived ? 'اسنپ‌شات (مشتق)' : 'اسنپ‌شات انتشار',
             ts: SNAP_TS, live: false, stale: true, agree: 1
           };
           n++;
@@ -796,7 +821,7 @@
       if (sym === 'EMAMI' || sym === 'BAHAR') return g24P * CH.EMAMI_G;
       if (sym === 'NIM') return g24P * CH.NIM_G;
       if (sym === 'ROB') return g24P * CH.ROB_G;
-      if (sym === 'GERAMI' && g18P > 0) return g18P * CH.GERAMI_G;
+      if (sym === 'GERAMI') return g24P * CH.GERAMI_G;
       return null;
     }
     var g24Live = !!(QUOTES.G24 && QUOTES.G24.live);
@@ -862,15 +887,30 @@
     var out = {};
     var usd = P('USD'), usdt = P('USDT'), eur = P('EUR'), g18 = P('G18'),
         g24 = P('G24') || (g18 ? g18 * CH.G24_K : null),
-        oz = P('OUNCE_USD'), emami = P('EMAMI'), mesghal = P('MESGHAL'),
-        btcU = P('BTC_USD'), btcT = P('BTC_TM'), nim = P('NIM'), rob = P('ROB');
+        oz = P('OUNCE_USD'), emami = P('EMAMI'), bahar = P('BAHAR'), mesghal = P('MESGHAL'),
+        btcU = P('BTC_USD'), btcT = P('BTC_TM'), nim = P('NIM'), rob = P('ROB'),
+        gerami = P('GERAMI');
     if (usd && usdt) out.usdtPrem = (usdt - usd) / usd * 100;
     if (g24 && emami) {
       out.intrinsicEmami = g24 * CH.EMAMI_G;
       out.bubble = (emami / out.intrinsicEmami - 1) * 100;
     }
-    if (g24 && nim) out.bubbleNim = (nim / (g24 * CH.NIM_G) - 1) * 100;
-    if (g24 && rob) out.bubbleRob = (rob / (g24 * CH.ROB_G) - 1) * 100;
+    if (g24 && bahar) {
+      out.intrinsicBahar = g24 * CH.EMAMI_G;
+      out.bubbleBahar = (bahar / out.intrinsicBahar - 1) * 100;
+    }
+    if (g24 && nim) {
+      out.intrinsicNim = g24 * CH.NIM_G;
+      out.bubbleNim = (nim / out.intrinsicNim - 1) * 100;
+    }
+    if (g24 && rob) {
+      out.intrinsicRob = g24 * CH.ROB_G;
+      out.bubbleRob = (rob / out.intrinsicRob - 1) * 100;
+    }
+    if (g24 && gerami) {
+      out.intrinsicGerami = g24 * CH.GERAMI_G;
+      out.bubbleGerami = (gerami / out.intrinsicGerami - 1) * 100;
+    }
     if (oz && usd) {
       out.fairG18 = (oz / CH.OUNCE_G) * CH.K18 * usd;
       if (g18) out.goldPrem = (g18 / out.fairG18 - 1) * 100;
@@ -1052,6 +1092,7 @@
     setNavasanKey: setNavasanKey,
     getNavasanKey: getNavasanKey,
     clearNavasanKey: clearNavasanKey,
+    clearCache: clearCache,
     isFastBusy: function () { return fastBusy; },
     isSlowBusy: function () { return slowBusy; },
     isBootDone: function () { return bootDone; },

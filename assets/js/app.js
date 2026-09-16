@@ -53,6 +53,9 @@
     U.$$('#diagModal [data-dg-close]').forEach(function (el) {
       el.addEventListener('click', function () { GS.ui.closeModal('#diagModal'); });
     });
+    U.$$('#assetModal [data-am-close]').forEach(function (el) {
+      el.addEventListener('click', function () { GS.ui.closeModal('#assetModal'); });
+    });
 
     GS.data.on('quotes', function () {
       renderAll();
@@ -78,7 +81,7 @@
     });
 
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { GS.ui.closeModal('#diagModal'); GS.ui.closeModal('#settingsModal'); }
+      if (e.key === 'Escape') { GS.ui.closeModal('#diagModal'); GS.ui.closeModal('#settingsModal'); GS.ui.closeModal('#assetModal'); }
     });
   }
 
@@ -127,7 +130,7 @@
     });
     var cacheClear = U.$('#cacheClear');
     if (cacheClear) cacheClear.addEventListener('click', function () {
-      try { localStorage.removeItem('garmasanj_quotes_v7'); } catch (e) {}
+      GS.data.clearCache();
       GS.ui.toast('info', 'کش پاک شد', 'در چرخه‌ی بعدی فقط داده‌ی تازه نمایش داده می‌شود.');
     });
   }

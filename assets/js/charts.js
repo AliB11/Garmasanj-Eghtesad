@@ -46,7 +46,12 @@
       return '<span class="rbar none"><i></i></span>';
     }
     var k = U.clamp((q.p - q.low) / (q.high - q.low) * 100, 0, 100);
-    return '<span class="rbar"><i style="right:' + k.toFixed(1) + '%"></i></span>';
+    var loTxt = q.low >= 1000 ? U.fmt(q.low) : U.fa(q.low);
+    var hiTxt = q.high >= 1000 ? U.fmt(q.high) : U.fa(q.high);
+    return '<div class="rbar-wrap">' +
+      '<div class="rbar-labels"><small class="rb-l">کف ' + loTxt + '</small><small class="rb-h">سقف ' + hiTxt + '</small></div>' +
+      '<span class="rbar"><i style="right:' + k.toFixed(1) + '%"></i></span>' +
+      '</div>';
   }
 
   GS.charts = { spark: spark, assetSpark: assetSpark, rangeBar: rangeBar, dirColor: dirColor };
