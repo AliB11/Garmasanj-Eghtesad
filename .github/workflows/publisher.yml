@@ -1,0 +1,45 @@
+# گرماسنج — انتشار زنده‌ی قیمت‌ها (هر ۱۵ دقیقه)
+# همه‌ی منابع سمت‌سرور خوانده می‌شوند (جایی که CORS اعمال نمی‌شود)
+# و خروجی نرمال‌شده در assets/data/live.json کامیت می‌شود.
+name: انتشار زنده قیمت‌ها
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: اجرای ناشر
+        run: node scripts/publish.cjs
+
+      - name: کامیت انتشار تازه
+        run: |
+          git config user.name 'garmasanj-bot'
+          git config user.email 'garmasanj-bot@users.noreply.github.com'
+          git add assets/data/live.json
+          if git diff --staged --quiet; then
+            echo "no changes"
+          else
+            TS=$(node -e "console.log(JSON.parse(require('fs').readFileSync('assets/data/live.json','utf8')).generated_at)")
+            git commit -m "chore(data): انتشار زنده قیمت‌ها ($TS)"
+            git push
+          fi
