@@ -87,7 +87,7 @@
     var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
     if (s < 8) return 'همین حالا';
     if (s < 60) return U.fa(s) + ' ثانیه پیش';
-    return U.ageLabel(s / 60);
+    return U.ageLabel(Math.floor(s / 60)); // دقیقه‌ی صحیح؛ نه «۴۹.۷۵ دقیقه پیش»
   };
   U.clockFa = function () {
     try { return U.fa(new Date().toLocaleTimeString('en-GB', { hour12: false })); }
