@@ -729,6 +729,10 @@
     return snapshotLoad().then(function () {
       return fetchLive().then(function (d) { if (d != null) ingest('live', d); return d; })
         .catch(function () { return null; });
+    }).then(function (d) {
+      // تاریخچه‌ی بلندمدت بوت را معطل نمی‌کند؛ هر وقت رسید رویداد 'history' می‌آید
+      try { fetchHistory(); } catch (e) {}
+      return d;
     });
   }
 
@@ -1127,13 +1131,124 @@
     var t0 = Date.now();
     var run = Promise.all([
       safeCall(fetchNavasan).then(function (d) { if (d != null) ingest('navasan', d); return d; }),
-      safeCall(fetchBtcHist).then(function (d) { if (d != null) ingest('btcHist', d); return d; })
+      safeCall(fetchBtcHist).then(function (d) { if (d != null) ingest('btcHist', d); return d; }),
+      safeCall(fetchHistory)
     ]);
     return withCap(run, 40000).then(function () {
       cacheSave(); histSave(); slowBusy = false;
       emit('cycle', { phase: 'slow', start: false, ms: Date.now() - t0 });
       return true;
     }).catch(function () { slowBusy = false; emit('cycle', { phase: 'slow', start: false }); return false; });
+  }
+
+  /* ============================================================
+     تاریخچه‌ی بلندمدت — از انتشارهای سرور (assets/data/history.json)
+     recent: نقاط خام ۱۴ روز اخیر، daily: خلاصه‌ی روزانه [day, close, high, low]
+     ============================================================ */
+  var HISTORY = null;
+  var TEHRAN_OFF = 3.5 * 3600000;
+
+  function fetchHistory() {
+    return fetchJSON('assets/data/history.json', {
+      timeout: 9000,
+      validate: function (j) { return j && j.daily && j.recent; }
+    }).then(function (r) {
+      HISTORY = r.j;
+      emit('history', HISTORY);
+      return HISTORY;
+    }).catch(function () { return null; });
+  }
+
+  function dayMs(dayKey) { return Date.parse(dayKey + 'T12:00:00Z') - TEHRAN_OFF; } // ظهر تهران همان روز
+
+  /** آیا تاریخچه برای این نماد وجود دارد؟ چند روز؟ */
+  function historyMeta(sym) {
+    if (!HISTORY) return { ok: false, days: 0, points: 0, from: null };
+    var d = (HISTORY.daily && HISTORY.daily[sym]) || [];
+    var r = (HISTORY.recent && HISTORY.recent[sym]) || [];
+    return { ok: d.length >= 2, days: d.length, points: r.length, from: d.length ? dayMs(d[0][0]) : null, at: Date.parse(HISTORY.generated_at) || 0 };
+  }
+
+  /**
+   * سری قیمت برای نمودار: [{t,p}] — بازه بر حسب روز.
+   * تا ۱۴ روز از نقاط خام، بیشتر از آن از بسته‌های روزانه؛ قیمت زنده‌ی فعلی همیشه نقطه‌ی آخر است.
+   */
+  function series(sym, days) {
+    days = days || 30;
+    var now = Date.now(), from = now - days * 86400000, out = [];
+    if (HISTORY) {
+      if (days <= 14 && HISTORY.recent && HISTORY.recent[sym]) {
+        HISTORY.recent[sym].forEach(function (x) { var t = x[0] * 1000; if (t >= from && x[1] > 0) out.push({ t: t, p: x[1] }); });
+      }
+      if (out.length < 2 && HISTORY.daily && HISTORY.daily[sym]) {
+        out = [];
+        HISTORY.daily[sym].forEach(function (x) { var t = dayMs(x[0]); if (t >= from - 86400000 && x[1] > 0) out.push({ t: t, p: x[1], hi: x[2], lo: x[3] }); });
+      }
+    }
+    var q = QUOTES[sym];
+    if (q && q.p > 0) {
+      var last = out[out.length - 1];
+      if (!last || q.ts > last.t + 60000) out.push({ t: q.ts || now, p: q.p, live: true });
+      else { last.p = q.p; last.live = true; }
+    }
+    return out;
+  }
+
+  /** درصد تغییر نسبت به «days» روز پیش (null اگر تاریخچه کافی نیست) */
+  function changeOver(sym, days) {
+    var q = QUOTES[sym];
+    if (!HISTORY || !q || !(q.p > 0)) return null;
+    var target = Date.now() - days * 86400000, best = null;
+    var rec = (HISTORY.recent && HISTORY.recent[sym]) || [];
+    for (var i = 0; i < rec.length; i++) { var t = rec[i][0] * 1000; if (t <= target + 3 * 3600000) best = { t: t, p: rec[i][1] }; else break; }
+    if (!best) {
+      var dl = (HISTORY.daily && HISTORY.daily[sym]) || [];
+      for (var j = 0; j < dl.length; j++) { var tt = dayMs(dl[j][0]); if (tt <= target + 12 * 3600000) best = { t: tt, p: dl[j][1] }; else break; }
+    }
+    if (!best || !(best.p > 0)) return null;
+    // اگر قدیمی‌ترین نقطه‌ی موجود بیش از ۱٫۵ روز از هدف جدیدتر است، بازه پوشش داده نشده
+    if (best.t > target + 1.5 * 86400000) return null;
+    return { pct: (q.p / best.p - 1) * 100, from: best.t, fromP: best.p, days: Math.round((Date.now() - best.t) / 86400000) };
+  }
+
+  /** تغییر نسبت به «days» روز پیش؛ اگر تاریخچه کوتاه‌تر است، از قدیمی‌ترین نقطه (حداقل minDays روز) */
+  function changeOverAvail(sym, days, minDays) {
+    var c = changeOver(sym, days);
+    if (c) return c;
+    var q = QUOTES[sym];
+    if (!HISTORY || !q || !(q.p > 0)) return null;
+    var oldest = null;
+    var dl = (HISTORY.daily && HISTORY.daily[sym]) || [];
+    if (dl.length && dl[0][1] > 0) oldest = { t: dayMs(dl[0][0]), p: dl[0][1] };
+    var rec = (HISTORY.recent && HISTORY.recent[sym]) || [];
+    if (rec.length && rec[0][1] > 0 && (!oldest || rec[0][0] * 1000 < oldest.t)) oldest = { t: rec[0][0] * 1000, p: rec[0][1] };
+    if (!oldest) return null;
+    var age = (Date.now() - oldest.t) / 86400000;
+    if (age < (minDays || 2)) return null;
+    return { pct: (q.p / oldest.p - 1) * 100, from: oldest.t, fromP: oldest.p, days: Math.round(age) };
+  }
+
+  /** خلاصه‌ی هفتگی برای حکم: تغییر ۷ روزه‌ی دارایی‌های کلیدی (یا کوتاه‌ترین بازه‌ی موجود، ≥۲ روز) + حباب سکه‌ی آن زمان */
+  function weekly() {
+    if (!HISTORY) return null;
+    var syms = ['USD', 'G18', 'EMAMI', 'USDT', 'BTC_USD', 'OUNCE_USD'];
+    var out = { rows: [], days: 0 }, any = false;
+    syms.forEach(function (s) {
+      var c = changeOverAvail(s, 7, 2);
+      if (!c) return;
+      any = true;
+      out.days = Math.max(out.days, c.days);
+      var a = asset(s);
+      out.rows.push({ sym: s, fa: a ? a.short : s, pct: c.pct, days: c.days });
+    });
+    if (!any) return null;
+    // حباب سکه‌ی هفته‌ی پیش از سری‌های تاریخی
+    var e = changeOverAvail('EMAMI', 7, 2), g24 = changeOverAvail('G24', 7, 2), g18 = changeOverAvail('G18', 7, 2);
+    var g24Then = g24 ? g24.fromP : (g18 ? g18.fromP * CH.G24_K : null);
+    if (e && g24Then) out.bubbleThen = (e.fromP / (g24Then * CH.EMAMI_G) - 1) * 100;
+    var dv = derived();
+    if (dv.bubble != null) out.bubbleNow = dv.bubble;
+    return out;
   }
 
   /* ---------------- بوت ماژول ---------------- */
@@ -1168,6 +1283,9 @@
     liveCount: function () { return CFG.ASSETS.filter(function (a) { return QUOTES[a.sym] && QUOTES[a.sym].live; }).length; },
     okSources: function () { return Object.keys(SRC).filter(function (id) { return SRC[id] && SRC[id].ok && id !== 'snapshot'; }).length; },
     sinceLastVisit: sinceLastVisit,
+    history: function () { return HISTORY; },
+    historyMeta: historyMeta, series: series, changeOver: changeOver, weekly: weekly, fetchHistory: fetchHistory,
+    _setHistory: function (h) { HISTORY = h; emit('history', h); },
     isFastBusy: function () { return fastBusy; },
     isSlowBusy: function () { return slowBusy; },
     isBootDone: function () { return bootDone; },

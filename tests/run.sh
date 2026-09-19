@@ -10,7 +10,7 @@ fail=0
 step() { echo; echo "── $1"; }
 
 step "بررسی نحوی"
-for f in assets/js/*.js sw.js scripts/publish.cjs; do
+for f in assets/js/*.js sw.js scripts/publish.cjs scripts/history.cjs; do
   if node --check "$f"; then echo "  ok  $f"; else echo "  ERR $f"; fail=1; fi
 done
 
@@ -38,6 +38,10 @@ node tests/deep_review.js | tail -n 2 || fail=1
 
 step "review360.js (رگرسیون بازبینی ۳۶۰ درجه)"
 node tests/review360.js | tail -n 3 || fail=1
+[ "${PIPESTATUS[0]}" -eq 0 ] || fail=1
+
+step "gen5.js (تاریخچه، مقایسه، سنجاق، جست‌وجو، میان‌برها، تم، ویجت)"
+node tests/gen5.js | tail -n 3 || fail=1
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail=1
 
 echo

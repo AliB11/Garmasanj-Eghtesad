@@ -18,6 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script>(function(){try{var t=localStorage.getItem('garmasanj_theme_v1');if(t){t=JSON.parse(t);}if(t!=='light'&&t!=='dark'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':null;}if(t){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
 <link rel="stylesheet" href="assets/css/main.css">
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebApplication","name":"گرماسنج","inLanguage":"fa-IR","applicationCategory":"FinanceApplication","operatingSystem":"Web","description":"ترمینال پایش زنده بازارهای ایران با اجماع چندمنبعی","offers":{"@type":"Offer","price":"0","priceCurrency":"IRT"}}
@@ -44,6 +45,13 @@
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.2 2.2"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4.5V9h-4.5"/></symbol>
   <symbol id="i-share" viewBox="0 0 24 24"><circle cx="17.5" cy="6" r="2.4"/><circle cx="6.5" cy="12" r="2.4"/><circle cx="17.5" cy="18" r="2.4"/><path d="M8.6 10.9l6.8-3.8M8.6 13.1l6.8 3.8"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.6l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 17l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8L12 3.6z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></symbol>
+  <symbol id="i-cmp" viewBox="0 0 24 24"><path d="M3.5 17.5l5-6 4 3.5 8-9"/><path d="M3.5 20.5h17"/><path d="M15 6h5.5v5.5"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M9.6 9.6a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1.1.9-1.1 1.7v.4"/><path d="M12 17v.01"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M8.5 7.5L4 12l4.5 4.5M15.5 7.5L20 12l-4.5 4.5M13.5 5l-3 14"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8"/></symbol>
 </svg>
 
@@ -70,6 +78,8 @@
       <a href="#health">سلامت داده</a>
     </nav>
     <span class="net-pill busy" id="netStatus"><i class="live-dot"></i>در حال اتصال…</span>
+    <button class="btn btn-ghost sm icon-btn" id="themeBtn" type="button" title="تم روشن/تیره (t)" aria-label="تغییر تم روشن و تیره" aria-pressed="false"><svg class="ic s16 th-dark"><use href="#i-sun"/></svg><svg class="ic s16 th-light"><use href="#i-moon"/></svg></button>
+    <button class="btn btn-ghost sm icon-btn" id="helpBtn" type="button" title="راهنما و میان‌برهای کیبورد (?)" aria-label="راهنما و میان‌برهای کیبورد"><svg class="ic s16"><use href="#i-help"/></svg></button>
     <button class="btn btn-ghost sm icon-btn" id="headSettingsBtn" title="تنظیمات منابع" aria-label="تنظیمات منابع"><svg class="ic s16"><use href="#i-gear"/></svg></button>
   </div>
 </header>
@@ -81,7 +91,7 @@
     <div class="rv">
       <span class="kicker"><i></i>ترمینال زنده بازار — با اجماع چندمنبعی راستی‌آزمایی‌شده</span>
       <h1>قیمت واقعی، <em class="c-hot">همین حالا</em>؛<br>تصمیم روشن، <em class="c-gold">همین امروز</em>.</h1>
-      <p class="hero-lead">بیست کوت زنده از سیزده مسیر مستقل می‌رسد؛ انتشار هر ۱۵ دقیقه‌ی سرور، TGJU با پنج آینه، صرافی‌های ایران و بازار جهانی هم‌زمان پایش می‌شوند و هر عدد با منبع و ساعت دقیقش نمایش داده می‌شود — بدون عدد ساختگی، بدون صفحه‌ی خالی.</p>
+      <p class="hero-lead">بیست کوت زنده از سیزده مسیر مستقل می‌رسد؛ انتشار خودکار سرور، TGJU با پنج آینه، صرافی‌های ایران و بازار جهانی هم‌زمان پایش می‌شوند و هر عدد با منبع و ساعت دقیقش نمایش داده می‌شود — بدون عدد ساختگی، بدون صفحه‌ی خالی.</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="#verdict">حکم امروز را ببین</a>
         <a class="btn btn-ghost" href="#markets">قیمت‌های امروز</a>
@@ -108,6 +118,7 @@
           </div>
         </div>
         <p class="rg-msg" id="moodMsg">در حال دریافت داده…</p>
+        <p class="micro mood-f"><button class="link-btn" type="button" data-formula="mood">نبض چطور محاسبه می‌شود؟</button></p>
         <div class="sess-strip" id="sessStrip"></div>
         <div class="src-strip" id="srcStrip"></div>
         <div class="src-foot">
@@ -117,7 +128,8 @@
             <span id="nextIn">در حال اتصال…</span>
             <button class="mini-btn" id="retryBtn" type="button" title="دریافت فوری"><svg class="ic s12" style="vertical-align:-2px"><use href="#i-refresh"/></svg> دریافت مجدد</button>
             <button class="mini-btn" id="diagBtn" type="button">عیب‌یابی</button>
-            <button class="mini-btn" id="shareBtn" type="button" title="کپی یا اشتراک خلاصه‌ی قیمت‌ها و حکم امروز"><svg class="ic s12" style="vertical-align:-2px"><use href="#i-share"/></svg> اشتراک خلاصه</button>
+            <button class="mini-btn" id="shareBtn" type="button" title="کپی یا اشتراک خلاصه‌ی قیمت‌ها و حکم امروز (s)"><svg class="ic s12" style="vertical-align:-2px"><use href="#i-share"/></svg> اشتراک خلاصه</button>
+            <button class="mini-btn" id="embedBtn" type="button" title="کد جاسازی ویجت قیمت در سایت یا وبلاگ شما"><svg class="ic s12" style="vertical-align:-2px"><use href="#i-code"/></svg> ویجت</button>
           </span>
         </div>
       </div>
@@ -165,10 +177,15 @@
         <button class="cat-tab" data-cat="coin" role="tab" type="button" aria-selected="false">سکه</button>
         <button class="cat-tab" data-cat="crypto" role="tab" type="button" aria-selected="false">رمزارز</button>
       </div>
+      <div class="markets-tools">
+        <label class="search" for="qsearch"><svg class="ic s14"><use href="#i-search"/></svg><input id="qsearch" type="search" placeholder="جست‌وجو (/)" autocomplete="off" aria-label="جست‌وجوی دارایی"></label>
+        <button class="btn btn-ghost sm" id="compareBtn" type="button" title="مقایسه‌ی دو دارایی روی یک نمودار (c)"><svg class="ic s16"><use href="#i-cmp"/></svg>مقایسه</button>
+      </div>
       <div class="markets-meta"><span id="quotesCount"></span><span id="marketsUpdated">—</span></div>
     </div>
     <div class="asset-grid rv" data-d="2" id="assetGrid"></div>
     <p class="micro rv" id="inflNote"></p>
+    <p class="micro rv" id="pinNote">با ستاره‌ی هر کارت، دارایی‌های مهمت را سنجاق کن تا بالای فهرست و اول تیکر بیایند.</p>
   </div>
 </section>
 
@@ -185,7 +202,7 @@
         <div class="regime neutral" id="regimeBadge"><b>در حال محاسبه…</b><span></span></div>
         <div id="breadthMeter"></div>
         <p class="flow-note" id="flowNote"></p>
-        <p class="micro">فرمول: ۶۰٪ تغییر امروز + ۴۰٪ شیب نشست. جزئیات کامل در بخش سلامت داده و راهنمای پروژه.</p>
+        <p class="micro">فرمول: ۶۰٪ تغییر امروز + ۴۰٪ شیب نشست. <button class="link-btn" type="button" data-formula="hot">فرمول کامل و ورودی‌ها</button></p>
       </aside>
       <div class="rv" data-d="2" id="flowBars"></div>
     </div>
@@ -226,7 +243,7 @@
         <input type="range" id="simInflation" min="25" max="60" value="42">
         <div class="spacer" aria-hidden="true"></div>
         <button class="btn btn-ghost sm on" id="simSync" type="button" aria-pressed="true" style="width:100%;justify-content:center">همگام با نبض زنده: روشن</button>
-        <p class="micro">در حالت همگام، نرخ اسمی هر بازار = تورم فرضی تو + نیمی از نبض زنده‌ی همان بازار. خاموشش کن تا با نرخ‌های پایه‌ی تاریخی سناریو بسازی.</p>
+        <p class="micro">در حالت همگام، نرخ اسمی هر بازار = تورم فرضی تو + نیمی از حرارت زنده‌ی همان بازار. خاموشش کن تا با نرخ‌های پایه‌ی تاریخی سناریو بسازی. <button class="link-btn" type="button" data-formula="sim">فرمول</button></p>
       </aside>
       <div class="sim-out rv" data-d="2">
         <div class="sim-caption"><span class="cap-line"></span>خط‌چین عمودی: جایگاه سرمایه‌ی اولیه‌ی امروز</div>
@@ -305,9 +322,11 @@
           <button class="chip" type="button" data-rel="0.0015">کمی بالاتر از الان</button>
           <button class="chip" type="button" data-rel="-0.0015">کمی پایین‌تر از الان</button>
         </div>
+        <label class="check"><input type="checkbox" id="radarRepeat"><span>تکرارشونده — بعد از هر عبور، با برگشت قیمت دوباره مسلح شود</span></label>
+        <label class="check"><input type="checkbox" id="radarSound"><span>صدا و لرزش هنگام فعال‌شدن (موبایل می‌لرزد)</span></label>
         <div class="spacer" aria-hidden="true"></div>
         <button class="btn btn-primary" id="radarAdd" type="button" style="width:100%;justify-content:center"><svg class="ic s16"><use href="#i-bell"/></svg>فعال‌سازی رادار</button>
-        <p class="micro">قیمت‌ها هر ۴۵ ثانیه تازه می‌شوند. برای تست، هدفی نزدیک قیمت فعلی بگذار و چند چرخه صبر کن تا رادار فعال شود. اجازه‌ی اعلان مرورگر فقط هنگام ثبت اولین رادار پرسیده می‌شود.</p>
+        <p class="micro">قیمت‌ها هر ۴۵ ثانیه تازه می‌شوند. برای تست، هدفی نزدیک قیمت فعلی بگذار و چند چرخه صبر کن تا رادار فعال شود. اجازه‌ی اعلان مرورگر فقط هنگام ثبت اولین رادار پرسیده می‌شود. رادار تکرارشونده بعد از فعال‌شدن، وقتی قیمت ۰٫۳٪ به آن‌سوی هدف برگردد دوباره مسلح می‌شود.</p>
       </div>
       <div class="rv" data-d="2">
         <div class="r-steps">
@@ -354,7 +373,7 @@
           <svg class="ic s20 b-ic"><use href="#i-thermo"/></svg>
           <span class="brand-t"><b>گرماسنج</b><small>GARMASANJ</small></span>
         </a>
-        <p>ترمینال زنده‌ی بازارهای ایران. قیمت‌ها از انتشار هر ۱۵ دقیقه‌ی سرور، TGJU (پنج آینه)، نوبیتکس، والکس، بیت‌پین، CoinGecko ،Kraken ،Binance Vision ،Coinbase و مراجع جهانی ارز می‌رسند؛ هر عدد فقط با عبور از اعتبارسنجی و با برچسب منبع و تازگی نمایش داده می‌شود.</p>
+        <p>ترمینال زنده‌ی بازارهای ایران. قیمت‌ها از انتشار خودکار سرور، TGJU (پنج آینه)، نوبیتکس، والکس، بیت‌پین، CoinGecko ،Kraken ،Binance Vision ،Coinbase و مراجع جهانی ارز می‌رسند؛ هر عدد فقط با عبور از اعتبارسنجی و با برچسب منبع و تازگی نمایش داده می‌شود.</p>
       </div>
       <div class="foot-nav">
         <b>مسیرها</b>
@@ -371,7 +390,7 @@
       </div>
     </div>
     <div class="foot-bot">
-      <span>© ۱۴۰۵ گرماسنج — بازار را زنده بخوان.</span>
+      <span>© ۱۴۰۵ گرماسنج — بازار را زنده بخوان. <button class="link-btn" id="footHelpBtn" type="button">میان‌برهای کیبورد (?)</button></span>
       <span dir="ltr">GARMASANJ.MKT</span>
     </div>
   </div>
@@ -416,6 +435,38 @@
     <h3>عیب‌یابی منابع داده</h3>
     <p class="dg-sub">این گزارش دقیقاً نشان می‌دهد هر مسیر چه پاسخی داده، کدام منابع با هم توافق کردند و هر عدد نهایی از کجا آمده.</p>
     <div id="diagBody" class="dg-body"></div>
+  </div>
+</div>
+
+<!-- مودال مقایسه -->
+<div class="modal" id="compareModal" aria-hidden="true">
+  <div class="m-back" data-cm-close></div>
+  <div class="m-card m-wide" role="dialog" aria-modal="true" aria-label="مقایسه‌ی دو دارایی">
+    <button class="m-x" data-cm-close aria-label="بستن"><svg class="ic s16"><use href="#i-x"/></svg></button>
+    <h3>مقایسه‌ی دو دارایی</h3>
+    <p class="dg-sub">هر دو سری از ابتدای بازه به ۱۰۰ نرمال می‌شوند؛ خطی که بالاتر تمام شود، در این بازه بیشتر رشد کرده.</p>
+    <div class="cmp-controls">
+      <select class="field" id="cmpA" aria-label="دارایی اول"></select>
+      <span class="cmp-vs">در برابر</span>
+      <select class="field" id="cmpB" aria-label="دارایی دوم"></select>
+    </div>
+    <div class="chips cmp-ranges" role="group" aria-label="بازه‌ی زمانی">
+      <button class="chip" type="button" data-days="7">۷ روز</button>
+      <button class="chip on" type="button" data-days="30">۳۰ روز</button>
+      <button class="chip" type="button" data-days="90">۹۰ روز</button>
+      <button class="chip" type="button" data-days="0">نشست امروز</button>
+    </div>
+    <div id="cmpBody"></div>
+  </div>
+</div>
+
+<!-- مودال اطلاعات (فرمول‌ها، راهنما، کد جاسازی) -->
+<div class="modal" id="infoModal" aria-hidden="true">
+  <div class="m-back" data-if-close></div>
+  <div class="m-card" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+    <button class="m-x" data-if-close aria-label="بستن"><svg class="ic s16"><use href="#i-x"/></svg></button>
+    <h3 id="infoTitle">—</h3>
+    <div id="infoBody"></div>
   </div>
 </div>
 

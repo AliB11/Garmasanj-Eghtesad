@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>گرماسنج — ویجت قیمت زنده</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+/* ویجت قابل‌جاسازی: مستقل، سبک، بدون وابستگی به بسته‌ی اصلی */
+:root{--bg:#0F151C;--card:#131A23;--line:#2C3947;--txt:#E9EEF3;--mut:#9AA5B0;--dim:#7D8994;--gold:#E8A33D;--up:#3ECF8E;--down:#FF6B5E;--font:"Vazirmatn",system-ui,Tahoma,sans-serif;color-scheme:dark}
+:root[data-theme="light"]{--bg:#F3F5F8;--card:#FFFFFF;--line:#C8D2DC;--txt:#141B22;--mut:#4E5B67;--dim:#61707D;--gold:#8A5A0E;--up:#158552;--down:#C93F33;color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;background:transparent}
+body{font-family:var(--font);color:var(--txt);font-size:14px;line-height:1.7;padding:8px}
+.w{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 14px 10px}
+.head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
+.head b{font-size:.92rem;display:flex;align-items:center;gap:7px}
+.head b i{width:8px;height:8px;border-radius:50%;background:var(--up);display:inline-block}
+.head small{font-size:.7rem;color:var(--dim)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+.compact .grid{grid-template-columns:1fr;gap:4px}
+.c{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 11px;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
+.compact .c{padding:5px 10px;grid-template-columns:1fr auto auto}
+.n{font-size:.8rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p{font-size:1.02rem;font-weight:800;font-variant-numeric:tabular-nums;grid-row:2;direction:rtl}
+.compact .p{grid-row:auto;font-size:.95rem}
+.p small{font-size:.66rem;color:var(--dim);font-weight:400;margin-right:3px}
+.d{font-size:.74rem;font-weight:800;direction:ltr;text-align:left;grid-row:1/3;align-self:center}
+.compact .d{grid-row:auto}
+.d.up{color:var(--up)}.d.down{color:var(--down)}.d.z{color:var(--dim)}
+.foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:.68rem;color:var(--dim)}
+.foot a{color:var(--gold);text-decoration:none;font-weight:800}
+.err{font-size:.8rem;color:var(--mut);text-align:center;padding:12px}
+</style>
+</head>
+<body>
+<div class="w" id="w">
+  <div class="head"><b><i></i>گرماسنج</b><small id="asof">در حال دریافت…</small></div>
+  <div class="grid" id="grid"></div>
+  <div class="foot"><span id="src">انتشار زنده‌ی سرور</span><a id="link" href="./" target="_blank" rel="noopener">همه‌ی بازارها ↗</a></div>
+</div>
+<script src="assets/js/config.js"></script>
+<script src="assets/js/utils.js"></script>
+<script>
+(function () {
+  'use strict';
+  var U = GS.utils, ASSETS = GS.config.ASSETS;
+  var qs = new URLSearchParams(location.search);
+  var theme = qs.get('theme') === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  if (qs.get('compact') === '1') document.body.classList.add('compact');
+  var want = (qs.get('sym') || 'USD,G18,EMAMI,USDT').split(',').map(function (s) { return s.trim().toUpperCase(); })
+    .filter(function (s, i, arr) { return s && arr.indexOf(s) === i && ASSETS.some(function (a) { return a.sym === s; }); }).slice(0, 8);
+  if (!want.length) want = ['USD', 'G18', 'EMAMI', 'USDT'];
+  var link = document.getElementById('link');
+  link.href = './?utm_source=embed';
+
+  function asset(sym) { return ASSETS.filter(function (a) { return a.sym === sym; })[0]; }
+  function price(a, q) {
+    if (!q || !(q.p > 0)) return '—';
+    if (a.kind === 'usd') return U.fa(Number(q.p).toFixed(a.dec != null ? a.dec : 0).replace(/\B(?=(\d{3})+(?!\d))/g, ','));
+    if (q.p >= 1e9) return U.fmtCompact(q.p);
+    return U.fmt(q.p);
+  }
+  function render(doc, fromSnapshot) {
+    var grid = document.getElementById('grid');
+    grid.innerHTML = want.map(function (sym) {
+      var a = asset(sym), q = doc.quotes[sym];
+      var ch = q && q.chgPct != null ? q.chgPct : null;
+      var cls = ch == null || Math.abs(ch) < 0.05 ? 'z' : ch > 0 ? 'up' : 'down';
+      return '<div class="c" title="' + U.esc(a.fa) + (q && q.src ? ' · ' + q.src : '') + '">' +
+        '<span class="n">' + U.esc(a.fa) + '</span>' +
+        '<span class="p">' + price(a, q) + '<small>' + U.esc(a.unit) + '</small></span>' +
+        '<span class="d ' + cls + '">' + (ch == null ? '—' : U.pct(ch)) + '</span></div>';
+    }).join('');
+    var at = Date.parse(doc.generated_at) || 0;
+    document.getElementById('asof').textContent = at ? ('به‌روزرسانی ' + U.relLabel(at)) : '';
+    document.getElementById('src').textContent = fromSnapshot ? 'اسنپ‌شات (شبکه در دسترس نبود)' : 'انتشار زنده‌ی سرور' + (doc.generated_fa ? ' · ' + doc.generated_fa : '');
+    try { parent.postMessage({ garmasanj: 'height', h: document.body.scrollHeight }, '*'); } catch (e) {}
+  }
+  function load() {
+    fetch('assets/data/live.json', { cache: 'no-cache' }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (j && j.quotes) return render(j, false);
+        return fetch('assets/data/snapshot.json').then(function (r) { return r.json(); }).then(function (s) { render(s, true); });
+      })
+      .catch(function () { document.getElementById('grid').innerHTML = '<div class="err">داده در دسترس نیست.</div>'; });
+  }
+  load();
+  setInterval(load, 5 * 60 * 1000);
+})();
+</script>
+</body>
+</html>

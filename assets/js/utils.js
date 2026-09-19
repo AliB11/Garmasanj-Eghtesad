@@ -98,6 +98,19 @@
       return new Intl.DateTimeFormat('fa-IR', { calendar: 'persian', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
     } catch (e) { return ''; }
   };
+  /** تاریخ کوتاه شمسی برای محور نمودارها: «۲۵ شهریور» (اختیاری با ساعت) */
+  var _dfCache = {};
+  U.dateFa = function (ms, withTime) {
+    try {
+      var k = withTime ? 't' : 'd';
+      if (!_dfCache[k]) {
+        var o = { calendar: 'persian', timeZone: 'Asia/Tehran', day: 'numeric', month: 'short' };
+        if (withTime) { o.hour = '2-digit'; o.minute = '2-digit'; o.hour12 = false; }
+        _dfCache[k] = new Intl.DateTimeFormat('fa-IR', o);
+      }
+      return _dfCache[k].format(new Date(ms));
+    } catch (e) { return ''; }
+  };
   /** ساعت تهران: {h (اعشاری), dow (0=شنبه..6=جمعه)} */
   U.tehranNow = function () {
     try {

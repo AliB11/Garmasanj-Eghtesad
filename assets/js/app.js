@@ -33,9 +33,11 @@
     if (cInf) cInf.dataset.cnt = GS.config.INFLATION.value;
     if (cAst) cAst.dataset.cnt = GS.config.ASSETS.length;
 
+    GS.ui.initTheme();
     GS.ui.buildTicker();
     GS.ui.buildMood();
     GS.ui.buildGrid();
+    GS.ui.initCompare();
     GS.ui.updateMood();
     GS.ui.renderSessions();
     GS.ui.renderStatus();
@@ -83,9 +85,75 @@
     });
     var shareBtn = U.$('#shareBtn');
     if (shareBtn) shareBtn.addEventListener('click', function () { GS.ui.shareSummary(); });
+    var embedBtn = U.$('#embedBtn');
+    if (embedBtn) embedBtn.addEventListener('click', function () { GS.ui.openEmbed(); });
+    U.$$('#helpBtn,#footHelpBtn').forEach(function (b) { b.addEventListener('click', function () { GS.ui.openHelp(); }); });
+    U.$$('#infoModal [data-if-close]').forEach(function (el) {
+      el.addEventListener('click', function () { GS.ui.closeModal('#infoModal'); });
+    });
+    // دکمه‌های «؟» فرمول در هر جای صفحه (تفویض رویداد؛ محتوای پویا هم پوشش داده می‌شود)
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-formula]');
+      if (!b || b.closest('#assetModalBody')) return; // مودال دارایی خودش وصل می‌کند
+      e.preventDefault();
+      GS.ui.openFormula(b.dataset.formula);
+    });
+    // تاریخچه‌ی بلندمدت رسید → حکم («این هفته») و مودال باز را تازه کن
+    GS.data.on('history', function () {
+      GS.features.renderVerdict();
+      var am = U.$('#assetModal');
+      if (am && am.classList.contains('show')) {
+        var box = U.$('#amHist');
+        var h = U.$('#assetModalBody h3');
+        if (box && h) {
+          var symEl = h.querySelector('.am-sym');
+          var sym = symEl ? symEl.textContent.replace(/[()]/g, '') : '';
+          if (sym) box.innerHTML = GS.ui.historyBlock(sym, 30);
+        }
+      }
+      var cm = U.$('#compareModal');
+      if (cm && cm.classList.contains('show')) GS.ui.renderCompare();
+    });
 
+    initShortcuts();
+  }
+
+  var ALL_MODALS = ['#diagModal', '#settingsModal', '#assetModal', '#compareModal', '#infoModal'];
+  function closeAllModals() { ALL_MODALS.forEach(function (id) { GS.ui.closeModal(id); }); }
+  function anyModalOpen() { return ALL_MODALS.some(function (id) { var m = U.$(id); return m && m.classList.contains('show'); }); }
+  function currentModalAsset() {
+    var am = U.$('#assetModal');
+    if (!am || !am.classList.contains('show')) return null;
+    var symEl = U.$('#assetModalBody .am-sym');
+    return symEl ? symEl.textContent.replace(/[()]/g, '') : null;
+  }
+
+  /* ---------------- میان‌برهای کیبورد ---------------- */
+  var FA_DIGITS = { '۱': 1, '۲': 2, '۳': 3, '۴': 4, '۵': 5, '١': 1, '٢': 2, '٣': 3, '٤': 4, '٥': 5 };
+  var CATS = ['all', 'currency', 'gold', 'coin', 'crypto'];
+  function initShortcuts() {
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { GS.ui.closeModal('#diagModal'); GS.ui.closeModal('#settingsModal'); GS.ui.closeModal('#assetModal'); }
+      if (e.key === 'Escape') { closeAllModals(); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      var t = e.target;
+      var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+      if (typing) return;
+      var k = e.key;
+      var digit = /^[1-5]$/.test(k) ? +k : (FA_DIGITS[k] || 0);
+      if (k === '/' ) { e.preventDefault(); closeAllModals(); GS.ui.focusSearch(); return; }
+      if (k === '?' || k === '؟') { e.preventDefault(); if (U.$('#infoModal').classList.contains('show')) closeAllModals(); else { closeAllModals(); GS.ui.openHelp(); } return; }
+      if (anyModalOpen()) {
+        if ((k === 'p' || k === 'P') && currentModalAsset()) { e.preventDefault(); var pb = U.$('#amPinBtn'); if (pb) pb.click(); }
+        return;
+      }
+      if (digit) { e.preventDefault(); GS.ui.setCategory(CATS[digit - 1]); var mk = U.$('#markets'); if (mk) { try { mk.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (err) {} } return; }
+      switch (k) {
+        case 's': case 'S': case 'س': e.preventDefault(); GS.ui.shareSummary(); break;
+        case 'c': case 'C': case 'ز': e.preventDefault(); GS.ui.openCompare(); break;
+        case 't': case 'T': case 'ف': e.preventDefault(); GS.ui.toggleTheme(); break;
+        case 'r': case 'R': case 'ق': e.preventDefault(); fastAt = Date.now(); slowAt = Date.now(); GS.ui.toast('info', 'در حال دریافت', 'مسیرهای سریع چند ثانیه‌ای نتیجه می‌دهند.'); break;
+        default: break;
+      }
     });
   }
 

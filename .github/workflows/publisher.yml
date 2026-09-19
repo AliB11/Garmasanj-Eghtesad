@@ -1,12 +1,22 @@
-# گرماسنج — انتشار زنده‌ی قیمت‌ها (هر ۱۵ دقیقه)
-# همه‌ی منابع سمت‌سرور خوانده می‌شوند (جایی که CORS اعمال نمی‌شود)
-# و خروجی نرمال‌شده در assets/data/live.json کامیت می‌شود.
+# گرماسنج — انتشار زنده‌ی قیمت‌ها + تاریخچه
+# همه‌ی منابع سمت‌سرور خوانده می‌شوند (جایی که CORS اعمال نمی‌شود)،
+# خروجی نرمال‌شده در assets/data/live.json و یک نقطه‌ی تاریخچه در
+# assets/data/history.json کامیت می‌شود.
+#
+# نکته‌ی صادقانه: زمان‌بندی cron گیت‌هاب «تلاش حداکثری» است و در عمل
+# */15 حدود ۵ تا ۸ بار در روز اجرا می‌شود. برای جبران، هر اجرا چند دور
+# (ROUNDS) با فاصله‌ی INTERVAL_MIN دقیقه منتشر می‌کند.
 name: انتشار زنده قیمت‌ها
 
 on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
+    inputs:
+      rounds:
+        description: 'تعداد دورهای انتشار در این اجرا'
+        default: '3'
+        required: false
 
 permissions:
   contents: write
@@ -15,10 +25,14 @@ concurrency:
   group: live-publish
   cancel-in-progress: false
 
+env:
+  ROUNDS: ${{ github.event.inputs.rounds || '3' }}
+  INTERVAL_MIN: '15'
+
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 50
     steps:
       - name: دریافت کد
         uses: actions/checkout@v4
@@ -28,27 +42,37 @@ jobs:
         with:
           node-version: 22
 
-      - name: اجرای ناشر
-        run: node scripts/publish.cjs
-
-      - name: کامیت انتشار تازه
+      - name: اجرای ناشر (چند دور) و کامیت
         run: |
           git config user.name 'garmasanj-bot'
           git config user.email 'garmasanj-bot@users.noreply.github.com'
-          git add assets/data/live.json
-          if git diff --staged --quiet; then
-            echo "no changes"
-            exit 0
-          fi
-          TS=$(node -e "console.log(JSON.parse(require('fs').readFileSync('assets/data/live.json','utf8')).generated_at)")
-          # [skip ci] → کامیت‌های داده‌ای، CI تست‌ها را ۹۶ بار در روز اجرا نمی‌کنند
-          git commit -m "chore(data): انتشار زنده قیمت‌ها ($TS) [skip ci]"
-          # اگر هم‌زمان کسی روی main پوش کرده باشد، به‌جای شکست، ریبیس و تلاش مجدد
-          for i in 1 2 3; do
-            if git push; then exit 0; fi
-            echo "push failed (attempt $i) — rebasing onto latest main"
-            git fetch origin main
-            git rebase origin/main || { git rebase --abort; git reset --hard origin/main; node scripts/publish.cjs; git add assets/data/live.json; git commit -m "chore(data): انتشار زنده قیمت‌ها ($TS) [skip ci]" || true; }
-            sleep 5
+
+          commit_and_push() {
+            git add assets/data/live.json assets/data/history.json
+            if git diff --staged --quiet; then echo "no changes"; return 0; fi
+            TS=$(node -e "console.log(JSON.parse(require('fs').readFileSync('assets/data/live.json','utf8')).generated_at)")
+            # [skip ci] → کامیت‌های داده‌ای، CI تست‌ها را فعال نمی‌کنند
+            git commit -q -m "chore(data): انتشار زنده قیمت‌ها ($TS) [skip ci]"
+            for i in 1 2 3; do
+              if git push -q; then return 0; fi
+              echo "push failed (attempt $i) — rebasing onto latest main"
+              git fetch -q origin main
+              if ! git rebase -q origin/main; then
+                git rebase --abort
+                git reset -q --hard origin/main
+                node scripts/publish.cjs
+                git add assets/data/live.json assets/data/history.json
+                git commit -q -m "chore(data): انتشار زنده قیمت‌ها ($TS) [skip ci]" || true
+              fi
+              sleep 5
+            done
+            echo "::warning::push failed after 3 attempts — next round/run will retry"
+            return 0
+          }
+
+          for r in $(seq 1 "$ROUNDS"); do
+            echo "── round $r/$ROUNDS  $(date -u +%FT%TZ)"
+            node scripts/publish.cjs || echo "::warning::publish round $r failed"
+            commit_and_push
+            if [ "$r" -lt "$ROUNDS" ]; then sleep $(( INTERVAL_MIN * 60 )); fi
           done
-          echo "::warning::push failed after 3 attempts — next scheduled run will retry"
