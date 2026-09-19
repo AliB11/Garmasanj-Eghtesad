@@ -57,23 +57,6 @@
     return isFinite(v) ? v : null;
   };
 
-  /** جست‌وجوی عمیق کلیدهای کاندید در JSONهای ناهمسان */
-  U.deepFind = function (obj, keys, depth) {
-    depth = depth || 0;
-    if (obj == null || depth > 6) return null;
-    var i, k, v, r;
-    if (Array.isArray(obj)) {
-      for (i = 0; i < obj.length; i++) { r = U.deepFind(obj[i], keys, depth + 1); if (r != null) return r; }
-      return null;
-    }
-    if (typeof obj === 'object') {
-      for (i = 0; i < keys.length; i++) { k = keys[i]; v = U.num(obj[k]); if (v != null) return v; }
-      var vals = Object.values(obj);
-      for (i = 0; i < vals.length; i++) { r = U.deepFind(vals[i], keys, depth + 1); if (r != null) return r; }
-    }
-    return null;
-  };
-
   /* ---------- رنگ دمایی ---------- */
   var STOPS = [[-30, [34, 160, 166]], [0, [151, 146, 135]], [25, [214, 156, 64]], [55, [255, 120, 44]], [90, [255, 60, 36]]];
   U.tempRGB = function (t) {
@@ -92,11 +75,6 @@
   U.tempRGBA = function (t, a) { var c = U.tempRGB(t); return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; };
 
   /* ---------- زمان ---------- */
-  U.ageMin = function (ts) {
-    if (!ts || ts < 1e9) return null;
-    var t = ts > 1e12 ? ts / 1000 : ts;
-    return Math.max(0, Math.round((Date.now() / 1000 - t) / 60));
-  };
   U.ageLabel = function (min) {
     if (min == null) return '';
     if (min < 1) return 'همین حالا';
@@ -120,6 +98,19 @@
       return new Intl.DateTimeFormat('fa-IR', { calendar: 'persian', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
     } catch (e) { return ''; }
   };
+  /** تاریخ کوتاه شمسی برای محور نمودارها: «۲۵ شهریور» (اختیاری با ساعت) */
+  var _dfCache = {};
+  U.dateFa = function (ms, withTime) {
+    try {
+      var k = withTime ? 't' : 'd';
+      if (!_dfCache[k]) {
+        var o = { calendar: 'persian', timeZone: 'Asia/Tehran', day: 'numeric', month: 'short' };
+        if (withTime) { o.hour = '2-digit'; o.minute = '2-digit'; o.hour12 = false; }
+        _dfCache[k] = new Intl.DateTimeFormat('fa-IR', o);
+      }
+      return _dfCache[k].format(new Date(ms));
+    } catch (e) { return ''; }
+  };
   /** ساعت تهران: {h (اعشاری), dow (0=شنبه..6=جمعه)} */
   U.tehranNow = function () {
     try {
@@ -131,6 +122,29 @@
       var dow = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'].indexOf(p.weekday);
       return { h: h, dow: dow };
     } catch (e) { return { h: -1, dow: -1 }; }
+  };
+
+  /**
+   * وضعیت جلسه‌ی بازار آزاد تهران (ارز/طلا/سکه) از روی GS.config.SESSION.
+   * خروجی: {open, label, next} — next: توضیح کوتاه زمان بازگشایی.
+   */
+  U.marketSession = function () {
+    var n = U.tehranNow();
+    var S = (window.GS && GS.config && GS.config.SESSION) ? GS.config.SESSION : null;
+    if (n.h < 0 || !S) return { open: true, label: 'نامشخص', next: '' };
+    var win = S.days[n.dow];
+    var open = !!(win && n.h >= win[0] && n.h < win[1]);
+    var DAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه'];
+    var next = '';
+    if (!open) {
+      if (win && n.h < win[0]) next = 'بازگشایی امروز ساعت ' + U.fa(win[0]);
+      else {
+        var d = (n.dow + 1) % 7, tries = 0;
+        while (!S.days[d] && tries < 7) { d = (d + 1) % 7; tries++; }
+        next = 'بازگشایی ' + (d === (n.dow + 1) % 7 ? 'فردا' : DAYS[d]) + ' ساعت ' + U.fa(S.days[d] ? S.days[d][0] : 9);
+      }
+    }
+    return { open: open, label: open ? 'باز' : 'بسته', next: next };
   };
 
   /* ---------- حافظه محلی امن ---------- */
@@ -148,208 +162,36 @@
     del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
 
-  /* ---------- شبکه ---------- */
-  U.shortUrl = function (u) {
-    try {
-      var m = String(u).match(/[?&](?:url|quest)=([^&]+)/);
-      if (m) return decodeURIComponent(m[1]).slice(0, 84) + ' ⟂پراکسی';
-    } catch (e) {}
-    return String(u).replace(/^https?:\/\//, '').slice(0, 84);
-  };
-  U.bust = function (u) { return u + (u.indexOf('?') > -1 ? '&' : '?') + '_cb=' + Date.now().toString(36); };
-
-  function fetchOnce(url, timeout, asText) {
-    if (typeof fetch !== 'function') return Promise.reject(new Error('no fetch'));
-    var ctl = (typeof window !== 'undefined' && 'AbortController' in window) ? new AbortController() : null;
-    var timer = null;
-    if (ctl) timer = setTimeout(function () { try { ctl.abort(); } catch (e) {} }, timeout);
-    var t0 = performance.now ? performance.now() : Date.now();
-    var opts = { cache: 'no-store', mode: 'cors' };
-    if (ctl) opts.signal = ctl.signal;
-    return fetch(url, opts).then(function (r) {
-      if (timer) clearTimeout(timer);
-      var ms = Math.round((performance.now ? performance.now() : Date.now()) - t0);
-      if (!r.ok) { var e = new Error('HTTP ' + r.status); e.ms = ms; throw e; }
-      return (asText ? r.text() : r.json()).then(function (body) { return { body: body, ms: ms }; });
-    }).catch(function (e) {
-      if (timer) clearTimeout(timer);
-      throw e;
-    });
-  }
-
-  /**
-   * دریافت JSON با تلاش مستقیم و سپس پراکسی‌ها.
-   * خروجی: {j, via, ms, proxyId} یا null
-   */
-  U.fetchJSONAny = function (url, opt) {
-    opt = opt || {};
-    var timeout = opt.timeout || 10000;
-    var directTimeout = opt.directTimeout || 6000;
-    var log = opt.log || function () {};
-    var proxies = (window.GS && GS.config) ? (GS.config.PROXIES || []) : [];
-    var target = U.bust(url);
-
-    function attempt(u, to, via, proxy) {
-      return fetchOnce(u, to, false).then(function (res) {
-        var body = res.body;
-        if (proxy && proxy.jsonWrapped) {
-          try { body = typeof body.contents === 'string' ? JSON.parse(body.contents) : body.contents; }
-          catch (e) { body = body.contents; }
+  /* ---------- کلیپ‌بورد و اشتراک ---------- */
+  /** کپی متن؛ اول Clipboard API، بعد روش قدیمی. خروجی Promise<boolean> */
+  U.copyText = function (text) {
+    return new Promise(function (resolve) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () { resolve(true); }, function () { resolve(legacy()); });
+          return;
         }
-        log(true, U.shortUrl(u) + ' → ' + JSON.stringify(body).slice(0, 96), res.ms);
-        return { j: body, via: via, ms: res.ms, proxyId: proxy ? proxy.id : null };
-      }).catch(function (e) {
-        log(false, U.shortUrl(u) + ' → ' + String((e && e.message) || e).slice(0, 60));
-        throw e;
-      });
+      } catch (e) {}
+      resolve(legacy());
+    });
+    function legacy() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        var ok = document.execCommand && document.execCommand('copy');
+        document.body.removeChild(ta);
+        return !!ok;
+      } catch (e) { return false; }
     }
-
-    var chain = attempt(target, directTimeout, 'direct', null).catch(function () { return null; });
-    proxies.forEach(function (p) {
-      chain = chain.then(function (hit) {
-        if (hit && hit.j != null) return hit;
-        return attempt(p.build(target), timeout, p.jsonWrapped ? 'proxy(get)' : 'proxy', p).catch(function () { return null; });
-      });
-    });
-    return chain.then(function (hit) { return (hit && hit.j != null) ? hit : null; });
   };
-
-  /** مشابه بالا برای پاسخ‌های متنی (TSETMC قدیمی) */
-  U.fetchTextAny = function (url, opt) {
-    opt = opt || {};
-    var timeout = opt.timeout || 10000;
-    var log = opt.log || function () {};
-    var proxies = (window.GS && GS.config) ? (GS.config.PROXIES || []) : [];
-    var target = U.bust(url);
-
-    function attempt(u, to, via) {
-      return fetchOnce(u, to, true).then(function (res) {
-        var t = res.body;
-        if (!t || t.length < 20) throw new Error('empty');
-        log(true, U.shortUrl(u) + ' → ' + String(t).slice(0, 84).replace(/\s+/g, ' '), res.ms);
-        return { t: t, via: via, ms: res.ms };
-      }).catch(function (e) {
-        log(false, U.shortUrl(u) + ' → ' + String((e && e.message) || e).slice(0, 60));
-        throw e;
-      });
+  /** اشتراک بومی (موبایل) با بازگشت به کپی. خروجی: 'shared' | 'copied' | 'failed' */
+  U.shareText = function (title, text) {
+    if (navigator.share) {
+      return navigator.share({ title: title, text: text }).then(function () { return 'shared'; })
+        .catch(function () { return U.copyText(text).then(function (ok) { return ok ? 'copied' : 'failed'; }); });
     }
-
-    var chain = attempt(target, 5000, 'direct').catch(function () { return null; });
-    proxies.forEach(function (p) {
-      // allorigins/get برای متن مناسب نیست
-      if (p.jsonWrapped) return;
-      chain = chain.then(function (hit) {
-        if (hit) return hit;
-        return attempt(p.build(target), timeout, 'proxy').catch(function () { return null; });
-      });
-    });
-    return chain;
-  };
-
-  /* ---------- مسابقه‌ی موازی: مستقیم + همه‌ی پراکسی‌ها ----------
-     مسیر سریع: اگر درخواست مستقیم جواب داد (۱–۲ ثانیه) برنده است و بقیه
-     لغو می‌شوند؛ در غیر این صورت اولین پاسخِ «معتبر» می‌برد. برخلاف روش
-     ترتیبی قبلی، کندترین منبع دیگر کل صفحه را قفل نمی‌کند. */
-  var NO_CORS_RE = /tgju|tsetmc|fipiran|brsapi/i;
-
-  function raceFetch(url, opt, asText) {
-    opt = opt || {};
-    var timeout = opt.timeout || 9000;
-    var validate = opt.validate;
-    var log = opt.log || function () {};
-    if (typeof fetch !== 'function') return Promise.resolve(null);
-    var proxies = (typeof window !== 'undefined' && window.GS && GS.config) ? (GS.config.PROXIES || []) : [];
-    if (asText) proxies = proxies.filter(function (p) { return !p.jsonWrapped; });
-    var proxyDelay = (opt.proxyDelay != null) ? opt.proxyDelay : (NO_CORS_RE.test(url) ? 0 : 900);
-    var target = U.bust(url);
-    return new Promise(function (resolve) {
-      var done = false;
-      var pending = 1 + proxies.length;
-      var ctls = [];
-      function now() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
-      function settle(v) {
-        if (done) return; done = true;
-        ctls.forEach(function (c) { try { c.abort(); } catch (e) {} });
-        resolve(v);
-      }
-      function attempt(u, via, proxy) {
-        if (done) { pending--; return; }
-        var ctl = null;
-        try { ctl = (typeof window !== 'undefined' && 'AbortController' in window) ? new AbortController() : null; } catch (e) { ctl = null; }
-        if (ctl) ctls.push(ctl);
-        var finished = false;
-        var to = setTimeout(function () { if (!finished) { finished = true; try { if (ctl) ctl.abort(); } catch (e) {} pending--; if (!done && pending <= 0) settle(null); } }, timeout);
-        var t0 = now();
-        var fopts = { cache: 'no-store', mode: 'cors' };
-        if (ctl) fopts.signal = ctl.signal;
-        fetch(u, fopts).then(function (r) {
-          if (finished) throw new Error('late');
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          return asText ? r.text() : r.json();
-        }).then(function (body) {
-          clearTimeout(to);
-          if (finished || done) return;
-          finished = true;
-          if (proxy && proxy.jsonWrapped && !asText) {
-            try { body = (typeof body.contents === 'string') ? JSON.parse(body.contents) : body.contents; } catch (e) { body = body.contents; }
-          }
-          if (body == null || (asText && String(body).length < 10)) throw new Error('empty');
-          if (validate) { var okv = false; try { okv = !!validate(body); } catch (e) { okv = false; } if (!okv) throw new Error('invalid'); }
-          var ms = Math.round(now() - t0);
-          var preview = String(asText ? body : JSON.stringify(body)).slice(0, 96).replace(/\s+/g, ' ');
-          log(true, U.shortUrl(u) + ' → ' + preview, ms);
-          pending--;
-          settle({ j: asText ? undefined : body, t: asText ? body : undefined, via: via, ms: ms, proxyId: proxy ? proxy.id : null });
-        }).catch(function (e) {
-          clearTimeout(to);
-          if (finished || done) return;
-          finished = true;
-          if (via === 'direct') log(false, U.shortUrl(u) + ' → ' + String((e && e.message) || e).slice(0, 60));
-          pending--;
-          if (!done && pending <= 0) settle(null);
-        });
-      }
-      attempt(target, 'direct', null);
-      setTimeout(function () {
-        if (done) return;
-        proxies.forEach(function (p) { attempt(p.build(target), p.jsonWrapped ? 'proxy(get)' : 'proxy', p); });
-      }, proxyDelay);
-    });
-  }
-
-  /* جایگزینی مسیر ترتیبی قدیمی با مسابقه‌ی موازی (امضای سازگار) */
-  U.fetchJSONAny = function (url, opt) {
-    return raceFetch(url, opt, false).then(function (r) {
-      return r ? { j: r.j, via: r.via, ms: r.ms, proxyId: r.proxyId } : null;
-    });
-  };
-  U.fetchTextAny = function (url, opt) {
-    return raceFetch(url, opt, true).then(function (r) {
-      return r ? { t: r.t, via: r.via, ms: r.ms } : null;
-    });
-  };
-
-  /**
-   * raceSuccess: اولین نتیجه‌ی معتبر را بدون انتظار برای بقیه برمی‌گرداند.
-   * (جایگزین درستِ allSettled که تا کندترین پاسخ صبر می‌کرد)
-   */
-  U.raceSuccess = function (fns, maxWaitMs) {
-    maxWaitMs = maxWaitMs || 15000;
-    return new Promise(function (resolve) {
-      var done = false, pending = fns.length;
-      if (!pending) { resolve(null); return; }
-      var timer = setTimeout(function () { if (!done) { done = true; resolve(null); } }, maxWaitMs);
-      fns.forEach(function (fn) {
-        Promise.resolve().then(fn).then(function (v) {
-          if (done) return;
-          if (v != null) { done = true; clearTimeout(timer); resolve(v); }
-          else if (--pending === 0) { done = true; clearTimeout(timer); resolve(null); }
-        }).catch(function () {
-          if (done) return;
-          if (--pending === 0) { done = true; clearTimeout(timer); resolve(null); }
-        });
-      });
-    });
+    return U.copyText(text).then(function (ok) { return ok ? 'copied' : 'failed'; });
   };
 
   /* ---------- DOM ---------- */

@@ -4,7 +4,9 @@
    - بدون پراکسی: فقط اندپوینت‌های مستقیم و CORSباز
    - TGJU با ۵ آینه‌ی موازی (اولین پاسخ معتبر می‌برد)
    - بوت‌استرپ: اسنپ‌شات واقعی + کش مرورگر → اولین نقاشی هرگز خالی نیست
-   - اعتبارسنجی: جهش نامعتبر (>۲۵٪) رد می‌شود و قیمت قبلی می‌ماند
+   - اعتبارسنجی: جهش نامعتبر (>۲۵٪) رد می‌شود و قیمت قبلی می‌ماند؛
+     اگر همان جهش چند چرخه‌ی پیاپی تکرار شد، بازار واقعاً جابه‌جا شده و پذیرفته می‌شود
+   - حریم خصوصی: کلید ناواسان فقط مستقیم ارسال می‌شود (هرگز از پراکسی عبور نمی‌کند)
    ============================================================ */
 (function () {
   'use strict';
@@ -27,7 +29,10 @@
   var LS_HIST = 'garmasanj_hist_v6';
   var LS_MAN = 'garmasanj_manual_v6';
   var LS_NAV = 'garmasanj_navasan_v6';
+  var LS_MIRROR = 'garmasanj_tgju_mirror_v1';
   var FAST_TTL = 90000, SLOW_TTL = 25 * 60000;
+  var REJECT = {};   // sym -> {p, n} شمارنده‌ی جهش‌های ردشده‌ی پیاپی (خودترمیمی نگهبان)
+  var BOOT_CACHE = null; // کوت‌های نشست قبلی برای «از آخرین بازدیدت»
 
   CFG.SOURCES.forEach(function (s) { SRC[s.id] = { ok: null, ms: null, at: 0, note: 'هنوز تلاش نشده' }; });
   CFG.ASSETS.forEach(function (a) { QUOTES[a.sym] = { p: null, chg: null, chgPct: null, high: null, low: null, src: null, srcFa: '', ts: 0, live: false, stale: true, agree: 0 }; });
@@ -124,6 +129,10 @@
   function fetchIranian(url, opt) {
     opt = opt || {};
     var validate = opt.validate, timeout = opt.timeout || 9000;
+    if (opt.noProxy) { // داده‌ی حساس (مثل کلید API) هرگز از واسطه عبور نمی‌کند
+      return fetchJSON(url, { timeout: timeout, validate: validate })
+        .then(function (r) { r.via = 'direct'; return r; }, function () { return null; });
+    }
     return new Promise(function (resolve) {
       var settled = false, pending = 1 + IR_PROXY_BUILDERS.length;
       var proxyStarted = false, timer = null;
@@ -162,16 +171,28 @@
   function tgjuValid(j) {
     return j && j.current && typeof j.current === 'object' && j.current.price_dollar_rl && typeof j.current.price_dollar_rl === 'object';
   }
+  /** آینه‌ی برنده‌ی قبلی اول می‌رود؛ بقیه با فاصله‌ی کوتاه پشت سرش (کاهش ۵× ترافیک بی‌فایده) */
+  function orderedMirrors() {
+    var last = U.store.get(LS_MIRROR, null);
+    var list = CFG.TGJU_MIRRORS.slice();
+    if (last && list.indexOf(last) > 0) { list.splice(list.indexOf(last), 1); list.unshift(last); }
+    return list;
+  }
+  var MIRROR_STAGGER = 350;
   function fetchTGJU() {
-    var jobs = CFG.TGJU_MIRRORS.map(function (host) {
+    var jobs = orderedMirrors().map(function (host, idx) {
       return function () {
         var url = host.replace(/\/$/, '') + '/ajax.json';
-        return fetchIranian(url, { timeout: 9000, validate: tgjuValid }).then(function (r) {
+        var delay = idx === 0 ? 0 : MIRROR_STAGGER * idx;
+        return new Promise(function (res) { setTimeout(res, delay); }).then(function () {
+          return fetchIranian(url, { timeout: 9000, validate: tgjuValid });
+        }).then(function (r) {
           if (!r) {
             netlog(false, host.replace('https://', '') + ' → مستقیم+پراکسی بی‌پاسخ');
             return null;
           }
           if (r.via === 'proxy') netlog(true, host.replace('https://', '') + ' ⟂پراکسی', r.ms);
+          U.store.set(LS_MIRROR, host);
           return { current: r.j.current, via: host.replace('https://', '') + (r.via === 'proxy' ? ' ⟂' : ''), ms: r.ms };
         }).catch(function () { return null; });
       };
@@ -406,10 +427,12 @@
   function fetchNavasan() {
     var key = getNavasanKey();
     if (!key) { markIdle('navasan', 'نیاز به کلید رایگان — از «تنظیمات» اضافه کن'); return Promise.resolve(null); }
+    // حریم خصوصی: کلید کاربر فقط مستقیم به ناواسان می‌رود — هرگز از پراکسی عمومی عبور نمی‌کند
     return fetchIranian('https://api.navasan.tech/latest/?api_key=' + encodeURIComponent(key), {
-      timeout: 11000,
+      timeout: 11000, noProxy: true,
       validate: function (j) { return j && (j.usd_sell || j.usd || j.dollar); }
     }).then(function (r) {
+      if (!r) { markSrc('navasan', false, 'بی‌پاسخ یا کلید نامعتبر'); return null; }
       var j = r.j;
       function pick(keys) {
         for (var i = 0; i < keys.length; i++) {
@@ -493,13 +516,23 @@
   function setQ(sym, q) {
     var cur = QUOTES[sym];
     if (!cur || !q || !(q.p > 0) || !isFinite(q.p)) return false;
-    if (cur.live && cur.p > 0 && q.live !== false && !cur.est) {
+    var J = CFG.JUMP || { maxPct: 0.25, confirmCycles: 3, confirmBand: 0.05 };
+    if (cur.live && cur.p > 0 && q.live !== false && !cur.est && q.src !== 'manual') {
       var jump = Math.abs(q.p - cur.p) / cur.p;
-      if (jump > 0.25) {
-        diag(asset(sym) ? asset(sym).fa : sym, false, 'جهش ' + Math.round(jump * 100) + '٪ از ' + (q.srcFa || q.src) + ' رد شد');
-        return false;
+      if (jump > J.maxPct) {
+        // خودترمیمی: اگر همین قیمت «دور» چند چرخه‌ی پیاپی تکرار شود، بازار واقعاً جابه‌جا شده است
+        var r = REJECT[sym];
+        if (r && Math.abs(q.p - r.p) / r.p <= J.confirmBand) r.n++;
+        else r = REJECT[sym] = { p: q.p, n: 1 };
+        if (r.n < J.confirmCycles) {
+          diag(asset(sym) ? asset(sym).fa : sym, false, 'جهش ' + Math.round(jump * 100) + '٪ از ' + (q.srcFa || q.src) + ' رد شد (' + U.fa(r.n) + '/' + U.fa(J.confirmCycles) + ')');
+          return false;
+        }
+        diag(asset(sym) ? asset(sym).fa : sym, true, 'جهش ' + Math.round(jump * 100) + '٪ پس از ' + U.fa(r.n) + ' تأیید پیاپی پذیرفته شد');
+        emit('toast', { kind: 'warn', title: 'جهش تأییدشده', msg: (asset(sym) ? asset(sym).fa : sym) + ' ' + Math.round(jump * 100) + '٪ جابه‌جا شد و پس از چند چرخه تأیید، پذیرفته شد.' });
       }
     }
+    delete REJECT[sym];
     var dir = (cur.p != null) ? Math.sign(q.p - cur.p) : 1;
     var changed = (cur.p !== q.p);
     QUOTES[sym] = {
@@ -608,19 +641,42 @@
   function cacheLoad() {
     var c = U.store.get(LS_Q, null);
     if (!c || !c.q) return 0;
+    BOOT_CACHE = { ts: c.ts || 0, q: {} };
     Object.keys(c.q).forEach(function (s) {
       if (!QUOTES[s]) return;
       var x = c.q[s];
       if (x && x.p > 0) {
+        BOOT_CACHE.q[s] = x.p;
         QUOTES[s] = {
           p: x.p, chg: x.chg != null ? x.chg : null, chgPct: x.chgPct != null ? x.chgPct : null,
           high: x.high != null ? x.high : null, low: x.low != null ? x.low : null,
           src: x.src || 'cache', srcFa: (x.srcFa || 'کش') + ' (کش)',
-          ts: x.ts || c.ts || 0, live: false, stale: true, agree: 1
+          ts: x.ts || c.ts || 0, live: false, stale: true, agree: 1, fromCache: true
         };
       }
     });
     return c.ts || 0;
+  }
+
+  /**
+   * «از آخرین بازدیدت»: تفاوت قیمت‌های کلیدی با نشست قبلی (فقط اگر کش
+   * دست‌کم ۳۰ دقیقه قدیمی باشد تا نویز نشود). یک‌بار پس از اولین چرخه‌ی زنده.
+   */
+  var sinceDone = false;
+  function sinceLastVisit() {
+    if (sinceDone || !BOOT_CACHE || !BOOT_CACHE.ts) return null;
+    if (Date.now() - BOOT_CACHE.ts < 30 * 60000) { sinceDone = true; return null; }
+    var rows = [];
+    ['USD', 'G18', 'EMAMI', 'USDT', 'BTC_USD'].forEach(function (s) {
+      var prev = BOOT_CACHE.q[s], q = QUOTES[s];
+      if (!(prev > 0) || !q || !q.live || !(q.p > 0)) return;
+      rows.push({ sym: s, fa: (asset(s) || {}).short || s, prev: prev, now: q.p, pct: (q.p / prev - 1) * 100 });
+    });
+    if (rows.length < 2) return null;
+    sinceDone = true;
+    var out = { since: BOOT_CACHE.ts, rows: rows };
+    emit('since', out);
+    return out;
   }
 
   /** بوت‌استرپ از اسنپ‌شات واقعی همراه نسخه */
@@ -633,7 +689,9 @@
       Object.keys(j.quotes).forEach(function (s) {
         if (!QUOTES[s]) return;
         var x = j.quotes[s];
-        if (x && x.p > 0 && QUOTES[s].p == null) {
+        var cur = QUOTES[s];
+        var olderCache = !!(cur && cur.fromCache && SNAP_TS > (cur.ts || 0) + 60000);
+        if (x && x.p > 0 && (cur.p == null || olderCache)) {
           QUOTES[s] = {
             p: x.p, chg: x.chg != null ? x.chg : null, chgPct: x.chgPct != null ? x.chgPct : null,
             high: x.high != null ? x.high : null, low: x.low != null ? x.low : null,
@@ -671,6 +729,10 @@
     return snapshotLoad().then(function () {
       return fetchLive().then(function (d) { if (d != null) ingest('live', d); return d; })
         .catch(function () { return null; });
+    }).then(function (d) {
+      // تاریخچه‌ی بلندمدت بوت را معطل نمی‌کند؛ هر وقت رسید رویداد 'history' می‌آید
+      try { fetchHistory(); } catch (e) {}
+      return d;
     });
   }
 
@@ -733,7 +795,7 @@
         var x = lvRaw.quotes[sym];
         if (x && x.p > 0) LV[sym] = {
           p: x.p, chg: x.chg, chgPct: x.chgPct, high: x.high, low: x.low,
-          ts: x.ts || lvRaw.at || Date.now(), src: 'live', srcFa: 'انتشار زنده', agree: x.agree || 1
+          ts: x.ts || lvRaw.at || Date.now(), src: 'live', srcFa: 'انتشار زنده' + (x.src ? ' · ' + x.src : ''), agree: x.agree || 1
         };
       });
     }
@@ -766,17 +828,17 @@
 
     /* ---- سایر ارزها: TGJU ← ناواسان ← برابری جهانی × دلار ---- */
     var rates = fx && fx.rates;
-    function cross(sym, perUsd) { // perUsd: چند واحد ارز به‌ازای هر دلار
+    function cross(perUsd) { // perUsd: چند واحد ارز به‌ازای هر دلار → تومانِ هر واحد
       if (!(usdP > 0) || !(perUsd > 0)) return null;
       return usdP / perUsd;
     }
     var fiatJobs = [
-      { sym: 'EUR', nav: nav && nav.eur, lo: 30000, hi: 4000000, implied: rates ? usdP * (1 / U.num(rates.EUR)) : null, ref: 'EUR/USD جهانی' },
-      { sym: 'GBP', lo: 30000, hi: 5000000, implied: rates ? usdP * (1 / U.num(rates.GBP)) : null, ref: 'GBP/USD جهانی' },
+      { sym: 'EUR', nav: nav && nav.eur, lo: 30000, hi: 4000000, implied: rates ? cross(U.num(rates.EUR)) : null, ref: 'EUR/USD جهانی' },
+      { sym: 'GBP', lo: 30000, hi: 5000000, implied: rates ? cross(U.num(rates.GBP)) : null, ref: 'GBP/USD جهانی' },
       { sym: 'AED', lo: 5000, hi: 1000000, implied: usdP ? usdP / CH.AED_PEG : null, ref: 'پگ درهم' },
-      { sym: 'CHF', lo: 30000, hi: 4000000, implied: rates ? cross(0, U.num(rates.CHF)) : null, ref: 'USD/CHF جهانی' },
-      { sym: 'CNY', lo: 3000, hi: 500000, implied: rates ? cross(0, U.num(rates.CNY)) : null, ref: 'USD/CNY جهانی' },
-      { sym: 'TRY', lo: 500, hi: 200000, implied: rates ? cross(0, U.num(rates.TRY)) : null, ref: 'USD/TRY جهانی' }
+      { sym: 'CHF', lo: 30000, hi: 4000000, implied: rates ? cross(U.num(rates.CHF)) : null, ref: 'USD/CHF جهانی' },
+      { sym: 'CNY', lo: 3000, hi: 500000, implied: rates ? cross(U.num(rates.CNY)) : null, ref: 'USD/CNY جهانی' },
+      { sym: 'TRY', lo: 500, hi: 200000, implied: rates ? cross(U.num(rates.TRY)) : null, ref: 'USD/TRY جهانی' }
     ];
     fiatJobs.forEach(function (fj) {
       if (T[fj.sym]) { setQ(fj.sym, T[fj.sym]); return; }
@@ -956,22 +1018,35 @@
     };
   }
 
-  /** نبض بازار: پهنا، میانگین تغییر و امتیاز ‎-100..+100 */
+  /**
+   * نبض بازار: پهنا، میانگین تغییر و امتیاز ‎-100..+100
+   * اصلاح مهم: دارایی‌های «بی‌تغییر» (بازار بسته/کم‌تحرک) دیگر منفی حساب نمی‌شوند.
+   * - ups/downs/flat: تعداد؛ part: سهم دارایی‌های متحرک (مشارکت)
+   * - breadth: سهم مثبت‌ها فقط میان متحرک‌ها؛ اثرش در امتیاز با مشارکت وزن می‌خورد
+   * - مشتقات (اونس تومانی) شمرده نمی‌شوند تا یک حرکت دوبار حساب نشود
+   */
   function mood() {
     var act = CFG.ASSETS.filter(function (a) {
       var q = QUOTES[a.sym];
-      return q && q.p > 0 && q.chgPct != null && isFinite(q.chgPct);
+      return !a.derived && q && q.p > 0 && q.chgPct != null && isFinite(q.chgPct);
     });
-    if (!act.length) return { n: 0, ups: 0, avg: 0, score: 0, best: null, worst: null, label: '—' };
-    var ups = act.filter(function (a) { return QUOTES[a.sym].chgPct > 0.05; }).length;
+    if (!act.length) return { n: 0, ups: 0, downs: 0, flat: 0, part: 0, breadth: 50, avg: 0, score: 0, best: null, worst: null, label: '—', quiet: true };
+    var upN = act.filter(function (a) { return QUOTES[a.sym].chgPct > 0.05; }).length;
+    var downN = act.filter(function (a) { return QUOTES[a.sym].chgPct < -0.05; }).length;
+    var flatN = act.length - upN - downN;
+    var movers = upN + downN;
+    var part = movers / act.length;
+    var breadth = movers ? upN / movers * 100 : 50;
     var sum = act.reduce(function (s, a) { return s + QUOTES[a.sym].chgPct; }, 0);
     var avg = sum / act.length;
     var sorted = act.slice().sort(function (a, b) { return QUOTES[b.sym].chgPct - QUOTES[a.sym].chgPct; });
-    var score = U.clamp(avg * 15 + (ups / act.length * 100 - 50) * 1.1, -100, 100);
+    var score = U.clamp(avg * 15 + (breadth - 50) * 1.1 * part, -100, 100);
     var label = score >= 50 ? 'طوفانی' : score >= 20 ? 'داغ' : score >= 5 ? 'مثبت' :
       score > -5 ? 'آرام' : score > -20 ? 'منفی' : score > -50 ? 'سرد' : 'یخ‌زده';
     return {
-      n: act.length, ups: Math.round(ups / act.length * 100), avg: avg, score: Math.round(score),
+      n: act.length, ups: Math.round(upN / act.length * 100), downs: Math.round(downN / act.length * 100),
+      flat: Math.round(flatN / act.length * 100), part: part, breadth: Math.round(breadth),
+      quiet: part < 0.35, avg: avg, score: Math.round(score),
       best: sorted[0].sym, worst: sorted[sorted.length - 1].sym, label: label
     };
   }
@@ -1043,6 +1118,7 @@
       if (!okOnce && live >= 3) {
         okOnce = true;
         emit('toast', { kind: 'ok', title: 'بازار وصل شد', msg: U.fa(live) + ' کوت زنده فعال است.' });
+        try { sinceLastVisit(); } catch (e) {}
       }
       return true;
     }).catch(function () { fastBusy = false; emit('cycle', { phase: 'fast', start: false }); return false; });
@@ -1055,13 +1131,124 @@
     var t0 = Date.now();
     var run = Promise.all([
       safeCall(fetchNavasan).then(function (d) { if (d != null) ingest('navasan', d); return d; }),
-      safeCall(fetchBtcHist).then(function (d) { if (d != null) ingest('btcHist', d); return d; })
+      safeCall(fetchBtcHist).then(function (d) { if (d != null) ingest('btcHist', d); return d; }),
+      safeCall(fetchHistory)
     ]);
     return withCap(run, 40000).then(function () {
       cacheSave(); histSave(); slowBusy = false;
       emit('cycle', { phase: 'slow', start: false, ms: Date.now() - t0 });
       return true;
     }).catch(function () { slowBusy = false; emit('cycle', { phase: 'slow', start: false }); return false; });
+  }
+
+  /* ============================================================
+     تاریخچه‌ی بلندمدت — از انتشارهای سرور (assets/data/history.json)
+     recent: نقاط خام ۱۴ روز اخیر، daily: خلاصه‌ی روزانه [day, close, high, low]
+     ============================================================ */
+  var HISTORY = null;
+  var TEHRAN_OFF = 3.5 * 3600000;
+
+  function fetchHistory() {
+    return fetchJSON('assets/data/history.json', {
+      timeout: 9000,
+      validate: function (j) { return j && j.daily && j.recent; }
+    }).then(function (r) {
+      HISTORY = r.j;
+      emit('history', HISTORY);
+      return HISTORY;
+    }).catch(function () { return null; });
+  }
+
+  function dayMs(dayKey) { return Date.parse(dayKey + 'T12:00:00Z') - TEHRAN_OFF; } // ظهر تهران همان روز
+
+  /** آیا تاریخچه برای این نماد وجود دارد؟ چند روز؟ */
+  function historyMeta(sym) {
+    if (!HISTORY) return { ok: false, days: 0, points: 0, from: null };
+    var d = (HISTORY.daily && HISTORY.daily[sym]) || [];
+    var r = (HISTORY.recent && HISTORY.recent[sym]) || [];
+    return { ok: d.length >= 2, days: d.length, points: r.length, from: d.length ? dayMs(d[0][0]) : null, at: Date.parse(HISTORY.generated_at) || 0 };
+  }
+
+  /**
+   * سری قیمت برای نمودار: [{t,p}] — بازه بر حسب روز.
+   * تا ۱۴ روز از نقاط خام، بیشتر از آن از بسته‌های روزانه؛ قیمت زنده‌ی فعلی همیشه نقطه‌ی آخر است.
+   */
+  function series(sym, days) {
+    days = days || 30;
+    var now = Date.now(), from = now - days * 86400000, out = [];
+    if (HISTORY) {
+      if (days <= 14 && HISTORY.recent && HISTORY.recent[sym]) {
+        HISTORY.recent[sym].forEach(function (x) { var t = x[0] * 1000; if (t >= from && x[1] > 0) out.push({ t: t, p: x[1] }); });
+      }
+      if (out.length < 2 && HISTORY.daily && HISTORY.daily[sym]) {
+        out = [];
+        HISTORY.daily[sym].forEach(function (x) { var t = dayMs(x[0]); if (t >= from - 86400000 && x[1] > 0) out.push({ t: t, p: x[1], hi: x[2], lo: x[3] }); });
+      }
+    }
+    var q = QUOTES[sym];
+    if (q && q.p > 0) {
+      var last = out[out.length - 1];
+      if (!last || q.ts > last.t + 60000) out.push({ t: q.ts || now, p: q.p, live: true });
+      else { last.p = q.p; last.live = true; }
+    }
+    return out;
+  }
+
+  /** درصد تغییر نسبت به «days» روز پیش (null اگر تاریخچه کافی نیست) */
+  function changeOver(sym, days) {
+    var q = QUOTES[sym];
+    if (!HISTORY || !q || !(q.p > 0)) return null;
+    var target = Date.now() - days * 86400000, best = null;
+    var rec = (HISTORY.recent && HISTORY.recent[sym]) || [];
+    for (var i = 0; i < rec.length; i++) { var t = rec[i][0] * 1000; if (t <= target + 3 * 3600000) best = { t: t, p: rec[i][1] }; else break; }
+    if (!best) {
+      var dl = (HISTORY.daily && HISTORY.daily[sym]) || [];
+      for (var j = 0; j < dl.length; j++) { var tt = dayMs(dl[j][0]); if (tt <= target + 12 * 3600000) best = { t: tt, p: dl[j][1] }; else break; }
+    }
+    if (!best || !(best.p > 0)) return null;
+    // اگر قدیمی‌ترین نقطه‌ی موجود بیش از ۱٫۵ روز از هدف جدیدتر است، بازه پوشش داده نشده
+    if (best.t > target + 1.5 * 86400000) return null;
+    return { pct: (q.p / best.p - 1) * 100, from: best.t, fromP: best.p, days: Math.round((Date.now() - best.t) / 86400000) };
+  }
+
+  /** تغییر نسبت به «days» روز پیش؛ اگر تاریخچه کوتاه‌تر است، از قدیمی‌ترین نقطه (حداقل minDays روز) */
+  function changeOverAvail(sym, days, minDays) {
+    var c = changeOver(sym, days);
+    if (c) return c;
+    var q = QUOTES[sym];
+    if (!HISTORY || !q || !(q.p > 0)) return null;
+    var oldest = null;
+    var dl = (HISTORY.daily && HISTORY.daily[sym]) || [];
+    if (dl.length && dl[0][1] > 0) oldest = { t: dayMs(dl[0][0]), p: dl[0][1] };
+    var rec = (HISTORY.recent && HISTORY.recent[sym]) || [];
+    if (rec.length && rec[0][1] > 0 && (!oldest || rec[0][0] * 1000 < oldest.t)) oldest = { t: rec[0][0] * 1000, p: rec[0][1] };
+    if (!oldest) return null;
+    var age = (Date.now() - oldest.t) / 86400000;
+    if (age < (minDays || 2)) return null;
+    return { pct: (q.p / oldest.p - 1) * 100, from: oldest.t, fromP: oldest.p, days: Math.round(age) };
+  }
+
+  /** خلاصه‌ی هفتگی برای حکم: تغییر ۷ روزه‌ی دارایی‌های کلیدی (یا کوتاه‌ترین بازه‌ی موجود، ≥۲ روز) + حباب سکه‌ی آن زمان */
+  function weekly() {
+    if (!HISTORY) return null;
+    var syms = ['USD', 'G18', 'EMAMI', 'USDT', 'BTC_USD', 'OUNCE_USD'];
+    var out = { rows: [], days: 0 }, any = false;
+    syms.forEach(function (s) {
+      var c = changeOverAvail(s, 7, 2);
+      if (!c) return;
+      any = true;
+      out.days = Math.max(out.days, c.days);
+      var a = asset(s);
+      out.rows.push({ sym: s, fa: a ? a.short : s, pct: c.pct, days: c.days });
+    });
+    if (!any) return null;
+    // حباب سکه‌ی هفته‌ی پیش از سری‌های تاریخی
+    var e = changeOverAvail('EMAMI', 7, 2), g24 = changeOverAvail('G24', 7, 2), g18 = changeOverAvail('G18', 7, 2);
+    var g24Then = g24 ? g24.fromP : (g18 ? g18.fromP * CH.G24_K : null);
+    if (e && g24Then) out.bubbleThen = (e.fromP / (g24Then * CH.EMAMI_G) - 1) * 100;
+    var dv = derived();
+    if (dv.bubble != null) out.bubbleNow = dv.bubble;
+    return out;
   }
 
   /* ---------------- بوت ماژول ---------------- */
@@ -1093,6 +1280,12 @@
     getNavasanKey: getNavasanKey,
     clearNavasanKey: clearNavasanKey,
     clearCache: clearCache,
+    liveCount: function () { return CFG.ASSETS.filter(function (a) { return QUOTES[a.sym] && QUOTES[a.sym].live; }).length; },
+    okSources: function () { return Object.keys(SRC).filter(function (id) { return SRC[id] && SRC[id].ok && id !== 'snapshot'; }).length; },
+    sinceLastVisit: sinceLastVisit,
+    history: function () { return HISTORY; },
+    historyMeta: historyMeta, series: series, changeOver: changeOver, weekly: weekly, fetchHistory: fetchHistory,
+    _setHistory: function (h) { HISTORY = h; emit('history', h); },
     isFastBusy: function () { return fastBusy; },
     isSlowBusy: function () { return slowBusy; },
     isBootDone: function () { return bootDone; },
@@ -1100,6 +1293,8 @@
     _recompute: recompute,
     _ingest: ingest,
     _irDelay: function (ms) { IR_DELAY = ms; },
+    _mirrorStagger: function (ms) { MIRROR_STAGGER = ms; },
+    _rejects: REJECT,
     _clearRaw: function () { RAW = {}; }
   };
 })();

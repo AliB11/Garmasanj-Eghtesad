@@ -43,9 +43,13 @@
 
   function regimeOf() {
     var m = D().mood();
-    if (m.score >= 20 && m.ups >= 60) return { key: 'on', label: 'رژیم ریسک‌پذیر', desc: 'اکثر دارایی‌ها مثبت‌اند؛ پول داغ در چرخش است.' };
-    if (m.score <= -20 && m.ups < 40) return { key: 'off', label: 'رژیم ریسک‌گریز', desc: 'پول به پناهگاه‌ها می‌خزد؛ حفظ قدرت خرید اولویت است.' };
     if (!m.n) return { key: 'neutral', label: 'در انتظار داده', desc: 'هنوز نبضی ثبت نشده.' };
+    if (m.quiet) {
+      var ses = U.marketSession();
+      return { key: 'neutral', label: 'رژیم کم‌تحرک', desc: (ses.open ? 'اکثر دارایی‌ها امروز بی‌تغییرند؛ ' : 'بازار تهران بسته است؛ ') + 'فقط متحرک‌ها (عمدتاً رمزارز) رتبه‌بندی معناداری دارند.' };
+    }
+    if (m.score >= 20 && m.breadth >= 60) return { key: 'on', label: 'رژیم ریسک‌پذیر', desc: 'اکثر دارایی‌های متحرک مثبت‌اند؛ پول داغ در چرخش است.' };
+    if (m.score <= -20 && m.breadth < 40) return { key: 'off', label: 'رژیم ریسک‌گریز', desc: 'پول به پناهگاه‌ها می‌خزد؛ حفظ قدرت خرید اولویت است.' };
     return { key: 'neutral', label: 'رژیم خنثی / چرخشی', desc: 'بازار تصمیم نگرفته؛ پول بین پناهگاه و ریسک در نوسان است.' };
   }
 
@@ -62,8 +66,8 @@
     var bm = U.$('#breadthMeter');
     if (bm) {
       var m = D().mood();
-      bm.innerHTML = '<div class="bm-top"><span>پهنای بازار</span><b>' + U.fa(m.ups) + '٪ مثبت امروز</b></div>' +
-        '<div class="bm-track"><i style="width:' + U.clamp(m.ups, 0, 100) + '%"></i></div>';
+      bm.innerHTML = '<div class="bm-top"><span>پهنای بازار</span><b>' + U.fa(m.ups) + '٪ مثبت · ' + U.fa(m.downs || 0) + '٪ منفی' + (m.flat ? ' · ' + U.fa(m.flat) + '٪ بی‌تغییر' : '') + '</b></div>' +
+        '<div class="bm-track bm-tri"><i class="bm-up" style="width:' + U.clamp(m.ups, 0, 100) + '%"></i><i class="bm-down" style="width:' + U.clamp(m.downs || 0, 0, 100) + '%"></i></div>';
     }
     if (!rows.length) {
       host.innerHTML = '<div class="radar-empty">هنوز داده‌ی زنده‌ای برای ردیابی جریان پول نرسیده.<br>چند ثانیه صبر کن…</div>';
@@ -73,7 +77,7 @@
     host.innerHTML = rows.map(function (r, i) {
       var s = r.score, hot = s > 12, cold = s < -12;
       var w = Math.max(4, Math.abs(s) / max * 100);
-      var tag = i === 0 ? 'ورود پول داغ' : (i === rows.length - 1 ? 'خروج / سرد' : (hot ? 'گرم' : cold ? 'سرد' : 'خنثی'));
+      var tag = (i === 0 && s > 0) ? 'ورود پول داغ' : (i === rows.length - 1 && s < 0) ? 'خروج / سرد' : (hot ? 'گرم' : cold ? 'سرد' : Math.abs(s) < 1 ? 'بی‌تغییر' : 'خنثی');
       return '<div class="flow-row">' +
         '<div class="fl-name"><b>' + U.esc(r.a.short) + '</b><small>امروز <span dir="ltr">' + U.pct(r.q.chgPct || 0) + '</span>' +
         ' · شیب نشست <span dir="ltr">' + U.pct(r.slope, 1) + '/h</span></small></div>' +
@@ -84,7 +88,9 @@
     var note = U.$('#flowNote');
     if (note && rows.length >= 2) {
       var top = rows[0], low = rows[rows.length - 1];
-      note.innerHTML = 'الان پول داغ به سمت <b>' + U.esc(top.a.short) + '</b> متمایل است و از <b>' + U.esc(low.a.short) +
+      if (top.score <= 1 && low.score >= -1) note.innerHTML = 'الان جریان معناداری دیده نمی‌شود؛ اکثر دارایی‌ها بی‌تغییرند. رتبه‌بندی با اولین حرکت واقعی بازسازی می‌شود.';
+      else if (low.score >= -1) note.innerHTML = 'الان پول داغ به سمت <b>' + U.esc(top.a.short) + '</b> متمایل است؛ خروج معناداری از هیچ دارایی‌ای ثبت نشده. این رتبه‌بندی هر چرخه با داده‌ی زنده بازسازی می‌شود.';
+      else note.innerHTML = 'الان پول داغ به سمت <b>' + U.esc(top.a.short) + '</b> متمایل است و از <b>' + U.esc(low.a.short) +
         '</b> فاصله می‌گیرد. این رتبه‌بندی هر چرخه با داده‌ی زنده بازسازی می‌شود.';
     }
   }
@@ -130,9 +136,16 @@
     var max = (res[0] && res[0].real) || 1;
     var built = barsEl.children.length === res.length;
     if (!built) barsEl.innerHTML = res.map(barHTML).join('');
-    res.forEach(function (a) {
+    res.forEach(function (a, idx) {
       var el = barsEl.querySelector('.bar-row[data-id="' + a.id + '"]');
       if (!el) return;
+      // ترتیب رتبه‌ای و برچسب نرخ همیشه با وضعیت فعلی (همگام/پایه، تورم، افق) هم‌خوان می‌ماند
+      if (barsEl.children[idx] !== el) barsEl.insertBefore(el, barsEl.children[idx] || null);
+      var lbl = el.querySelector('.bar-name small');
+      if (lbl) {
+        var lblTxt = U.esc(a.sub) + ' • <span dir="ltr">' + U.fa(a.r) + '٪</span>';
+        if (lbl.innerHTML !== lblTxt) lbl.innerHTML = lblTxt;
+      }
       var fill = el.querySelector('.bar-fill'), g = el.querySelector('.bar-guide');
       fill.style.width = Math.max(0, a.real / max * 100) + '%';
       fill.style.background = U.tempColor(a.r - simState.inf);
@@ -191,6 +204,7 @@
     if (sync) sync.addEventListener('click', function () {
       simState.liveSync = !simState.liveSync;
       sync.classList.toggle('on', simState.liveSync);
+      sync.setAttribute('aria-pressed', simState.liveSync ? 'true' : 'false');
       sync.innerHTML = simState.liveSync ? 'همگام با نبض زنده: روشن' : 'همگام با نبض زنده: خاموش';
       renderSim();
     });
@@ -198,7 +212,7 @@
 
   function paintRange(r) {
     var p = (r.value - r.min) / (r.max - r.min) * 100;
-    r.style.background = 'linear-gradient(to left, #E8A33D 0 ' + p + '%, #2A3138 ' + p + '% 100%)';
+    r.style.background = 'linear-gradient(to left, var(--gold) 0 ' + p + '%, var(--track) ' + p + '% 100%)';
   }
 
   /* ================= ترکیب‌ساز هوشمند ================= */
@@ -318,7 +332,7 @@
     tEl.style.color = U.tempColor(mixT);
     U.$('#mixName').textContent = ['محافظه‌کار', 'متعادل', 'جسور'][rk - 1] + ' • ' + ['کوتاه‌مدت', 'میان‌مدت', 'بلندمدت'][hz - 1];
     var m = D().mood(), diff = mixT - m.score / 4, vs = U.$('#mixVs');
-    vs.textContent = U.fa(Math.abs(m.score).toFixed(0)) + ' نبض بازار (' + m.label + ')';
+    vs.textContent = 'نبض بازار ' + (m.score >= 0 ? '+' : '−') + U.fa(Math.abs(m.score).toFixed(0)) + ' (' + m.label + ')';
     vs.style.color = U.tempColor(mixT);
     vs.style.borderColor = U.tempRGBA(mixT, 0.4);
     void diff;
@@ -351,6 +365,18 @@
   var LS_ALERTS = 'garmasanj_alerts_v6';
   var OLD_ID_MAP = { usd: 'USD', eur: 'EUR', usdt: 'USDT', coin: 'EMAMI', gold: 'G18', btc: 'BTC_TM', tse: null, fund: null };
 
+  var LS_RPREF = 'garmasanj_radar_prefs_v1';
+  var RPREF = { repeat: false, sound: false };
+  var REARM_BAND = 0.003; // ۰٫۳٪ آن‌سوی هدف → دوباره مسلح
+  function prefsLoad() {
+    var p = U.store.get(LS_RPREF, null);
+    if (p && typeof p === 'object') RPREF = { repeat: !!p.repeat, sound: !!p.sound };
+    var r = U.$('#radarRepeat'), so = U.$('#radarSound');
+    if (r) r.checked = RPREF.repeat;
+    if (so) so.checked = RPREF.sound;
+  }
+  function prefsSave() { U.store.set(LS_RPREF, RPREF); }
+
   function alertsLoad() {
     ALERTS.length = 0;
     var a = U.store.get(LS_ALERTS, []);
@@ -358,10 +384,53 @@
       if (!x || !(x.target > 0)) return;
       var sym = x.s || OLD_ID_MAP[x.m];
       if (!sym || !D().asset(sym)) return;
-      ALERTS.push({ s: sym, target: x.target, dir: x.dir || 'up', done: !!x.done });
+      ALERTS.push({ s: sym, target: x.target, dir: x.dir || null, done: !!x.done, at: x.at || 0,
+        repeat: !!x.repeat, armed: x.armed !== false, hits: x.hits || 0, lastHit: x.lastHit || 0 });
     });
   }
   function alertsSave() { U.store.set(LS_ALERTS, ALERTS); }
+
+  /* صدا (WebAudio) — فقط با اجازه‌ی صریح کاربر؛ کانتکست در یک ژست کاربر ساخته می‌شود */
+  var audioCtx = null;
+  function ensureAudio() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      if (!audioCtx) audioCtx = new AC();
+      if (audioCtx.state === 'suspended' && audioCtx.resume) audioCtx.resume().catch(function () {});
+      return audioCtx;
+    } catch (e) { return null; }
+  }
+  function beep() {
+    var ctx = ensureAudio();
+    if (!ctx) return false;
+    try {
+      [[880, 0, 0.12], [1175, 0.16, 0.18]].forEach(function (n) {
+        var o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = n[0];
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + n[1]);
+        g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + n[1] + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + n[1] + n[2]);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(ctx.currentTime + n[1]); o.stop(ctx.currentTime + n[1] + n[2] + 0.02);
+      });
+      return true;
+    } catch (e) { return false; }
+  }
+  function buzz() {
+    try { if (navigator.vibrate) return !!navigator.vibrate([180, 90, 180]); } catch (e) {}
+    return false;
+  }
+  /** اعلام فعال‌شدن رادار: توست + اعلان مرورگر + (اختیاری) صدا و لرزش */
+  function announceHit(a, al) {
+    GS.ui.toast('ok', 'رادار فعال شد', 'قیمت ' + a.fa + ' از ' + U.fmt(al.target) + ' گذشت — وقت تصمیمه.' + (al.repeat ? ' (تکرارشونده — با برگشت قیمت دوباره مسلح می‌شود)' : ''));
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('گرماسنج — رادار فعال شد', { body: a.fa + ' از ' + U.fmt(al.target) + ' گذشت.', tag: 'radar-' + al.s + '-' + al.target });
+      }
+    } catch (e) {}
+    if (RPREF.sound) { beep(); buzz(); }
+  }
 
   function initRadar() {
     var sel = U.$('#radarMarket');
@@ -375,15 +444,32 @@
         if (q && q.p) U.$('#radarTarget').value = U.fmt(Math.round(q.p * (1 + (+b.dataset.rel))));
       });
     });
+    prefsLoad();
+    var rp = U.$('#radarRepeat'), so = U.$('#radarSound');
+    if (rp) rp.addEventListener('change', function () { RPREF.repeat = rp.checked; prefsSave(); });
+    if (so) so.addEventListener('change', function () {
+      RPREF.sound = so.checked; prefsSave();
+      if (so.checked) { // ژست کاربر: کانتکست صدا همین‌جا باز می‌شود و یک نمونه پخش می‌کنیم
+        var ok = beep(); buzz();
+        GS.ui.toast('info', 'صدا و لرزش روشن شد', ok ? 'همین صدا هنگام فعال‌شدن رادار پخش می‌شود.' : 'مرورگر اجازه‌ی پخش صدا نداد؛ لرزش (در موبایل) فعال است.');
+      }
+    });
     U.$('#radarAdd').addEventListener('click', function () {
       var a = D().asset(sel.value), q = D().quote(sel.value);
+      if (!a) { GS.ui.toast('warn', 'دارایی نامعتبر', 'یک دارایی از فهرست انتخاب کن.'); return; }
       var t = +U.toEn(U.$('#radarTarget').value);
       if (!(t > 0)) { GS.ui.toast('warn', 'هدف نامعتبر', 'قیمت هدف را یک عدد درست وارد کن.'); return; }
-      var dir = (q && q.p && t > q.p) ? 'up' : 'down';
-      ALERTS.push({ s: a.sym, target: Math.round(t), dir: dir, done: false });
+      if (q && q.p > 0 && Math.abs(t - q.p) / q.p < 0.0005) { GS.ui.toast('warn', 'هدف برابر قیمت فعلی است', 'هدفی کمی بالاتر یا پایین‌تر از قیمت الان بگذار.'); return; }
+      var dup = ALERTS.some(function (x) { return !x.done && x.s === a.sym && x.target === Math.round(t); });
+      if (dup) { GS.ui.toast('info', 'رادار تکراری', 'همین هدف قبلاً برای «' + a.fa + '» ثبت شده.'); return; }
+      // اگر هنوز قیمتی نداریم، جهت را در اولین داده تعیین می‌کنیم (نه کورکورانه «پایین»)
+      var dir = (q && q.p > 0) ? (t > q.p ? 'up' : 'down') : null;
+      ALERTS.push({ s: a.sym, target: Math.round(t), dir: dir, done: false, at: Date.now(), repeat: RPREF.repeat, armed: true, hits: 0, lastHit: 0 });
       U.$('#radarTarget').value = '';
       alertsSave(); renderRadars();
-      GS.ui.toast('ok', 'رادار ثبت شد', '«' + a.fa + '» زیر پایش است — هدف: ' + U.fmt(t) + ' ' + a.unit + '.');
+      askNotify(); // اجازه‌ی اعلان فقط وقتی کاربر واقعاً رادار می‌خواهد (نه با اولین کلیک روی صفحه)
+      if (RPREF.sound) ensureAudio(); // ژست کاربر → کانتکست صدا برای بعد آماده می‌شود
+      GS.ui.toast('ok', 'رادار ثبت شد', '«' + a.fa + '» زیر پایش است — هدف: ' + U.fmt(t) + ' ' + a.unit + (RPREF.repeat ? ' (تکرارشونده)' : '') + '.');
     });
     U.$('#radarItems').addEventListener('click', function (e) {
       var x = e.target.closest('.ri-x');
@@ -405,11 +491,18 @@
       var a = D().asset(al.s), q = a ? D().quote(al.s) : null;
       if (!a) return '';
       var gap = (q && q.p) ? (al.target - q.p) / q.p * 100 : null;
-      return '<div class="r-item ' + (al.done ? 'hit' : '') + '">' +
+      var dirTxt = al.dir === 'up' ? '↑ صعود به' : al.dir === 'down' ? '↓ نزول به' : 'هدف:';
+      var waiting = al.repeat && !al.armed && !al.done;
+      var state = al.done ? '<svg class="ic s14"><use href="#i-check"/></svg> فعال شد' :
+        waiting ? '<i class="w-dot"></i> منتظر برگشت قیمت' : '<i class="w-dot"></i> در حال پایش';
+      var detail = al.done ? 'عبور از هدف رخ داد' + (al.lastHit ? ' (' + U.relLabel(al.lastHit) + ')' : '') :
+        waiting ? 'فعال شد؛ وقتی قیمت ' + U.fa((REARM_BAND * 100).toFixed(1)) + '٪ آن‌سوی هدف برگردد دوباره مسلح می‌شود' :
+        (gap != null ? 'فاصله تا هدف: ' + U.fa(Math.abs(gap).toFixed(2)) + '٪' : 'منتظر اولین داده');
+      var tags = (al.repeat ? '<em class="ri-tag">تکرارشونده' + (al.hits ? ' · ' + U.fa(al.hits) + ' بار' : '') + '</em>' : '');
+      return '<div class="r-item ' + (al.done ? 'hit' : '') + (waiting ? ' wait' : '') + '">' +
         '<svg class="ic s18 ri-ic"><use href="#i-bell"/></svg>' +
-        '<div class="ri-mid"><b>' + U.esc(a.fa) + '</b><small>هدف: <span dir="ltr">' + U.fmt(al.target) + '</span> — ' +
-        (al.done ? 'عبور از هدف رخ داد' : (gap != null ? 'فاصله تا هدف: ' + U.fa(Math.abs(gap).toFixed(2)) + '٪' : 'منتظر اولین داده')) + '</small></div>' +
-        '<span class="ri-state ' + (al.done ? 'hit' : '') + '">' + (al.done ? '<svg class="ic s14"><use href="#i-check"/></svg> فعال شد' : '<i class="w-dot"></i> در حال پایش') + '</span>' +
+        '<div class="ri-mid"><b>' + U.esc(a.fa) + tags + '</b><small>' + dirTxt + ' <span dir="ltr">' + U.fmt(al.target) + '</span> — ' + detail + '</small></div>' +
+        '<span class="ri-state ' + (al.done ? 'hit' : '') + '">' + state + '</span>' +
         '<button class="ri-x" data-i="' + i + '" aria-label="حذف رادار"><svg class="ic s14"><use href="#i-x"/></svg></button></div>';
     }).join('');
   }
@@ -420,15 +513,19 @@
       if (al.done) return;
       var a = D().asset(al.s), q = a ? D().quote(al.s) : null;
       if (!q || !(q.p > 0)) return;
+      if (!al.dir) { al.dir = al.target > q.p ? 'up' : 'down'; changed = true; return; } // جهت با اولین قیمت واقعی
+      if (al.repeat && al.armed === false) {
+        // بازآرم: قیمت باید ۰٫۳٪ به آن‌سوی هدف برگردد (هیسترزیس؛ جلوی پینگ‌پنگ را می‌گیرد)
+        var back = al.dir === 'up' ? q.p <= al.target * (1 - REARM_BAND) : q.p >= al.target * (1 + REARM_BAND);
+        if (back) { al.armed = true; changed = true; }
+        return;
+      }
       var hit = al.dir === 'up' ? q.p >= al.target : q.p <= al.target;
       if (hit) {
-        al.done = true; changed = true;
-        GS.ui.toast('ok', 'رادار فعال شد', 'قیمت ' + a.fa + ' از ' + U.fmt(al.target) + ' گذشت — وقت تصمیمه.');
-        try {
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('گرماسنج — رادار فعال شد', { body: a.fa + ' از ' + U.fmt(al.target) + ' گذشت.' });
-          }
-        } catch (e) {}
+        changed = true;
+        al.hits = (al.hits || 0) + 1; al.lastHit = Date.now();
+        if (al.repeat) al.armed = false; else al.done = true;
+        announceHit(a, al);
       }
     });
     if (changed) { alertsSave(); renderRadars(); }
@@ -489,6 +586,7 @@
       return q.live && q.p > 0 && (Date.now() - q.ts < 3 * 60000);
     }).length;
     var coverage = total ? freshN / total : 0;
+    var ses = U.marketSession();
     var score = 0, reasons = [], warns = [];
     var top = rows[0], low = rows[rows.length - 1];
     function f1(v) { return U.fa(Math.abs(v).toFixed(1)); }
@@ -500,11 +598,16 @@
     else if (m.score > -5) { reasons.push('نبض بازار آرام است — بازار تصمیم نگرفته.'); }
     else if (m.score > -20) { score -= 1; reasons.push('نبض بازار ' + sg(m.score) + f1(m.score) + ' — منفی و کم‌رمق.'); }
     else { score -= 3; reasons.push('نبض بازار ' + sg(m.score) + f1(m.score) + ' — سرد؛ حفظ سرمایه اولویت است.'); }
-    // ۲) پهنا
-    if (m.ups >= 70) { score += 2; reasons.push('پهنای بازار ' + U.fa(m.ups) + '٪ — رشد فراگیر است، نه تک‌محصولی.'); }
-    else if (m.ups >= 50) { score += 1; reasons.push('پهنای بازار ' + U.fa(m.ups) + '٪ — نیمی از دارایی‌ها مثبت‌اند.'); }
-    else if (m.ups >= 35) { score -= 1; reasons.push('پهنای بازار فقط ' + U.fa(m.ups) + '٪ — رشد محدود به چند دارایی است.'); }
-    else if (m.n) { score -= 2; reasons.push('پهنای بازار ' + U.fa(m.ups) + '٪ — اکثر دارایی‌ها منفی‌اند.'); }
+    // ۲) پهنا — فقط میان دارایی‌های متحرک؛ بازار بسته/بی‌تغییر جریمه نمی‌شود
+    if (m.n && m.quiet) {
+      reasons.push(U.fa(m.flat) + '٪ دارایی‌ها بی‌تغییرند' + (!ses.open ? ' — بازار تهران بسته است' : '') + '؛ پهنا فقط از ' + U.fa(Math.round(m.part * 100)) + '٪ متحرک (' + U.fa(m.breadth) + '٪ مثبت) خوانده شد.');
+      if (m.breadth >= 70 && m.part >= 0.1) score += 1;
+      else if (m.breadth <= 30 && m.part >= 0.1) score -= 1;
+    }
+    else if (m.breadth >= 70) { score += 2; reasons.push('پهنای بازار ' + U.fa(m.breadth) + '٪ — رشد فراگیر است، نه تک‌محصولی.'); }
+    else if (m.breadth >= 50) { score += 1; reasons.push('پهنای بازار ' + U.fa(m.breadth) + '٪ — نیمی از متحرک‌ها مثبت‌اند.'); }
+    else if (m.breadth >= 35) { score -= 1; reasons.push('پهنای بازار فقط ' + U.fa(m.breadth) + '٪ — رشد محدود به چند دارایی است.'); }
+    else if (m.n) { score -= 2; reasons.push('پهنای بازار ' + U.fa(m.breadth) + '٪ — اکثر دارایی‌های متحرک منفی‌اند.'); }
     // ۳) پول داغ
     if (top && top.score > 20) { score += 1; reasons.push('پول داغ به «' + top.a.short + '» سرازیر شده (امتیاز ' + sg(top.score) + f1(top.score) + ').'); }
     if (low && low.score < -20) { reasons.push('«' + low.a.short + '» سردترین نقطه است — برای خرید عجله نکن.'); }
@@ -527,6 +630,23 @@
     if (dv.btcUsdGap != null && Math.abs(dv.btcUsdGap) > 2) {
       warns.push('نرخ دلاریِ ضمنی بیت‌کوین صرافی‌ها ' + f1(dv.btcUsdGap) + '٪ با دلار آزاد فاصله دارد — نشانه‌ی هیجان یا اختلال در یک سمت.');
     }
+    // ۸) «این هفته» — از تاریخچه‌ی انتشارهای سرور (بدون سرور)
+    var wk = null;
+    try { wk = D().weekly ? D().weekly() : null; } catch (e) { wk = null; }
+    if (wk && wk.rows.length >= 2 && wk.days >= 2) {
+      var keyRows = wk.rows.filter(function (r) { return r.sym === 'USD' || r.sym === 'G18' || r.sym === 'EMAMI'; });
+      if (keyRows.length) {
+        var span = wk.days >= 6 ? 'این هفته' : 'در ' + U.fa(wk.days) + ' روز گذشته';
+        var txt = span + ': ' + keyRows.map(function (r) { return r.fa + ' ' + U.pct(r.pct, 1); }).join('، ');
+        if (wk.bubbleThen != null && wk.bubbleNow != null && Math.abs(wk.bubbleNow - wk.bubbleThen) >= 0.3) {
+          txt += '؛ حباب سکه از ' + f1(wk.bubbleThen) + '٪ به ' + f1(wk.bubbleNow) + '٪ ' + (wk.bubbleNow > wk.bubbleThen ? 'رسید (هیجان در حال ساخت).' : 'رسید (هیجان در حال تخلیه).');
+          if (wk.bubbleNow > wk.bubbleThen + 3) score -= 1;
+        } else txt += '.';
+        reasons.push(txt);
+        var usdW = keyRows.filter(function (r) { return r.sym === 'USD'; })[0];
+        if (usdW && usdW.pct >= 3) { warns.push('دلار ' + span + ' ' + U.pct(usdW.pct, 1) + ' بالا رفته — پله‌ای عمل کن؛ بعد از جهش‌های تند، اصلاح کوتاه رایج است.'); }
+      }
+    }
     // تصمیم
     var hotName = top ? top.a.short : 'دارایی‌های داغ';
     var A;
@@ -535,10 +655,14 @@
     else if (score >= -1) A = { t: 'حفظ ترکیب، شکار نوسان', tone: 'neutral', d: 'بازار تصمیم نگرفته؛ نه هیجان، نه خواب.', steps: ['ترکیب فعلی را حفظ کن؛ معامله‌ی اضافه ممنوع', 'نقد ذخیره نگه دار برای فرصت‌های ناگهانی', 'رادار روی «' + (low ? low.a.short : 'بازارها') + '» فعال کن'] };
     else if (score >= -4) A = { t: 'حالت دفاعی', tone: 'cold', d: 'سرما نزدیک است؛ به پناهگاه‌ها برگرد.', steps: ['کاهش وزن رمزارز و سکه‌ی حباب‌دار', 'افزایش طلا و صندوق درآمد ثابت', 'خریدهای جدید را به بعد از تثبیت موکول کن'] };
     else A = { t: 'نقد و انتظار', tone: 'ice', d: 'یخ‌زدگی؛ بهترین معامله، عدم معامله است.', steps: ['حداقل ۳۰٪ سبد نقد یا درآمد ثابت', 'فقط خرید پله‌ای طلا در ریزش‌های عمیق', 'تصمیم بزرگ را به بهبود پهنا موکول کن'] };
-    var conf = Math.round(U.clamp(35 + coverage * 55 + Math.min(12, Math.abs(score) * 2), 5, 97));
+    // پوشش: در بازار بسته، «زنده بودن منبع» ملاک است نه تازگی آخرین معامله
+    var liveCov = total ? liveN / total : 0;
+    var effCov = ses.open ? coverage : Math.max(coverage, liveCov * 0.85);
+    var conf = Math.round(U.clamp(35 + effCov * 55 + Math.min(12, Math.abs(score) * 2), 5, 97));
     if (liveN < 3) { warns.unshift('داده‌ی زنده‌ی کافی نرسیده — این حکم موقت است؛ وضعیت منابع را در «سلامت داده» ببین.'); conf = Math.min(conf, 45); }
+    else if (!ses.open && m.quiet) { warns.push('بازار تهران بسته است' + (ses.next ? ' (' + ses.next + ')' : '') + ' — حکم بر پایه‌ی آخرین جلسه و بازارهای ۲۴ساعته است؛ اقدام را به بازگشایی موکول کن.'); conf = Math.min(conf, 70); }
     else if (coverage < 0.4) { warns.push('پوشش داده‌ی تازه پایین است — حکم را با احتیاط اجرا کن.'); conf = Math.min(conf, 60); }
-    return { mood: m, score: score, conf: conf, reasons: reasons.slice(0, 4), warns: warns.slice(0, 3), action: A, top: top, low: low, coverage: coverage, liveN: liveN };
+    return { mood: m, score: score, conf: conf, reasons: reasons.slice(0, 5), warns: warns.slice(0, 3), action: A, top: top, low: low, coverage: coverage, liveN: liveN, session: ses, weekly: wk };
   }
 
   var TONE_C = { hot: '#FF4E2E', warm: '#E8833A', neutral: '#9AA4AD', cold: '#3E8E9E', ice: '#7FB3D5' };
@@ -564,7 +688,7 @@
       '<div class="v-conf"><span>اطمینان حکم</span><b>' + U.fa(v.conf) + '٪</b><div class="risk-track"><i style="width:' + v.conf + '%;background:' + col + '"></i></div></div>' +
       '<div class="v-meters"><span>نبض <b dir="ltr">' + (v.mood.score >= 0 ? '+' : '−') + U.fa(Math.abs(v.mood.score)) + '</b></span>' +
       '<span>پهنا <b>' + U.fa(v.mood.ups) + '٪</b></span></div></div>' +
-      '<div class="v-main"><span class="v-kicker">حکم امروز گرماسنج</span>' +
+      '<div class="v-main"><span class="v-kicker">حکم امروز گرماسنج <button class="f-help" type="button" data-formula="verdict" aria-label="فرمول حکم امروز" title="چطور محاسبه می‌شود؟">؟</button></span>' +
       '<h3>' + U.esc(v.action.t) + '</h3><p>' + U.esc(v.action.d) + '</p>' +
       '<div class="v-cols"><div><b>چرا؟</b><ul>' + v.reasons.map(function (r) { return '<li>' + U.esc(r) + '</li>'; }).join('') + '</ul></div>' +
       '<div><b>۳ اقدام امروز</b><ol>' + v.action.steps.map(function (s) { return '<li>' + U.esc(s) + '</li>'; }).join('') + '</ol></div></div>' +
@@ -577,8 +701,8 @@
     var flow = U.$('#chainFlow'), sig = U.$('#chainSignal');
     if (!flow) return;
     var c = D().chain();
-    function card(label, val, sub, delta, tone) {
-      return '<div class="ch-card ' + (tone || '') + '"><small>' + label + '</small><b>' + val + '</b>' +
+    function card(label, val, sub, delta, tone, fkey) {
+      return '<div class="ch-card ' + (tone || '') + '"><small>' + label + (fkey ? ' <button class="f-help" type="button" data-formula="' + fkey + '" aria-label="فرمول ' + label + '" title="فرمول و ورودی‌های لحظه‌ای">؟</button>' : '') + '</small><b>' + val + '</b>' +
         (sub ? '<span>' + sub + '</span>' : '') + (delta ? '<i class="ch-delta ' + delta[1] + '">' + delta[0] + '</i>' : '') + '</div>';
     }
     var arrow = '<span class="ch-arrow" aria-hidden="true"><i></i><i></i><i></i></span>';
@@ -587,21 +711,21 @@
       c.ounce ? ('امروز ' + U.pct(c.ounce.chgPct || 0)) : 'منتظر داده'));
     cards.push(card('دلار آزاد', c.usd ? U.fmtCompact(c.usd.p) + ' تومان' : '—',
       c.usd ? U.esc((c.usd.srcFa || '').split('(')[0].split('·')[0]) : 'منتظر داده'));
-    cards.push(card('طلای ۱۸ منصفانه', c.fairG18 ? U.fmtCompact(Math.round(c.fairG18)) : '—', 'اونس × دلار × ۰٫۷۵'));
+    cards.push(card('طلای ۱۸ منصفانه', c.fairG18 ? U.fmtCompact(Math.round(c.fairG18)) : '—', 'اونس × دلار × ۰٫۷۵', null, '', 'fairG18'));
     var devCls = c.g18 && c.g18.dev != null ? (Math.abs(c.g18.dev) < 3 ? 'ok' : c.g18.dev > 0 ? 'hi' : 'lo') : '';
     var devTxt = c.g18 && c.g18.dev != null ? ('انحراف ' + U.pct(c.g18.dev, 1)) : '';
     cards.push(card('طلای واقعی بازار', c.g18 ? U.fmtCompact(c.g18.p) : '—',
       c.g18 ? ('امروز ' + U.pct(c.g18.chgPct || 0)) : 'منتظر داده',
-      devTxt ? [devTxt, devCls] : null));
+      devTxt ? [devTxt, devCls] : null, '', 'goldPrem'));
     var mCls = c.mesghal && c.mesghal.dev != null ? (Math.abs(c.mesghal.dev) < 2 ? 'ok' : c.mesghal.dev > 0 ? 'hi' : 'lo') : '';
     var mTxt = c.mesghal && c.mesghal.dev != null ? ('انحراف ' + U.pct(c.mesghal.dev, 1)) : '';
     cards.push(card('مثقال (مظنه)', c.mesghal ? U.fmtCompact(c.mesghal.p) : '—',
-      'گرم ۱۸ × ۴٫۳۵۲', mTxt ? [mTxt, mCls] : null));
+      'گرم ۱۸ × ۴٫۳۵۲', mTxt ? [mTxt, mCls] : null, '', 'mesghal'));
     var bubCls = c.emami && c.emami.bubble != null ? (c.emami.bubble > 25 ? 'hi' : c.emami.bubble > 15 ? 'mid' : 'ok') : '';
     var bubTxt = c.emami && c.emami.bubble != null ? ('حباب ' + U.fa(c.emami.bubble.toFixed(1)) + '٪') : '';
     cards.push(card('سکه امامی', c.emami ? U.fmtCompact(c.emami.p) : '—',
       c.intrinsicEmami ? ('ذاتی ' + U.fmtCompact(Math.round(c.intrinsicEmami))) : 'منتظر داده',
-      bubTxt ? [bubTxt, bubCls] : null));
+      bubTxt ? [bubTxt, bubCls] : null, '', 'bubble'));
     flow.innerHTML = cards.join(arrow);
     if (sig) {
       sig.className = 'ch-signal ' + (c.tone || '');
@@ -635,7 +759,7 @@
     grid.addEventListener('click', function (e) {
       var t = e.target.closest('[data-heat]');
       if (!t) return;
-      var card = document.querySelector('.qcard[data-sym="' + t.dataset.heat + '"]');
+      var card = GS.ui.ensureCardVisible ? GS.ui.ensureCardVisible(t.dataset.heat) : document.querySelector('.qcard[data-sym="' + t.dataset.heat + '"]');
       if (!card) return;
       try { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (err) {}
       card.classList.remove('flash');
@@ -647,6 +771,7 @@
 
   GS.features = {
     heatOf: heatOf,
+    simAmount: function () { return simState.P; },
     hotScores: hotScores, regimeOf: regimeOf, renderHotmoney: renderHotmoney,
     renderSim: renderSim, initSim: initSim,
     renderMix: renderMix, initMix: initMix,

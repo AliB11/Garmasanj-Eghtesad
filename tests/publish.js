@@ -90,13 +90,23 @@ t('kraken last+open -> chgPct', () => {
 });
 
 // --- ranges / live.json on disk ---
-t('live.json on disk valid core', () => {
+t('live.json on disk valid core (structural — file is republished every 15 min)', () => {
   const fs = require('fs'), path = require('path');
   const doc = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'data', 'live.json'), 'utf8'));
-  assert.ok(doc.quotes.USD.p === 230500, 'usd');
-  assert.ok(doc.quotes.BTC_TM.p === 17378114100, 'btc_tm scale');
-  assert.ok(Object.keys(doc.quotes).length >= 18, 'count');
-  assert.ok(doc.fx && doc.fx.rates.EUR > 0.5, 'fx');
+  assert.ok(Date.parse(doc.generated_at) > Date.UTC(2026, 0, 1), 'generated_at');
+  assert.ok(P.inRange('USD', doc.quotes.USD.p), 'usd in range: ' + doc.quotes.USD.p);
+  assert.ok(P.inRange('BTC_USD', doc.quotes.BTC_USD.p), 'btc_usd in range');
+  assert.ok(P.inRange('BTC_TM', doc.quotes.BTC_TM.p) && doc.quotes.BTC_TM.p > 1e9, 'btc_tm toman scale: ' + doc.quotes.BTC_TM.p);
+  // سازگاری داخلی: بیت‌کوین تومانی ÷ دلاری باید نزدیک دلار/تتر باشد (خطای واحد ریال/تومان را می‌گیرد)
+  const implied = doc.quotes.BTC_TM.p / doc.quotes.BTC_USD.p;
+  assert.ok(Math.abs(implied / doc.quotes.USD.p - 1) < 0.15, 'btc implied usd ' + Math.round(implied) + ' vs usd ' + doc.quotes.USD.p);
+  for (const sym of Object.keys(doc.quotes)) {
+    assert.ok(P.inRange(sym, doc.quotes[sym].p), sym + ' out of range: ' + doc.quotes[sym].p);
+    const pct = doc.quotes[sym].chgPct;
+    assert.ok(pct == null || Math.abs(pct) <= 25, sym + ' insane chgPct');
+  }
+  assert.ok(Object.keys(doc.quotes).length >= 12, 'count');
+  assert.ok(doc.fx && doc.fx.rates.EUR > 0.5 && doc.fx.rates.EUR < 2, 'fx');
 });
 t('snapshot.json btc scale fixed', () => {
   const fs = require('fs'), path = require('path');

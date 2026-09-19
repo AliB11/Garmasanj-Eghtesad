@@ -338,6 +338,16 @@ async function main() {
   fs.writeFileSync(OUT, JSON.stringify(doc) + '\n');
   console.log('PUBLISH OK: n=' + n + ' usd=' + quotes.USD.p + ' btc=' + quotes.BTC_USD.p +
     ' -> ' + path.relative(process.cwd(), OUT));
+
+  /* ---- تاریخچه: هر انتشار یک نقطه به history.json می‌افزاید (بدون سرور) ---- */
+  try {
+    const H = require('./history.cjs');
+    const r = H.appendLive(H.load(), doc);
+    H.save(r.doc);
+    console.log('HISTORY OK: +' + r.added + ' ' + JSON.stringify(H.stats(r.doc)));
+  } catch (e) {
+    console.error('HISTORY WARN: ' + ((e && e.message) || e));
+  }
 }
 
 if (require.main === module) {
