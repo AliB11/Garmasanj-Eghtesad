@@ -148,8 +148,14 @@
     if (gz) { gz.textContent = m.n ? m.label : 'بدون داده'; gz.style.color = col; }
     var gm = U.$('#moodMsg');
     if (gm) {
-      gm.textContent = !m.n ? 'در انتظار اولین داده…' :
-        U.fa(m.ups) + '٪ دارایی‌ها مثبت‌اند · میانگین تغییر ' + U.pct(m.avg, 2);
+      if (!m.n) gm.textContent = 'در انتظار اولین داده…';
+      else if (m.quiet) {
+        var ses = U.marketSession();
+        gm.textContent = U.fa(m.flat) + '٪ دارایی‌ها بی‌تغییرند' + (!ses.open ? ' (بازار تهران بسته است' + (ses.next ? ' — ' + ses.next : '') + ')' : '') +
+          ' · متحرک‌ها: ' + U.fa(m.ups) + '٪ مثبت، ' + U.fa(m.downs) + '٪ منفی';
+      } else {
+        gm.textContent = U.fa(m.ups) + '٪ مثبت · ' + U.fa(m.downs) + '٪ منفی · میانگین تغییر ' + U.pct(m.avg, 2);
+      }
     }
     var hs = U.$('#heroStats2');
     if (hs && m.n) {
@@ -163,14 +169,25 @@
   function renderSessions() {
     var el = U.$('#sessStrip');
     if (!el) return;
-    var n = U.tehranNow();
-    if (n.h < 0) { el.innerHTML = ''; return; }
-    var workday = n.dow >= 0 && n.dow <= 4; // شنبه تا چهارشنبه
-    var thu = n.dow === 5; // پنجشنبه: نیم‌روز
-    var fx = (workday && n.h >= 9 && n.h < 18) || (thu && n.h >= 9 && n.h < 13) ? 1 : 0;
+    var ses = U.marketSession();
+    if (ses.label === 'نامشخص') { el.innerHTML = ''; return; }
     el.innerHTML =
-      '<span class="sess"><i class="led ' + (fx ? 'on' : '') + '"></i>بازار ارز و طلا: ' + (fx ? 'باز' : 'بسته') + '</span>' +
+      '<span class="sess" title="' + U.esc(ses.next || 'ساعات تقریبی بازار آزاد تهران') + '"><i class="led ' + (ses.open ? 'on' : '') + '"></i>بازار ارز و طلا: ' + ses.label +
+      (!ses.open && ses.next ? ' <small>(' + U.esc(ses.next) + ')</small>' : '') + '</span>' +
       '<span class="sess"><i class="led on"></i>رمزارز جهانی: ۲۴/۷</span>';
+  }
+
+  /** پیل وضعیت هدر — صادقانه: قطع/بی‌پاسخ/تک‌منبع/متصل */
+  function renderNetPill(busy) {
+    var pill = U.$('#netStatus');
+    if (!pill) return;
+    if (busy) { pill.className = 'net-pill busy'; pill.innerHTML = '<i class="live-dot"></i>در حال دریافت…'; return; }
+    var offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+    var live = D().liveCount(), oks = D().okSources();
+    if (offline) { pill.className = 'net-pill off'; pill.innerHTML = '<i class="s-dot off"></i>آفلاین — نمایش کش'; }
+    else if (!live) { pill.className = 'net-pill off'; pill.innerHTML = '<i class="s-dot off"></i>منابع بی‌پاسخ'; }
+    else if (oks <= 1 || live < 5) { pill.className = 'net-pill alt'; pill.innerHTML = '<i class="s-dot alt"></i>اتصال محدود (' + U.fa(live) + ' زنده)'; }
+    else { pill.className = 'net-pill ok'; pill.innerHTML = '<i class="s-dot ok"></i>متصل · ' + U.fa(live) + ' زنده'; }
   }
 
   /* ---------------- وضعیت منابع (نوار خلاصه) ---------------- */
@@ -216,7 +233,7 @@
   function dispPrice(a, q) {
     if (!q || !(q.p > 0)) return '—';
     if (a.kind === 'usd') return fmtDec(q.p, a.dec != null ? a.dec : 0);
-    if (q.p >= 1e8) return U.fmtCompact(q.p);
+    if (q.p >= 1e9) return U.fmtCompact(q.p); // فقط ارقام واقعاً بزرگ (بیت‌کوین تومانی) فشرده می‌شوند
     return U.fmt(q.p);
   }
 
@@ -260,14 +277,21 @@
       }
     });
     U.$$('.cat-tab').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        activeCat = btn.dataset.cat || 'all';
-        U.$$('.cat-tab').forEach(function (b) { b.classList.toggle('on', b === btn); });
-        applyCatFilter();
-      });
+      btn.setAttribute('aria-selected', btn.classList.contains('on') ? 'true' : 'false');
+      btn.addEventListener('click', function () { setCategory(btn.dataset.cat || 'all'); });
     });
     applyCatFilter();
     updateGrid();
+  }
+
+  function setCategory(cat) {
+    activeCat = cat || 'all';
+    U.$$('.cat-tab').forEach(function (b) {
+      var on = (b.dataset.cat || 'all') === activeCat;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    applyCatFilter();
   }
 
   function applyCatFilter() {
@@ -277,9 +301,19 @@
     });
   }
 
+  /** اطمینان از دیده‌شدن کارت یک دارایی (اگر تب فعلی آن را پنهان کرده، به «همه» برمی‌گردد) */
+  function ensureCardVisible(sym) {
+    var card = document.querySelector('.qcard[data-sym="' + sym + '"]');
+    if (!card) return null;
+    if (activeCat !== 'all' && card.dataset.cat !== activeCat) setCategory('all');
+    return card;
+  }
+
   function updateGrid() {
     var grid = U.$('#assetGrid');
     if (!grid) return;
+    var dv = D().derived();
+    var ses = U.marketSession();
     CFG().ASSETS.forEach(function (a) {
       var card = grid.querySelector('.qcard[data-sym="' + a.sym + '"]');
       if (!card) return;
@@ -312,7 +346,6 @@
       var subEl = F('sub');
       if (subEl) {
         var subTxt = a.sub || catFa(a.cat);
-        var dv = D().derived();
         if (a.sym === 'EMAMI' && dv.bubble != null) subTxt = 'طرح جدید · حباب ' + U.fa(dv.bubble.toFixed(1)) + '٪';
         else if (a.sym === 'BAHAR' && dv.bubbleBahar != null) subTxt = 'طرح قدیم · حباب ' + U.fa(dv.bubbleBahar.toFixed(1)) + '٪';
         else if (a.sym === 'NIM' && dv.bubbleNim != null) subTxt = 'نیم سکه · حباب ' + U.fa(dv.bubbleNim.toFixed(1)) + '٪';
@@ -340,8 +373,10 @@
         else if (!q.live) { bd.className = 'qc-badge snap'; bd.textContent = q.src === 'snapshot' ? 'اسنپ‌شات' : 'کش'; }
         else {
           var age = Date.now() - (q.ts || 0), Fr = CFG().FRESH;
+          var tehranAsset = (a.cat === 'currency' || a.cat === 'gold' || a.cat === 'coin') && a.sym !== 'OUNCE_USD';
           if (age < Fr.liveMs) { bd.className = 'qc-badge live'; bd.textContent = 'زنده'; }
           else if (age < Fr.agingMs) { bd.className = 'qc-badge aging'; bd.textContent = 'در حال قدیمی شدن'; }
+          else if (tehranAsset && !ses.open) { bd.className = 'qc-badge session'; bd.textContent = 'آخرین جلسه'; bd.title = 'بازار تهران بسته است؛ این آخرین قیمت جلسه‌ی قبل است. ' + (ses.next || ''); }
           else { bd.className = 'qc-badge stale'; bd.textContent = 'قدیمی'; }
         }
       }
@@ -430,9 +465,11 @@
     };
   }
 
+  var lastFocus = null;
   function openModal(id) {
     var m = U.$(id);
     if (!m) return;
+    if (!m.classList.contains('show')) lastFocus = document.activeElement;
     m.classList.add('show');
     m.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
@@ -440,10 +477,16 @@
   }
   function closeModal(id) {
     var m = U.$(id);
-    if (!m) return;
+    if (!m || !m.classList.contains('show')) return;
     m.classList.remove('show');
     m.setAttribute('aria-hidden', 'true');
+    m.onkeydown = null;
     document.body.style.overflow = '';
+    // بازگرداندن فوکوس به عنصر بازکننده (دسترس‌پذیری صفحه‌کلید)
+    if (lastFocus && typeof lastFocus.focus === 'function' && document.contains(lastFocus)) {
+      try { lastFocus.focus(); } catch (e) {}
+    }
+    lastFocus = null;
   }
 
   function openAssetModal(sym) {
@@ -492,6 +535,14 @@
       metrics.push({ k: 'بیشترین قیمت امروز', v: (a.kind === 'usd' ? U.fa(q.high.toFixed(a.dec || 0)) : U.fmt(q.high)) + ' ' + a.unit });
       metrics.push({ k: 'کمترین قیمت امروز', v: (a.kind === 'usd' ? U.fa(q.low.toFixed(a.dec || 0)) : U.fmt(q.low)) + ' ' + a.unit });
     }
+    // «چقدر می‌خرد؟» — قدرت خرید سرمایه‌ی شبیه‌ساز با این دارایی
+    var simP = (GS.features && GS.features.simAmount) ? GS.features.simAmount() : 0;
+    if (simP > 0 && q.p > 0 && a.kind === 'toman') {
+      var units = simP / q.p;
+      var unitFa = a.cat === 'gold' ? (a.sym === 'MESGHAL' ? 'مثقال' : 'گرم') : a.cat === 'coin' ? 'عدد' : a.cat === 'crypto' ? 'واحد' : 'واحد';
+      var uTxt = units >= 100 ? U.fmt(Math.floor(units)) : U.fa(units.toFixed(units >= 10 ? 1 : 3));
+      metrics.push({ k: 'با ' + U.fmtMoney(simP) + ' تومان چقدر می‌خری؟', v: '≈ ' + uTxt + ' ' + unitFa });
+    }
 
     var metricHTML = metrics.map(function (m) {
       return '<div class="am-metric"><span class="am-k">' + U.esc(m.k) + '</span><b class="am-v">' + m.v + '</b></div>';
@@ -514,9 +565,9 @@
         '<div class="am-src-row"><span>وضعیت داده:</span><b>' + (q.live ? 'زنده' : (q.src === 'snapshot' ? 'اسنپ‌شات اولیه' : 'کش شده')) + '</b></div>' +
         '<div class="am-src-row"><span>آخرین به‌روزرسانی:</span><b>' + U.relLabel(q.ts) + '</b></div>' +
       '</div>' +
-      '<div class="am-actions" style="margin-top:16px">' +
+      (!a.derived ? '<div class="am-actions" style="margin-top:16px">' +
         '<button class="btn btn-primary sm" id="amRadarBtn" style="width:100%;justify-content:center"><svg class="ic s16"><use href="#i-bell"/></svg>تنظیم رادار قیمت برای ' + U.esc(a.short) + '</button>' +
-      '</div>';
+      '</div>' : '<p class="micro" style="margin-top:12px">این کوت مشتق (فرمولی) است و رادار قیمت روی اجزای آن — دلار و اونس — تنظیم می‌شود.</p>');
 
     var rBtn = U.$('#amRadarBtn');
     if (rBtn) {
@@ -527,10 +578,45 @@
         var targetIn = U.$('#radarTarget');
         if (targetIn && q.p > 0) targetIn.value = U.fmt(q.p);
         var radarSec = U.$('#radar');
-        if (radarSec) radarSec.scrollIntoView({ behavior: 'smooth' });
+        try { if (radarSec && radarSec.scrollIntoView) radarSec.scrollIntoView({ behavior: 'smooth' }); } catch (e) {}
+        // قیمت فعلی پیش‌فرض است؛ متن انتخاب می‌شود تا کاربر مستقیم هدف خودش را تایپ کند
+        if (targetIn) { try { targetIn.focus(); targetIn.select(); } catch (e) {} }
       });
     }
     openModal('#assetModal');
+  }
+
+  /* ---------------- خلاصه‌ی قابل اشتراک ---------------- */
+  /** متن خلاصه‌ی بازار برای کپی/اشتراک در پیام‌رسان‌ها */
+  function summaryText() {
+    var lines = ['📊 گرماسنج — ' + U.todayFa() + ' ' + U.clockFa()];
+    var rows = [['USD', 'دلار'], ['EUR', 'یورو'], ['USDT', 'تتر'], ['G18', 'طلای ۱۸'], ['MESGHAL', 'مثقال'], ['EMAMI', 'سکه امامی'], ['OUNCE_USD', 'اونس'], ['BTC_USD', 'بیت‌کوین']];
+    rows.forEach(function (r) {
+      var a = D().asset(r[0]), q = D().quote(r[0]);
+      if (!a || !q || !(q.p > 0)) return;
+      var ch = (q.chgPct != null && Math.abs(q.chgPct) >= 0.05) ? ' (' + U.pct(q.chgPct) + ')' : '';
+      lines.push('• ' + r[1] + ': ' + dispPrice(a, q) + ' ' + a.unit + ch);
+    });
+    var dv = D().derived();
+    if (dv.bubble != null) lines.push('• حباب سکه: ' + U.fa(dv.bubble.toFixed(1)) + '٪');
+    if (dv.usdtPrem != null) lines.push('• پریمیوم تتر: ' + U.pct(dv.usdtPrem, 2));
+    var m = D().mood();
+    if (m.n) lines.push('• نبض بازار: ' + (m.score >= 0 ? '+' : '−') + U.fa(Math.abs(m.score)) + ' (' + m.label + ')');
+    try {
+      var v = GS.features && GS.features.verdict ? GS.features.verdict() : null;
+      if (v && v.action) lines.push('• حکم امروز: ' + v.action.t + ' — اطمینان ' + U.fa(v.conf) + '٪');
+    } catch (e) {}
+    lines.push('');
+    lines.push('🔗 https://alib11.github.io/Garmasanj-Eghtesad/');
+    return lines.join('\n');
+  }
+  function shareSummary() {
+    var txt = summaryText();
+    return U.shareText('گرماسنج — خلاصه‌ی بازار', txt).then(function (res) {
+      if (res === 'copied') toast('ok', 'خلاصه کپی شد', 'قیمت‌ها و حکم امروز آماده‌ی ارسال در پیام‌رسان است.');
+      else if (res === 'failed') toast('warn', 'کپی ممکن نشد', 'مرورگر اجازه‌ی دسترسی به کلیپ‌بورد نداد.');
+      return res;
+    });
   }
 
   function buildDiag() {
@@ -588,8 +674,9 @@
     toast: toast,
     buildTicker: buildTicker, updateTickerAll: updateTickerAll,
     buildMood: buildMood, updateMood: updateMood,
-    renderSessions: renderSessions, renderStatus: renderStatus,
-    buildGrid: buildGrid, updateGrid: updateGrid,
+    renderSessions: renderSessions, renderStatus: renderStatus, renderNetPill: renderNetPill,
+    buildGrid: buildGrid, updateGrid: updateGrid, setCategory: setCategory, ensureCardVisible: ensureCardVisible,
+    summaryText: summaryText, shareSummary: shareSummary,
     refreshAllFeeds: refreshAllFeeds,
     renderPulse: renderPulse, renderMacro: renderMacro,
     openModal: openModal, closeModal: closeModal, buildDiag: buildDiag,

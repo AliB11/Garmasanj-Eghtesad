@@ -18,6 +18,7 @@
     GS.features.renderChain();
     GS.features.renderHeatmap();
     GS.features.renderHealth();
+    GS.features.renderSim();
     GS.features.checkRadars();
   }
 
@@ -26,6 +27,11 @@
     if (tf) tf.textContent = 'داده‌ی امروز: ' + U.todayFa();
     var infNote = U.$('#inflNote');
     if (infNote) infNote.textContent = 'تورم مرجع ' + U.fa(GS.config.INFLATION.value) + '٪ — ' + GS.config.INFLATION.source + ' · ' + GS.config.INFLATION.updatedFa;
+    // شمارنده‌های هیرو از تنظیمات خوانده می‌شوند تا با کد هم‌خوان بمانند
+    var cSrc = U.$('[data-stat="sources"]'), cInf = U.$('[data-stat="inflation"]'), cAst = U.$('[data-stat="assets"]');
+    if (cSrc) cSrc.dataset.cnt = GS.config.SOURCES.length;
+    if (cInf) cInf.dataset.cnt = GS.config.INFLATION.value;
+    if (cAst) cAst.dataset.cnt = GS.config.ASSETS.length;
 
     GS.ui.buildTicker();
     GS.ui.buildMood();
@@ -62,23 +68,21 @@
       GS.ui.renderStatus();
     });
     GS.data.on('toast', function (t) { GS.ui.toast(t.kind, t.title, t.msg); });
+    GS.data.on('since', function (d) {
+      // «از آخرین بازدیدت» — فقط یک‌بار، فقط اگر نشست قبلی دست‌کم ۳۰ دقیقه پیش بوده
+      var parts = d.rows.slice(0, 3).map(function (r) { return r.fa + ' ' + U.pct(r.pct, 1); });
+      GS.ui.toast('info', 'از آخرین بازدیدت (' + U.relLabel(d.since) + ')', parts.join(' · '));
+    });
     GS.data.on('cycle', function (c) {
       if (!c.start) {
         GS.ui.renderStatus();
         GS.features.renderHealth();
         GS.features.renderSim();
       }
-      var pill = U.$('#netStatus');
-      if (pill) {
-        if (c.start) {
-          pill.className = 'net-pill busy';
-          pill.innerHTML = '<i class="live-dot"></i>در حال دریافت…';
-        } else {
-          pill.className = 'net-pill ok';
-          pill.innerHTML = '<i class="s-dot ok"></i>متصل';
-        }
-      }
+      GS.ui.renderNetPill(!!c.start && c.phase === 'fast');
     });
+    var shareBtn = U.$('#shareBtn');
+    if (shareBtn) shareBtn.addEventListener('click', function () { GS.ui.shareSummary(); });
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') { GS.ui.closeModal('#diagModal'); GS.ui.closeModal('#settingsModal'); GS.ui.closeModal('#assetModal'); }
@@ -186,9 +190,11 @@
     });
     window.addEventListener('online', function () {
       fastAt = Date.now();
+      GS.ui.renderNetPill(false);
       GS.ui.toast('info', 'اتصال برقرار شد', 'دریافت داده از سر گرفته شد.');
     });
     window.addEventListener('offline', function () {
+      GS.ui.renderNetPill(false);
       GS.ui.toast('warn', 'اتصال قطع شد', 'نمایش آخرین داده‌های ذخیره‌شده ادامه دارد.');
     });
 
@@ -198,14 +204,18 @@
       GS.ui.toast('info', 'در حال دریافت', 'مسیرهای سریع چند ثانیه‌ای نتیجه می‌دهند؛ پشتیبان‌ها بعداً می‌رسند.');
     });
 
-    document.addEventListener('click', function once() {
-      GS.features.askNotify();
-      document.removeEventListener('click', once);
-    });
+    // اجازه‌ی اعلان دیگر با «اولین کلیک روی صفحه» پرسیده نمی‌شود؛
+    // فقط وقتی کاربر رادار ثبت می‌کند (نیت روشن) درخواست می‌شود.
 
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       window.addEventListener('load', function () {
+        var hadController = !!navigator.serviceWorker.controller;
         navigator.serviceWorker.register('sw.js').catch(function () {});
+        // نسخه‌ی جدید نصب شد → به کاربر بگو تازه‌سازی کند (به‌جای اجرای بی‌صدا با کد قدیمی)
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          if (!hadController) return; // نصب اول؛ چیزی برای اعلام نیست
+          GS.ui.toast('info', 'نسخه‌ی جدید گرماسنج آماده است', 'برای اعمال تغییرات، صفحه را یک‌بار تازه کن.');
+        });
       });
     }
   }

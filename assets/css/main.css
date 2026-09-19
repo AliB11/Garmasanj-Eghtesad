@@ -6,7 +6,7 @@
 :root{
   --bg0:#0B0F14; --bg1:#0F151C; --bg2:#141C25; --card:#131A23; --card2:#182029;
   --line:#232E3A; --line2:#2C3947;
-  --txt:#E9EEF3; --mut:#9AA5B0; --dim:#67727D;
+  --txt:#E9EEF3; --mut:#9AA5B0; --dim:#7D8994; /* dim: ۴٫۹:۱ روی کارت (WCAG AA برای متن ریز) */
   --gold:#E8A33D; --gold2:#F5C86B; --gold-dim:rgba(232,163,61,.14);
   --hot:#E8543F; --cold:#3E8E9E;
   --up:#3ECF8E; --down:#FF6B5E;
@@ -16,6 +16,9 @@
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
+/* لنگرها زیر تیکر+هدر چسبان پنهان نشوند */
+.sec,#verdict,#markets,#hotmoney,#sim,#mix,#radar,#health{scroll-margin-top:112px}
+@media (max-width:640px){.sec,#verdict,#markets,#hotmoney,#sim,#mix,#radar,#health{scroll-margin-top:96px}}
 body{
   margin:0; font-family:var(--font); color:var(--txt);
   background:
@@ -99,6 +102,8 @@ label{display:block;font-size:.85rem;color:var(--mut);margin:14px 0 6px;font-wei
   border:1px solid var(--line2);border-radius:999px;padding:6px 13px;background:rgba(255,255,255,.03)}
 .net-pill.busy{color:var(--gold2);border-color:rgba(232,163,61,.4)}
 .net-pill.ok{color:var(--up);border-color:rgba(62,207,142,.35)}
+.net-pill.alt{color:var(--gold2);border-color:rgba(232,163,61,.4)}
+.net-pill.off{color:#F08678;border-color:rgba(232,84,63,.45)}
 .s-dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
 .s-dot.ok{background:var(--up)}.s-dot.alt{background:var(--gold)}.s-dot.off{background:var(--down)}.s-dot.wait{background:var(--dim);animation:blink 1.2s infinite}
 @keyframes blink{50%{opacity:.35}}
@@ -139,6 +144,7 @@ label{display:block;font-size:.85rem;color:var(--mut);margin:14px 0 6px;font-wei
 .rg-msg{font-size:.83rem;color:var(--mut);text-align:center;margin:10px 0 12px;min-height:1.8em}
 .sess-strip{display:flex;gap:14px;flex-wrap:wrap;font-size:.76rem;color:var(--mut);padding:10px 2px;border-top:1px solid var(--line)}
 .sess{display:flex;align-items:center;gap:6px}
+.sess small{color:var(--dim);font-size:.7rem}
 .led{width:8px;height:8px;border-radius:50%;background:#3A444E}
 .led.on{background:var(--up);box-shadow:0 0 8px rgba(62,207,142,.7)}
 .src-strip{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:4px 0 12px}
@@ -164,6 +170,8 @@ label{display:block;font-size:.85rem;color:var(--mut);margin:14px 0 6px;font-wei
 .sub-s{color:var(--dim);font-size:.85rem;margin:0 0 16px}
 .rv{opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .7s ease}
 .rv.on{opacity:1;transform:none}
+.rv[data-d="2"]{transition-delay:.12s}.rv[data-d="3"]{transition-delay:.24s}
+.spacer{height:14px}
 
 /* ---------------- حکم امروز ---------------- */
 .verdict{display:grid;grid-template-columns:250px 1fr;gap:26px;background:linear-gradient(135deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
@@ -250,6 +258,7 @@ label{display:block;font-size:.85rem;color:var(--mut);margin:14px 0 6px;font-wei
 .qc-badge.aging{background:var(--gold-dim);color:var(--gold2)}
 .qc-badge.stale{background:rgba(255,255,255,.06);color:var(--mut)}
 .qc-badge.snap{background:rgba(126,151,163,.14);color:#A9BAC6}
+.qc-badge.session{background:rgba(62,142,158,.16);color:#8FD0DC;cursor:help}
 .qc-price{display:flex;align-items:baseline;gap:7px;margin-bottom:8px}
 .qc-price b{font-size:1.45rem;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 .qc-price b.fu{color:var(--up)}.qc-price b.fd{color:var(--down)}
@@ -292,6 +301,9 @@ label{display:block;font-size:.85rem;color:var(--mut);margin:14px 0 6px;font-wei
 .bm-top b{color:var(--gold2)}
 .bm-track{height:9px;border-radius:5px;background:#222B35;overflow:hidden;margin-bottom:14px}
 .bm-track i{display:block;height:100%;border-radius:5px;background:linear-gradient(to left,var(--gold2),var(--hot));transition:width .6s}
+.bm-track.bm-tri{display:flex;flex-direction:row}
+.bm-track.bm-tri i.bm-up{background:linear-gradient(to left,#5FE0A6,var(--up))}
+.bm-track.bm-tri i.bm-down{background:linear-gradient(to left,#FF8A7E,var(--down));margin-inline-start:auto}
 .flow-note{font-size:.85rem;color:var(--mut)}
 .flow-note b{color:var(--txt)}
 .flow-row{display:grid;grid-template-columns:200px 1fr 90px;gap:14px;align-items:center;
@@ -528,4 +540,8 @@ footer{border-top:1px solid var(--line);background:rgba(255,255,255,.012);paddin
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
   html{scroll-behavior:auto}
   .rv{opacity:1;transform:none}
+  /* تیکر: به‌جای حلقه‌ی بی‌نهایت با مدت ۰٫۰۱ms (سوسو)، ثابت و قابل اسکرول */
+  .tk-track{animation:none!important}
+  .tk-vp{overflow-x:auto;scrollbar-width:thin}
+  .live-dot,.kicker i,.w-dot,.s-dot.wait{animation:none!important}
 }

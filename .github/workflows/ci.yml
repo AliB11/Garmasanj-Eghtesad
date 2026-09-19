@@ -1,0 +1,38 @@
+# گرماسنج — CI: بررسی نحوی + همه‌ی تست‌های jsdom روی هر پوش/PR
+# (کامیت‌های داده‌ای ربات با [skip ci] این جریان را اجرا نمی‌کنند)
+name: تست‌ها
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - 'assets/data/live.json'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: نصب jsdom (بیرون از ریپو)
+        run: |
+          mkdir -p /tmp/smoke && cd /tmp/smoke
+          npm init -y >/dev/null
+          npm i jsdom@24 --no-audit --no-fund >/dev/null
+
+      - name: اجرای همه‌ی تست‌ها
+        env:
+          NODE_PATH: /tmp/smoke/node_modules
+        run: bash tests/run.sh

@@ -4,11 +4,23 @@
 # یک‌بار: نصب jsdom (بیرون از ریپو، تا ریپو تمیز بماند)
 mkdir -p /tmp/smoke && cd /tmp/smoke && npm init -y && npm i jsdom
 
-# اجرا از ریشه‌ی ریپو
-NODE_PATH=/tmp/smoke/node_modules node tests/smoke.js   # بوت آفلاین + ساختار + تعامل‌ها
-NODE_PATH=/tmp/smoke/node_modules node tests/live.js    # موتور کوت‌ها با ارائه‌دهنده‌های شبیه‌سازی‌شده
+# اجرا از ریشه‌ی ریپو — همه با هم:
+bash tests/run.sh
+
+# یا تک‌تک:
+NODE_PATH=/tmp/smoke/node_modules node tests/smoke.js        # بوت آفلاین + ساختار + تعامل‌ها
+NODE_PATH=/tmp/smoke/node_modules node tests/live.js         # موتور کوت‌ها با ارائه‌دهنده‌های شبیه‌سازی‌شده
+NODE_PATH=/tmp/smoke/node_modules node tests/deep_review.js  # بازبینی عمیق نسل ۳
+NODE_PATH=/tmp/smoke/node_modules node tests/review360.js    # رگرسیون بازبینی ۳۶۰ درجه
+node tests/publish.js                                        # تجزیه‌گرهای ناشر
 ```
 
 - `smoke.js`: بوت کامل با شبکه‌ی قطع، بررسی ۴۸ گزاره (ساختار ۲۰ کارت، تب‌ها، مودال‌ها، رادار، ترکیب‌ساز، حکم امروز، زنجیره، هیت‌مپ، ورود دستی) + صفر خطای پنجره.
 - `live.js`: شبیه‌سازی ۱۳ مسیر (live.json انتشار + TGJU پنج‌آینه، نوبیتکس، والکس، بیت‌پین، CoinGecko، ‏Kraken، ‏Binance Vision، ‏Coinbase، ‏Frankfurter، ناواسان، …) و راستی‌آزمایی کوت‌ها، قانون dt، اجماع جهانی، مشتق‌ها، نبض، پول داغ، حکم، نگهبان جهش، پرچم تخمین و سناریوهای A تا E — ۷۵ گزاره + صفر خطای پنجره.
-- `publish.js`: راستی‌آزمایی تجزیه‌گرهای خالص ناشر (`scripts/publish.cjs`) — ۱۷ گزاره.
+- `deep_review.js`: بازبینی عمیق نسل ۳ (خطاهای حین بوت، NaN، مدیریت کش، …).
+- `review360.js`: ۶۰ گزاره‌ی رگرسیون برای ایرادهای بازبینی ۳۶۰ درجه — بازار بسته/بی‌تغییر (نبض، رژیم،
+  حکم، پول داغ)، خودترمیمی نگهبان جهش، حریم کلید ناواسان، آینه‌ی چسبان TGJU، تقدم اسنپ‌شات/کش،
+  «از آخرین بازدیدت»، تعامل‌های رادار/شبیه‌ساز/هیت‌مپ/مودال/اشتراک، و ایستایی‌های HTML/CSS/SW.
+- `publish.js`: راستی‌آزمایی تجزیه‌گرهای خالص ناشر (`scripts/publish.cjs`) — ۱۷ گزاره؛ گزاره‌ی
+  `live.json` ساختاری/بازه‌ای است (نه قیمت ثابت)، چون فایل هر ۱۵ دقیقه عوض می‌شود.
+- `run.sh`: اجرای نحو + هر ۵ سوئیت؛ همان چیزی که CI اجرا می‌کند.

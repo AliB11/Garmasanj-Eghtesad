@@ -38,8 +38,17 @@ jobs:
           git add assets/data/live.json
           if git diff --staged --quiet; then
             echo "no changes"
-          else
-            TS=$(node -e "console.log(JSON.parse(require('fs').readFileSync('assets/data/live.json','utf8')).generated_at)")
-            git commit -m "chore(data): انتشار زنده قیمت‌ها ($TS)"
-            git push
+            exit 0
           fi
+          TS=$(node -e "console.log(JSON.parse(require('fs').readFileSync('assets/data/live.json','utf8')).generated_at)")
+          # [skip ci] → کامیت‌های داده‌ای، CI تست‌ها را ۹۶ بار در روز اجرا نمی‌کنند
+          git commit -m "chore(data): انتشار زنده قیمت‌ها ($TS) [skip ci]"
+          # اگر هم‌زمان کسی روی main پوش کرده باشد، به‌جای شکست، ریبیس و تلاش مجدد
+          for i in 1 2 3; do
+            if git push; then exit 0; fi
+            echo "push failed (attempt $i) — rebasing onto latest main"
+            git fetch origin main
+            git rebase origin/main || { git rebase --abort; git reset --hard origin/main; node scripts/publish.cjs; git add assets/data/live.json; git commit -m "chore(data): انتشار زنده قیمت‌ها ($TS) [skip ci]" || true; }
+            sleep 5
+          done
+          echo "::warning::push failed after 3 attempts — next scheduled run will retry"

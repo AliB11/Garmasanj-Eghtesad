@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>گرماسنج — ترمینال زنده بازارهای ایران | دلار، طلا، سکه و رمزارز</title>
 <meta name="description" content="پایش زنده‌ی بازارهای ایران: دلار، یورو، طلا، سکه، تتر و بیت‌کوین با اجماع چندمنبعی راستی‌آزمایی‌شده، نبض بازار، زنجیره‌ی اونس تا سکه و حکم روزانه‌ی سرمایه‌گذاری.">
-<meta name="theme-color" content="#10151A">
-<link rel="canonical" href="./index.html">
+<meta name="theme-color" content="#0B0F14">
+<link rel="canonical" href="https://alib11.github.io/Garmasanj-Eghtesad/">
+<meta property="og:url" content="https://alib11.github.io/Garmasanj-Eghtesad/">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="fa_IR">
 <meta property="og:title" content="گرماسنج — ترمینال زنده بازارهای ایران">
@@ -42,6 +43,7 @@
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.2 2.2"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4.5V9h-4.5"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="17.5" cy="6" r="2.4"/><circle cx="6.5" cy="12" r="2.4"/><circle cx="17.5" cy="18" r="2.4"/><path d="M8.6 10.9l6.8-3.8M8.6 13.1l6.8 3.8"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8"/></symbol>
 </svg>
 
@@ -85,9 +87,9 @@
         <a class="btn btn-ghost" href="#markets">قیمت‌های امروز</a>
       </div>
       <div class="hero-stats">
-        <div class="hs"><b><span data-cnt="20">۰</span></b><small>کوت زنده تحت پایش</small></div>
-        <div class="hs"><b><span data-cnt="13">۰</span></b><small>مسیر مستقل داده</small></div>
-        <div class="hs"><b><span data-cnt="42">۰</span>٪</b><small>تورم مرجع (نقطه‌به‌نقطه)</small></div>
+        <div class="hs"><b><span data-cnt="20" data-stat="assets">۰</span></b><small>کوت زنده تحت پایش</small></div>
+        <div class="hs"><b><span data-cnt="13" data-stat="sources">۰</span></b><small>مسیر مستقل داده</small></div>
+        <div class="hs"><b><span data-cnt="42" data-stat="inflation">۰</span>٪</b><small>تورم مرجع (نقطه‌به‌نقطه)</small></div>
       </div>
       <div class="hero-stats" id="heroStats2"></div>
       <div class="pulse-row" id="pulseCards" aria-live="polite"></div>
@@ -113,8 +115,9 @@
           <span class="src-right">
             <span id="srcClock">—</span>
             <span id="nextIn">در حال اتصال…</span>
-            <button class="mini-btn" id="retryBtn" title="دریافت فوری"><svg class="ic s12" style="vertical-align:-2px"><use href="#i-refresh"/></svg> دریافت مجدد</button>
-            <button class="mini-btn" id="diagBtn">عیب‌یابی</button>
+            <button class="mini-btn" id="retryBtn" type="button" title="دریافت فوری"><svg class="ic s12" style="vertical-align:-2px"><use href="#i-refresh"/></svg> دریافت مجدد</button>
+            <button class="mini-btn" id="diagBtn" type="button">عیب‌یابی</button>
+            <button class="mini-btn" id="shareBtn" type="button" title="کپی یا اشتراک خلاصه‌ی قیمت‌ها و حکم امروز"><svg class="ic s12" style="vertical-align:-2px"><use href="#i-share"/></svg> اشتراک خلاصه</button>
           </span>
         </div>
       </div>
@@ -151,16 +154,16 @@
     <div class="sec-head rv">
       <div class="eyebrow"><span class="en">۰۲</span><span class="el"></span><span>شبکه‌ی بازارها</span></div>
       <h2>بیست کوت، <span>یک نگاه</span></h2>
-      <p class="sec-sub">هر کارت، قیمت زنده، تغییر امروز، نمودار نشست، دامنه‌ی روز و شناسنامه‌ی منبع را یکجا نشان می‌دهد. بج «زنده» یعنی تازه از منبع رسیده؛ «کش» و «اسنپ‌شات» یعنی آخرین مقدار معتبر — همیشه صادقانه برچسب می‌خورد.</p>
+      <p class="sec-sub">هر کارت، قیمت زنده، تغییر امروز، نمودار نشست، دامنه‌ی روز و شناسنامه‌ی منبع را یکجا نشان می‌دهد. بج «زنده» یعنی تازه از منبع رسیده؛ «آخرین جلسه» یعنی بازار تهران بسته است و این آخرین قیمت جلسه‌ی قبل است؛ «کش» و «اسنپ‌شات» یعنی آخرین مقدار معتبر — همیشه صادقانه برچسب می‌خورد.</p>
     </div>
     <div class="macro-strip rv" id="macroStrip" aria-live="polite"></div>
     <div class="markets-bar rv">
       <div class="cat-tabs" role="tablist" aria-label="دسته‌بندی دارایی‌ها">
-        <button class="cat-tab on" data-cat="all" role="tab">همه</button>
-        <button class="cat-tab" data-cat="currency" role="tab">ارز</button>
-        <button class="cat-tab" data-cat="gold" role="tab">طلا</button>
-        <button class="cat-tab" data-cat="coin" role="tab">سکه</button>
-        <button class="cat-tab" data-cat="crypto" role="tab">رمزارز</button>
+        <button class="cat-tab on" data-cat="all" role="tab" type="button" aria-selected="true">همه</button>
+        <button class="cat-tab" data-cat="currency" role="tab" type="button" aria-selected="false">ارز</button>
+        <button class="cat-tab" data-cat="gold" role="tab" type="button" aria-selected="false">طلا</button>
+        <button class="cat-tab" data-cat="coin" role="tab" type="button" aria-selected="false">سکه</button>
+        <button class="cat-tab" data-cat="crypto" role="tab" type="button" aria-selected="false">رمزارز</button>
       </div>
       <div class="markets-meta"><span id="quotesCount"></span><span id="marketsUpdated">—</span></div>
     </div>
@@ -212,17 +215,17 @@
         <label for="simAmount">سرمایه اولیه (تومان)</label>
         <input class="field" id="simAmount" inputmode="numeric" value="۱۰۰,۰۰۰,۰۰۰" autocomplete="off">
         <div class="chips">
-          <button class="chip" data-v="50000000">۵۰م</button>
-          <button class="chip on" data-v="100000000">۱۰۰م</button>
-          <button class="chip" data-v="500000000">۵۰۰م</button>
-          <button class="chip" data-v="1000000000">۱ میلیارد</button>
+          <button class="chip" type="button" data-v="50000000">۵۰م</button>
+          <button class="chip on" type="button" data-v="100000000">۱۰۰م</button>
+          <button class="chip" type="button" data-v="500000000">۵۰۰م</button>
+          <button class="chip" type="button" data-v="1000000000">۱ میلیارد</button>
         </div>
         <label for="simYears">افق زمانی — <output id="simYearsOut">۳ سال</output></label>
         <input type="range" id="simYears" min="1" max="10" value="3">
         <label for="simInflation">فرض تورم سالانه — <output id="simInflOut">۴۲٪</output></label>
         <input type="range" id="simInflation" min="25" max="60" value="42">
-        <label></label>
-        <button class="btn btn-ghost sm on" id="simSync" style="width:100%;justify-content:center">همگام با نبض زنده: روشن</button>
+        <div class="spacer" aria-hidden="true"></div>
+        <button class="btn btn-ghost sm on" id="simSync" type="button" aria-pressed="true" style="width:100%;justify-content:center">همگام با نبض زنده: روشن</button>
         <p class="micro">در حالت همگام، نرخ اسمی هر بازار = تورم فرضی تو + نیمی از نبض زنده‌ی همان بازار. خاموشش کن تا با نرخ‌های پایه‌ی تاریخی سناریو بسازی.</p>
       </aside>
       <div class="sim-out rv" data-d="2">
@@ -299,12 +302,12 @@
         <label for="radarTarget">قیمت هدف</label>
         <input class="field" id="radarTarget" inputmode="numeric" placeholder="مثلاً نزدیک قیمت فعلی" autocomplete="off">
         <div class="quick">
-          <button class="chip" data-rel="0.0015">کمی بالاتر از الان</button>
-          <button class="chip" data-rel="-0.0015">کمی پایین‌تر از الان</button>
+          <button class="chip" type="button" data-rel="0.0015">کمی بالاتر از الان</button>
+          <button class="chip" type="button" data-rel="-0.0015">کمی پایین‌تر از الان</button>
         </div>
-        <label></label>
-        <button class="btn btn-primary" id="radarAdd" style="width:100%;justify-content:center"><svg class="ic s16"><use href="#i-bell"/></svg>فعال‌سازی رادار</button>
-        <p class="micro">قیمت‌ها هر ۴۵ ثانیه تازه می‌شوند. برای تست، هدفی نزدیک قیمت فعلی بگذار و چند چرخه صبر کن تا رادار فعال شود.</p>
+        <div class="spacer" aria-hidden="true"></div>
+        <button class="btn btn-primary" id="radarAdd" type="button" style="width:100%;justify-content:center"><svg class="ic s16"><use href="#i-bell"/></svg>فعال‌سازی رادار</button>
+        <p class="micro">قیمت‌ها هر ۴۵ ثانیه تازه می‌شوند. برای تست، هدفی نزدیک قیمت فعلی بگذار و چند چرخه صبر کن تا رادار فعال شود. اجازه‌ی اعلان مرورگر فقط هنگام ثبت اولین رادار پرسیده می‌شود.</p>
       </div>
       <div class="rv" data-d="2">
         <div class="r-steps">

@@ -43,9 +43,13 @@
 
   function regimeOf() {
     var m = D().mood();
-    if (m.score >= 20 && m.ups >= 60) return { key: 'on', label: 'رژیم ریسک‌پذیر', desc: 'اکثر دارایی‌ها مثبت‌اند؛ پول داغ در چرخش است.' };
-    if (m.score <= -20 && m.ups < 40) return { key: 'off', label: 'رژیم ریسک‌گریز', desc: 'پول به پناهگاه‌ها می‌خزد؛ حفظ قدرت خرید اولویت است.' };
     if (!m.n) return { key: 'neutral', label: 'در انتظار داده', desc: 'هنوز نبضی ثبت نشده.' };
+    if (m.quiet) {
+      var ses = U.marketSession();
+      return { key: 'neutral', label: 'رژیم کم‌تحرک', desc: (ses.open ? 'اکثر دارایی‌ها امروز بی‌تغییرند؛ ' : 'بازار تهران بسته است؛ ') + 'فقط متحرک‌ها (عمدتاً رمزارز) رتبه‌بندی معناداری دارند.' };
+    }
+    if (m.score >= 20 && m.breadth >= 60) return { key: 'on', label: 'رژیم ریسک‌پذیر', desc: 'اکثر دارایی‌های متحرک مثبت‌اند؛ پول داغ در چرخش است.' };
+    if (m.score <= -20 && m.breadth < 40) return { key: 'off', label: 'رژیم ریسک‌گریز', desc: 'پول به پناهگاه‌ها می‌خزد؛ حفظ قدرت خرید اولویت است.' };
     return { key: 'neutral', label: 'رژیم خنثی / چرخشی', desc: 'بازار تصمیم نگرفته؛ پول بین پناهگاه و ریسک در نوسان است.' };
   }
 
@@ -62,8 +66,8 @@
     var bm = U.$('#breadthMeter');
     if (bm) {
       var m = D().mood();
-      bm.innerHTML = '<div class="bm-top"><span>پهنای بازار</span><b>' + U.fa(m.ups) + '٪ مثبت امروز</b></div>' +
-        '<div class="bm-track"><i style="width:' + U.clamp(m.ups, 0, 100) + '%"></i></div>';
+      bm.innerHTML = '<div class="bm-top"><span>پهنای بازار</span><b>' + U.fa(m.ups) + '٪ مثبت · ' + U.fa(m.downs || 0) + '٪ منفی' + (m.flat ? ' · ' + U.fa(m.flat) + '٪ بی‌تغییر' : '') + '</b></div>' +
+        '<div class="bm-track bm-tri"><i class="bm-up" style="width:' + U.clamp(m.ups, 0, 100) + '%"></i><i class="bm-down" style="width:' + U.clamp(m.downs || 0, 0, 100) + '%"></i></div>';
     }
     if (!rows.length) {
       host.innerHTML = '<div class="radar-empty">هنوز داده‌ی زنده‌ای برای ردیابی جریان پول نرسیده.<br>چند ثانیه صبر کن…</div>';
@@ -73,7 +77,7 @@
     host.innerHTML = rows.map(function (r, i) {
       var s = r.score, hot = s > 12, cold = s < -12;
       var w = Math.max(4, Math.abs(s) / max * 100);
-      var tag = i === 0 ? 'ورود پول داغ' : (i === rows.length - 1 ? 'خروج / سرد' : (hot ? 'گرم' : cold ? 'سرد' : 'خنثی'));
+      var tag = (i === 0 && s > 0) ? 'ورود پول داغ' : (i === rows.length - 1 && s < 0) ? 'خروج / سرد' : (hot ? 'گرم' : cold ? 'سرد' : Math.abs(s) < 1 ? 'بی‌تغییر' : 'خنثی');
       return '<div class="flow-row">' +
         '<div class="fl-name"><b>' + U.esc(r.a.short) + '</b><small>امروز <span dir="ltr">' + U.pct(r.q.chgPct || 0) + '</span>' +
         ' · شیب نشست <span dir="ltr">' + U.pct(r.slope, 1) + '/h</span></small></div>' +
@@ -84,7 +88,9 @@
     var note = U.$('#flowNote');
     if (note && rows.length >= 2) {
       var top = rows[0], low = rows[rows.length - 1];
-      note.innerHTML = 'الان پول داغ به سمت <b>' + U.esc(top.a.short) + '</b> متمایل است و از <b>' + U.esc(low.a.short) +
+      if (top.score <= 1 && low.score >= -1) note.innerHTML = 'الان جریان معناداری دیده نمی‌شود؛ اکثر دارایی‌ها بی‌تغییرند. رتبه‌بندی با اولین حرکت واقعی بازسازی می‌شود.';
+      else if (low.score >= -1) note.innerHTML = 'الان پول داغ به سمت <b>' + U.esc(top.a.short) + '</b> متمایل است؛ خروج معناداری از هیچ دارایی‌ای ثبت نشده. این رتبه‌بندی هر چرخه با داده‌ی زنده بازسازی می‌شود.';
+      else note.innerHTML = 'الان پول داغ به سمت <b>' + U.esc(top.a.short) + '</b> متمایل است و از <b>' + U.esc(low.a.short) +
         '</b> فاصله می‌گیرد. این رتبه‌بندی هر چرخه با داده‌ی زنده بازسازی می‌شود.';
     }
   }
@@ -130,9 +136,16 @@
     var max = (res[0] && res[0].real) || 1;
     var built = barsEl.children.length === res.length;
     if (!built) barsEl.innerHTML = res.map(barHTML).join('');
-    res.forEach(function (a) {
+    res.forEach(function (a, idx) {
       var el = barsEl.querySelector('.bar-row[data-id="' + a.id + '"]');
       if (!el) return;
+      // ترتیب رتبه‌ای و برچسب نرخ همیشه با وضعیت فعلی (همگام/پایه، تورم، افق) هم‌خوان می‌ماند
+      if (barsEl.children[idx] !== el) barsEl.insertBefore(el, barsEl.children[idx] || null);
+      var lbl = el.querySelector('.bar-name small');
+      if (lbl) {
+        var lblTxt = U.esc(a.sub) + ' • <span dir="ltr">' + U.fa(a.r) + '٪</span>';
+        if (lbl.innerHTML !== lblTxt) lbl.innerHTML = lblTxt;
+      }
       var fill = el.querySelector('.bar-fill'), g = el.querySelector('.bar-guide');
       fill.style.width = Math.max(0, a.real / max * 100) + '%';
       fill.style.background = U.tempColor(a.r - simState.inf);
@@ -191,6 +204,7 @@
     if (sync) sync.addEventListener('click', function () {
       simState.liveSync = !simState.liveSync;
       sync.classList.toggle('on', simState.liveSync);
+      sync.setAttribute('aria-pressed', simState.liveSync ? 'true' : 'false');
       sync.innerHTML = simState.liveSync ? 'همگام با نبض زنده: روشن' : 'همگام با نبض زنده: خاموش';
       renderSim();
     });
@@ -318,7 +332,7 @@
     tEl.style.color = U.tempColor(mixT);
     U.$('#mixName').textContent = ['محافظه‌کار', 'متعادل', 'جسور'][rk - 1] + ' • ' + ['کوتاه‌مدت', 'میان‌مدت', 'بلندمدت'][hz - 1];
     var m = D().mood(), diff = mixT - m.score / 4, vs = U.$('#mixVs');
-    vs.textContent = U.fa(Math.abs(m.score).toFixed(0)) + ' نبض بازار (' + m.label + ')';
+    vs.textContent = 'نبض بازار ' + (m.score >= 0 ? '+' : '−') + U.fa(Math.abs(m.score).toFixed(0)) + ' (' + m.label + ')';
     vs.style.color = U.tempColor(mixT);
     vs.style.borderColor = U.tempRGBA(mixT, 0.4);
     void diff;
@@ -358,7 +372,7 @@
       if (!x || !(x.target > 0)) return;
       var sym = x.s || OLD_ID_MAP[x.m];
       if (!sym || !D().asset(sym)) return;
-      ALERTS.push({ s: sym, target: x.target, dir: x.dir || 'up', done: !!x.done });
+      ALERTS.push({ s: sym, target: x.target, dir: x.dir || null, done: !!x.done, at: x.at || 0 });
     });
   }
   function alertsSave() { U.store.set(LS_ALERTS, ALERTS); }
@@ -377,12 +391,18 @@
     });
     U.$('#radarAdd').addEventListener('click', function () {
       var a = D().asset(sel.value), q = D().quote(sel.value);
+      if (!a) { GS.ui.toast('warn', 'دارایی نامعتبر', 'یک دارایی از فهرست انتخاب کن.'); return; }
       var t = +U.toEn(U.$('#radarTarget').value);
       if (!(t > 0)) { GS.ui.toast('warn', 'هدف نامعتبر', 'قیمت هدف را یک عدد درست وارد کن.'); return; }
-      var dir = (q && q.p && t > q.p) ? 'up' : 'down';
-      ALERTS.push({ s: a.sym, target: Math.round(t), dir: dir, done: false });
+      if (q && q.p > 0 && Math.abs(t - q.p) / q.p < 0.0005) { GS.ui.toast('warn', 'هدف برابر قیمت فعلی است', 'هدفی کمی بالاتر یا پایین‌تر از قیمت الان بگذار.'); return; }
+      var dup = ALERTS.some(function (x) { return !x.done && x.s === a.sym && x.target === Math.round(t); });
+      if (dup) { GS.ui.toast('info', 'رادار تکراری', 'همین هدف قبلاً برای «' + a.fa + '» ثبت شده.'); return; }
+      // اگر هنوز قیمتی نداریم، جهت را در اولین داده تعیین می‌کنیم (نه کورکورانه «پایین»)
+      var dir = (q && q.p > 0) ? (t > q.p ? 'up' : 'down') : null;
+      ALERTS.push({ s: a.sym, target: Math.round(t), dir: dir, done: false, at: Date.now() });
       U.$('#radarTarget').value = '';
       alertsSave(); renderRadars();
+      askNotify(); // اجازه‌ی اعلان فقط وقتی کاربر واقعاً رادار می‌خواهد (نه با اولین کلیک روی صفحه)
       GS.ui.toast('ok', 'رادار ثبت شد', '«' + a.fa + '» زیر پایش است — هدف: ' + U.fmt(t) + ' ' + a.unit + '.');
     });
     U.$('#radarItems').addEventListener('click', function (e) {
@@ -405,9 +425,10 @@
       var a = D().asset(al.s), q = a ? D().quote(al.s) : null;
       if (!a) return '';
       var gap = (q && q.p) ? (al.target - q.p) / q.p * 100 : null;
+      var dirTxt = al.dir === 'up' ? '↑ صعود به' : al.dir === 'down' ? '↓ نزول به' : 'هدف:';
       return '<div class="r-item ' + (al.done ? 'hit' : '') + '">' +
         '<svg class="ic s18 ri-ic"><use href="#i-bell"/></svg>' +
-        '<div class="ri-mid"><b>' + U.esc(a.fa) + '</b><small>هدف: <span dir="ltr">' + U.fmt(al.target) + '</span> — ' +
+        '<div class="ri-mid"><b>' + U.esc(a.fa) + '</b><small>' + dirTxt + ' <span dir="ltr">' + U.fmt(al.target) + '</span> — ' +
         (al.done ? 'عبور از هدف رخ داد' : (gap != null ? 'فاصله تا هدف: ' + U.fa(Math.abs(gap).toFixed(2)) + '٪' : 'منتظر اولین داده')) + '</small></div>' +
         '<span class="ri-state ' + (al.done ? 'hit' : '') + '">' + (al.done ? '<svg class="ic s14"><use href="#i-check"/></svg> فعال شد' : '<i class="w-dot"></i> در حال پایش') + '</span>' +
         '<button class="ri-x" data-i="' + i + '" aria-label="حذف رادار"><svg class="ic s14"><use href="#i-x"/></svg></button></div>';
@@ -420,6 +441,7 @@
       if (al.done) return;
       var a = D().asset(al.s), q = a ? D().quote(al.s) : null;
       if (!q || !(q.p > 0)) return;
+      if (!al.dir) { al.dir = al.target > q.p ? 'up' : 'down'; changed = true; return; } // جهت با اولین قیمت واقعی
       var hit = al.dir === 'up' ? q.p >= al.target : q.p <= al.target;
       if (hit) {
         al.done = true; changed = true;
@@ -489,6 +511,7 @@
       return q.live && q.p > 0 && (Date.now() - q.ts < 3 * 60000);
     }).length;
     var coverage = total ? freshN / total : 0;
+    var ses = U.marketSession();
     var score = 0, reasons = [], warns = [];
     var top = rows[0], low = rows[rows.length - 1];
     function f1(v) { return U.fa(Math.abs(v).toFixed(1)); }
@@ -500,11 +523,16 @@
     else if (m.score > -5) { reasons.push('نبض بازار آرام است — بازار تصمیم نگرفته.'); }
     else if (m.score > -20) { score -= 1; reasons.push('نبض بازار ' + sg(m.score) + f1(m.score) + ' — منفی و کم‌رمق.'); }
     else { score -= 3; reasons.push('نبض بازار ' + sg(m.score) + f1(m.score) + ' — سرد؛ حفظ سرمایه اولویت است.'); }
-    // ۲) پهنا
-    if (m.ups >= 70) { score += 2; reasons.push('پهنای بازار ' + U.fa(m.ups) + '٪ — رشد فراگیر است، نه تک‌محصولی.'); }
-    else if (m.ups >= 50) { score += 1; reasons.push('پهنای بازار ' + U.fa(m.ups) + '٪ — نیمی از دارایی‌ها مثبت‌اند.'); }
-    else if (m.ups >= 35) { score -= 1; reasons.push('پهنای بازار فقط ' + U.fa(m.ups) + '٪ — رشد محدود به چند دارایی است.'); }
-    else if (m.n) { score -= 2; reasons.push('پهنای بازار ' + U.fa(m.ups) + '٪ — اکثر دارایی‌ها منفی‌اند.'); }
+    // ۲) پهنا — فقط میان دارایی‌های متحرک؛ بازار بسته/بی‌تغییر جریمه نمی‌شود
+    if (m.n && m.quiet) {
+      reasons.push(U.fa(m.flat) + '٪ دارایی‌ها بی‌تغییرند' + (!ses.open ? ' — بازار تهران بسته است' : '') + '؛ پهنا فقط از ' + U.fa(Math.round(m.part * 100)) + '٪ متحرک (' + U.fa(m.breadth) + '٪ مثبت) خوانده شد.');
+      if (m.breadth >= 70 && m.part >= 0.1) score += 1;
+      else if (m.breadth <= 30 && m.part >= 0.1) score -= 1;
+    }
+    else if (m.breadth >= 70) { score += 2; reasons.push('پهنای بازار ' + U.fa(m.breadth) + '٪ — رشد فراگیر است، نه تک‌محصولی.'); }
+    else if (m.breadth >= 50) { score += 1; reasons.push('پهنای بازار ' + U.fa(m.breadth) + '٪ — نیمی از متحرک‌ها مثبت‌اند.'); }
+    else if (m.breadth >= 35) { score -= 1; reasons.push('پهنای بازار فقط ' + U.fa(m.breadth) + '٪ — رشد محدود به چند دارایی است.'); }
+    else if (m.n) { score -= 2; reasons.push('پهنای بازار ' + U.fa(m.breadth) + '٪ — اکثر دارایی‌های متحرک منفی‌اند.'); }
     // ۳) پول داغ
     if (top && top.score > 20) { score += 1; reasons.push('پول داغ به «' + top.a.short + '» سرازیر شده (امتیاز ' + sg(top.score) + f1(top.score) + ').'); }
     if (low && low.score < -20) { reasons.push('«' + low.a.short + '» سردترین نقطه است — برای خرید عجله نکن.'); }
@@ -535,10 +563,14 @@
     else if (score >= -1) A = { t: 'حفظ ترکیب، شکار نوسان', tone: 'neutral', d: 'بازار تصمیم نگرفته؛ نه هیجان، نه خواب.', steps: ['ترکیب فعلی را حفظ کن؛ معامله‌ی اضافه ممنوع', 'نقد ذخیره نگه دار برای فرصت‌های ناگهانی', 'رادار روی «' + (low ? low.a.short : 'بازارها') + '» فعال کن'] };
     else if (score >= -4) A = { t: 'حالت دفاعی', tone: 'cold', d: 'سرما نزدیک است؛ به پناهگاه‌ها برگرد.', steps: ['کاهش وزن رمزارز و سکه‌ی حباب‌دار', 'افزایش طلا و صندوق درآمد ثابت', 'خریدهای جدید را به بعد از تثبیت موکول کن'] };
     else A = { t: 'نقد و انتظار', tone: 'ice', d: 'یخ‌زدگی؛ بهترین معامله، عدم معامله است.', steps: ['حداقل ۳۰٪ سبد نقد یا درآمد ثابت', 'فقط خرید پله‌ای طلا در ریزش‌های عمیق', 'تصمیم بزرگ را به بهبود پهنا موکول کن'] };
-    var conf = Math.round(U.clamp(35 + coverage * 55 + Math.min(12, Math.abs(score) * 2), 5, 97));
+    // پوشش: در بازار بسته، «زنده بودن منبع» ملاک است نه تازگی آخرین معامله
+    var liveCov = total ? liveN / total : 0;
+    var effCov = ses.open ? coverage : Math.max(coverage, liveCov * 0.85);
+    var conf = Math.round(U.clamp(35 + effCov * 55 + Math.min(12, Math.abs(score) * 2), 5, 97));
     if (liveN < 3) { warns.unshift('داده‌ی زنده‌ی کافی نرسیده — این حکم موقت است؛ وضعیت منابع را در «سلامت داده» ببین.'); conf = Math.min(conf, 45); }
+    else if (!ses.open && m.quiet) { warns.push('بازار تهران بسته است' + (ses.next ? ' (' + ses.next + ')' : '') + ' — حکم بر پایه‌ی آخرین جلسه و بازارهای ۲۴ساعته است؛ اقدام را به بازگشایی موکول کن.'); conf = Math.min(conf, 70); }
     else if (coverage < 0.4) { warns.push('پوشش داده‌ی تازه پایین است — حکم را با احتیاط اجرا کن.'); conf = Math.min(conf, 60); }
-    return { mood: m, score: score, conf: conf, reasons: reasons.slice(0, 4), warns: warns.slice(0, 3), action: A, top: top, low: low, coverage: coverage, liveN: liveN };
+    return { mood: m, score: score, conf: conf, reasons: reasons.slice(0, 4), warns: warns.slice(0, 3), action: A, top: top, low: low, coverage: coverage, liveN: liveN, session: ses };
   }
 
   var TONE_C = { hot: '#FF4E2E', warm: '#E8833A', neutral: '#9AA4AD', cold: '#3E8E9E', ice: '#7FB3D5' };
@@ -635,7 +667,7 @@
     grid.addEventListener('click', function (e) {
       var t = e.target.closest('[data-heat]');
       if (!t) return;
-      var card = document.querySelector('.qcard[data-sym="' + t.dataset.heat + '"]');
+      var card = GS.ui.ensureCardVisible ? GS.ui.ensureCardVisible(t.dataset.heat) : document.querySelector('.qcard[data-sym="' + t.dataset.heat + '"]');
       if (!card) return;
       try { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (err) {}
       card.classList.remove('flash');
@@ -647,6 +679,7 @@
 
   GS.features = {
     heatOf: heatOf,
+    simAmount: function () { return simState.P; },
     hotScores: hotScores, regimeOf: regimeOf, renderHotmoney: renderHotmoney,
     renderSim: renderSim, initSim: initSim,
     renderMix: renderMix, initMix: initMix,

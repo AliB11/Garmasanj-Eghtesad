@@ -1,5 +1,5 @@
 /* گرماسنج — Service Worker: کش آفلاین پوسته؛ داده همیشه از شبکه */
-var CACHE = 'garmasanj-shell-v9';
+var CACHE = 'garmasanj-shell-v10';
 var SHELL = [
   './',
   './index.html',
