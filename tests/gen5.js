@@ -232,6 +232,8 @@ const visible = (d) => [...d.querySelectorAll('#assetGrid .qcard')].filter((c) =
     key(d, 's');
     assert.ok(d.querySelectorAll('#toasts .toast').length >= before, 'share attempted (toast or share sheet)');
   });
+  await new Promise((r) => setTimeout(r, 150)); // وعده‌ی اشتراک (کلیپ‌بورد) قبل از بستن پنجره تسویه شود (jsdom 24)
+  t('share via shortcut produced its toast', () => assert.ok([...d.querySelectorAll('#toasts .toast')].some((x) => /کپی/.test(x.textContent))));
   t('theme persisted + button + help/embed buttons wired', () => {
     d.querySelector('#themeBtn').click();
     assert.strictEqual(window.localStorage.getItem('garmasanj_theme_v1'), '"light"');
