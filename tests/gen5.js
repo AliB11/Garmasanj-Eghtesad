@@ -276,6 +276,12 @@ const visible = (d) => [...d.querySelectorAll('#assetGrid .qcard')].filter((c) =
     GS.data._ingest('tgju', tg(p0 + 3000)); GS.features.checkRadars();
     assert.strictEqual(al().hits, 2);
   });
+  t('relLabel never prints fractional minutes', () => {
+    const U = GS.utils;
+    assert.strictEqual(U.relLabel(Date.now() - 49.75 * 60000), '۴۹ دقیقه پیش');
+    assert.strictEqual(U.relLabel(Date.now() - 30000), '۳۰ ثانیه پیش');
+    assert.strictEqual(U.relLabel(Date.now() - 3 * 3600000), '۳ ساعت پیش');
+  });
   t('no window errors during the whole flow', () => assert.strictEqual(errs.join('; '), ''));
   window.close();
 
