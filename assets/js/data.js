@@ -29,6 +29,7 @@
   var LS_HIST = 'garmasanj_hist_v6';
   var LS_MAN = 'garmasanj_manual_v6';
   var LS_NAV = 'garmasanj_navasan_v6';
+  var LS_BRS = 'garmasanj_brsapi_v1';
   var LS_MIRROR = 'garmasanj_tgju_mirror_v1';
   var FAST_TTL = 90000, SLOW_TTL = 25 * 60000;
   var REJECT = {};   // sym -> {p, n} شمارنده‌ی جهش‌های ردشده‌ی پیاپی (خودترمیمی نگهبان)
@@ -838,6 +839,115 @@
     };
   }
 
+  /* ---------- مسیرِ کلیددارِ جریانِ پول (BrsApi) ---------- */
+  function getBrsKey() { try { return U.store.get(LS_BRS, null) || null; } catch (e) { return null; } }
+  function setBrsKey(k) {
+    U.store.set(LS_BRS, k);
+    brsAt = 0; // اجازه‌ی تلاشِ فوری
+    try { recompute(); } catch (e) {}
+    return true;
+  }
+  function clearBrsKey() {
+    U.store.del(LS_BRS);
+    brsAt = 0;
+    if (MARKET) MARKET.flow = null;
+    markIdle('tsetmc', 'کلید حذف شد — جریانِ پول دیگر دریافت نمی‌شود');
+    try { recompute(); } catch (e) {}
+    emit('quotes', {});
+    return true;
+  }
+  var brsAt = 0;   // آخرین تلاش (مهارِ تعداد درخواست‌ها)
+
+  /** اولین کلیدِ موجود در یک شیء (نامِ فیلدها بین منابع فرق می‌کند) */
+  function pickField(o, names) {
+    if (!o) return null;
+    for (var i = 0; i < names.length; i++) {
+      var v = o[names[i]];
+      if (v != null && v !== '') {
+        var n = U.num(v);
+        if (n != null && isFinite(n)) return n;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * تجمیعِ جریانِ پول از آرایه‌ی نمادها.
+   * خالصِ پولِ حقیقی (تومان) = Σ (حجم خرید حقیقی − حجم فروش حقیقی) × میانگین قیمت
+   * میانگین قیمت = ارزشِ معاملات ÷ حجم (اگر نبود، قیمتِ پایانی).
+   * نسبت = خالص ÷ ارزشِ معاملات — بدون بُعد تا با تورم خراب نشود.
+   */
+  function aggregateFlow(rows, cfg) {
+    if (!Array.isArray(rows) || !rows.length) return null;
+    var F = cfg.fields;
+    // واحد را حدس نمی‌زنیم: قراردادِ منبع در تنظیمات است (TSETMC ریال می‌دهد)
+    var U10 = (cfg.unit === 'toman') ? 1 : 10;
+    var netToman = 0, valueToman = 0, n = 0, known = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (!r || typeof r !== 'object') continue;
+      var br = pickField(r, F.buyRetail), sr = pickField(r, F.sellRetail);
+      if (br == null && sr == null) continue;
+      known++;
+      var vol = (br || 0) - (sr || 0);                 // خالصِ حجمِ حقیقی (تعداد سهم)
+      var vw = pickField(r, F.value), vv = pickField(r, F.volume), px = pickField(r, F.price);
+      var avg = (vw != null && vv != null && vv > 0) ? vw / vv : (px != null && px > 0 ? px : null); // ریال
+      if (avg == null || !(avg > 0)) continue;
+      netToman += vol * (avg / U10);
+      if (vw != null && vw > 0) valueToman += vw / U10;
+      n++;
+    }
+    if (!n || !known) return null;
+    return {
+      netToman: Math.round(netToman),
+      valueToman: valueToman > 0 ? Math.round(valueToman) : null,
+      ratio: valueToman > 0 ? netToman / valueToman : null,
+      n: n,
+      src: 'BrsApi'
+    };
+  }
+
+  /**
+   * واکشیِ جریانِ پول با کلیدِ کاربر — فقط مستقیم (بدون پراکسی) و با مهارِ زمانی.
+   * هرگز از روی شاخص جریان ساخته نمی‌شود؛ اگر ساختار ناشناخته بود، فقط گزارش.
+   */
+  function fetchBrsFlow(force) {
+    var cfg = CFG.BRSAPI;
+    var key = getBrsKey();
+    if (!key) { markIdle('tsetmc', 'نیاز به کلید رایگان BrsApi — از «تنظیمات» اضافه کن'); return Promise.resolve(null); }
+    if (!force && brsAt && Date.now() - brsAt < cfg.minGapMs) return Promise.resolve(null);
+    brsAt = Date.now();
+    var url = cfg.base + '/' + cfg.marketPath + '?key=' + encodeURIComponent(key) + '&type=' + encodeURIComponent(cfg.type);
+    return fetchIranian(url, {
+      timeout: cfg.timeoutMs, noProxy: true,
+      validate: function (j) { return j && (Array.isArray(j) || Array.isArray(j.data) || Array.isArray(j.result)); }
+    }).then(function (r) {
+      if (!r) { markSrc('tsetmc', false, 'بی‌پاسخ یا کلید نامعتبر'); return null; }
+      var j = r.j;
+      var rows = Array.isArray(j) ? j : (Array.isArray(j.data) ? j.data : (Array.isArray(j.result) ? j.result : null));
+      var agg = aggregateFlow(rows, cfg);
+      if (!agg || !agg.n) {
+        // صداقت: ساختار ناشناخته است، پس عدد نمی‌سازیم — کلیدهای واقعی را گزارش می‌دهیم
+        var sample = rows && rows[0] ? Object.keys(rows[0]).slice(0, 14).join(', ') : '(بدون ردیف)';
+        markSrc('tsetmc', false, 'ساختارِ پاسخ ناشناخته — کلیدها: ' + sample);
+        return null;
+      }
+      // نگهبانِ مقیاس: ارزشِ معاملاتِ کلِ بازار باید در یک بازه‌ی معقول باشد
+      // (کمتر از ۱ میلیارد تومان یا بیش از ۵۰۰۰ همت یعنی اشتباهِ واحد/پارس)
+      if (agg.valueToman != null && (agg.valueToman < 1e9 || agg.valueToman > 5e15)) {
+        markSrc('tsetmc', false, 'مقیاسِ ارزشِ معاملات غیرمعقول — رد شد');
+        return null;
+      }
+      if (agg.ratio != null && Math.abs(agg.ratio) > 1) {
+        markSrc('tsetmc', false, 'نسبتِ جریان ناممکن (>۱) — رد شد');
+        return null;
+      }
+      setMarketFlow({ netToman: agg.netToman, ratio: agg.ratio, n: agg.n, src: 'BrsApi', ts: Date.now() });
+      markSrc('tsetmc', true, 'جریانِ پولِ ' + U.fa(agg.n) + ' نماد از BrsApi', r.ms);
+      return agg;
+    }).catch(function () { markSrc('tsetmc', false, 'بی‌پاسخ یا کلید نامعتبر'); return null; });
+  }
+
   /** ورودِ دستیِ جریانِ پول (برای مسیرِ کلیددار یا مرورگرِ داخل ایران) */
   function setMarketFlow(f) {
     if (!MARKET) MARKET = { p: null, ts: Date.now(), src: 'TSETMC', origin: 'client', flow: null, high: null, low: null, day: null };
@@ -1278,6 +1388,7 @@
     var t0 = Date.now();
     var run = Promise.all([
       safeCall(fetchNavasan).then(function (d) { if (d != null) ingest('navasan', d); return d; }),
+      safeCall(fetchBrsFlow).then(function (d) { return d; }),
       safeCall(fetchBtcHist).then(function (d) { if (d != null) ingest('btcHist', d); return d; }),
       safeCall(fetchHistory)
     ]);
@@ -1438,6 +1549,11 @@
     setNavasanKey: setNavasanKey,
     getNavasanKey: getNavasanKey,
     clearNavasanKey: clearNavasanKey,
+    setBrsKey: setBrsKey,
+    getBrsKey: getBrsKey,
+    clearBrsKey: clearBrsKey,
+    fetchBrsFlow: fetchBrsFlow,
+    aggregateFlow: aggregateFlow,
     clearCache: clearCache,
     liveCount: function () { return CFG.ASSETS.filter(function (a) { return QUOTES[a.sym] && QUOTES[a.sym].live; }).length; },
     okSources: function () { return Object.keys(SRC).filter(function (id) { return SRC[id] && SRC[id].ok && id !== 'snapshot'; }).length; },

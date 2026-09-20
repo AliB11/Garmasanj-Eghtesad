@@ -307,6 +307,130 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     GS.data.clearCache();
   });
 
+  /* ============================================================
+     ۴) مسیرِ کلیددار (BrsApi): تجمیع، نگهبانِ مقیاس، و اثر در حکم
+     ============================================================ */
+
+  // شکلِ فرضی بر پایه‌ی قراردادِ TSETMC (I = حقیقی، N = حقوقی؛ واحد ریال)
+  function brsPayload() {
+    const row = (name, pl, tvol, tval, bi, si) => ({
+      l18: name, pl, pc: pl, tvol, tval,
+      Buy_I_Volume: bi, Sell_I_Volume: si,
+      Buy_N_Volume: tvol - bi, Sell_N_Volume: tvol - si,
+    });
+    return {
+      data: [
+        row('فملی', 45200, 10000000, 452000000000, 6000000, 8000000),
+        row('وبملت', 31000, 20000000, 620000000000, 9000000, 11000000),
+      ],
+    };
+  }
+
+  await ta('aggregateFlow: خالصِ پولِ حقیقی از حجم و میانگینِ قیمت (ریال→تومان)', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(50);
+    const cfg = GS.config.BRSAPI;
+    assert.strictEqual(cfg.unit, 'rial', 'قراردادِ واحد باید صریح باشد');
+    const a = GS.data.aggregateFlow(brsPayload().data, cfg);
+    assert.ok(a, 'باید تجمیع شود');
+    // نماد ۱: (6M-8M) × 4520 تومان = 9.04- میلیارد تومان
+    // نماد ۲: (9M-11M) × 3100 تومان = 6.20- میلیارد تومان
+    assert.strictEqual(a.netToman, Math.round(-2e6 * 4520 + -2e6 * 3100), 'net=' + a.netToman);
+    assert.strictEqual(a.valueToman, Math.round(45.2e9 + 62e9), 'value=' + a.valueToman);
+    assert.ok(Math.abs(a.ratio - (-15.24e9 / 107.2e9)) < 1e-9, 'ratio=' + a.ratio);
+    assert.strictEqual(a.n, 2);
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('aggregateFlow: ساختارِ ناشناخته عدد نمی‌سازد', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(50);
+    const cfg = GS.config.BRSAPI;
+    assert.strictEqual(GS.data.aggregateFlow([{ foo: 1 }, { bar: 2 }], cfg), null);
+    assert.strictEqual(GS.data.aggregateFlow([], cfg), null);
+    assert.strictEqual(GS.data.aggregateFlow(null, cfg), null);
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('مسیرِ کلیددار end-to-end: جریان می‌رسد و حکم ۱+ می‌گیرد (کلید مستقیم، بی‌واسطه)', async () => {
+    const seen = [];
+    const { GS, window: W } = boot((u) => {
+      const url = String(u);
+      seen.push(url);
+      if (url.includes('live.json')) return jres(liveDoc(MK_SESSION));
+      if (url.includes('snapshot.json')) return jres({ generated_at: '', quotes: {} });
+      if (url.includes('BrsApi.ir')) return jres(brsPayload());
+      return jrej();
+    });
+    await GS.data.bootAll(); await wait(300);
+    const base = GS.features.verdict().score;
+    GS.data.setBrsKey('TEST-KEY-123');
+    const agg = await GS.data.fetchBrsFlow(true);
+    assert.ok(agg && agg.n === 2, 'تجمیع برنگشت: ' + JSON.stringify(agg));
+    // حریم خصوصی: کلید باید مستقیماً رفته باشد، نه از پراکسی عمومی
+    const withKey = seen.filter((u) => u.indexOf('TEST-KEY-123') >= 0);
+    assert.ok(withKey.length >= 1, 'کلید باید در URL باشد');
+    assert.ok(!withKey.some((u) => u.indexOf('allorigins') >= 0 || u.indexOf('isomorphic-git') >= 0),
+      'کلید هرگز نباید از پراکسی عبور کند: ' + withKey.join(' '));
+    const v = GS.features.verdict();
+    assert.strictEqual(v.score, base + 1, base + ' -> ' + v.score);
+    assert.ok(v.reasons[0].indexOf('خروج') >= 0, v.reasons[0]);
+    assert.strictEqual(GS.data.src.tsetmc.ok, true, JSON.stringify(GS.data.src.tsetmc));
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('نگهبانِ مقیاس: ارزشِ معاملاتِ غیرمعقول رد می‌شود و واردِ حکم نمی‌گردد', async () => {
+    // پاسخی که ساختارش درست است اما مقیاسش غلط (اشتباهِ واحدِ ریال/تومان)
+    const tiny = { data: [{ l18: 'x', pl: 10, tvol: 100, tval: 1000, Buy_I_Volume: 60, Sell_I_Volume: 40 }] };
+    const { GS, window: W } = boot((u) => {
+      const url = String(u);
+      if (url.includes('live.json')) return jres(liveDoc(MK_SESSION));
+      if (url.includes('snapshot.json')) return jres({ generated_at: '', quotes: {} });
+      if (url.includes('BrsApi.ir')) return jres(tiny);
+      return jrej();
+    });
+    await GS.data.bootAll(); await wait(300);
+    const base = GS.features.verdict().score;
+    GS.data.setBrsKey('K');
+    const r = await GS.data.fetchBrsFlow(true);
+    assert.strictEqual(r, null, 'باید رد شود: ' + JSON.stringify(r));
+    assert.strictEqual(GS.features.verdict().score, base, 'امتیاز نباید عوض شود');
+    assert.strictEqual(GS.data.src.tsetmc.ok, false, JSON.stringify(GS.data.src.tsetmc));
+    assert.ok((GS.data.src.tsetmc.note || '').indexOf('مقیاس') >= 0, GS.data.src.tsetmc.note);
+    assert.strictEqual(GS.data.market().flow, null, 'هیچ جریانی ثبت نشود');
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('نگهبانِ ساختار: پاسخِ ناشناخته «کلیدهای واقعی» را گزارش می‌دهد', async () => {
+    const weird = { data: [{ alpha: 1, beta: 2, gamma: 3 }] };
+    const { GS, window: W } = boot((u) => {
+      const url = String(u);
+      if (url.includes('live.json')) return jres(liveDoc(MK_SESSION));
+      if (url.includes('snapshot.json')) return jres({ generated_at: '', quotes: {} });
+      if (url.includes('BrsApi.ir')) return jres(weird);
+      return jrej();
+    });
+    await GS.data.bootAll(); await wait(300);
+    GS.data.setBrsKey('K');
+    const r = await GS.data.fetchBrsFlow(true);
+    assert.strictEqual(r, null);
+    assert.strictEqual(GS.data.src.tsetmc.ok, false);
+    assert.ok((GS.data.src.tsetmc.note || '').indexOf('alpha') >= 0,
+      'باید کلیدهای واقعی را بگوید تا بتوان نقشه‌ی فیلدها را اصلاح کرد: ' + GS.data.src.tsetmc.note);
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('بدون کلید: مسیرِ کلیددار خاموش و صادق است', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(50);
+    GS.data.clearBrsKey();
+    const r = await GS.data.fetchBrsFlow(true);
+    assert.strictEqual(r, null);
+    assert.strictEqual(GS.data.src.tsetmc.ok, null, 'نباید «سالم» نشان داده شود');
+    assert.ok((GS.data.src.tsetmc.note || '').indexOf('نیاز به کلید') >= 0, GS.data.src.tsetmc.note);
+    W.close(); GS.data.clearCache();
+  });
+
   console.log('\nbourse.js: ' + n + ' tests, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();

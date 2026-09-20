@@ -55,6 +55,40 @@
   };
 
   /**
+   * مسیرِ کلیددارِ جریانِ پول (BrsApi) — فاز ۳.
+   *
+   * چرا سمتِ کلاینت؟ دو دلیلِ اندازه‌گیری‌شده/مستند:
+   *  ۱) TSETMC از IP خارجی پاسخ نمی‌دهد، پس ناشر نمی‌تواند این داده را بگیرد؛
+   *  ۲) قوانینِ BrsApi بازنشرِ داده به‌صورتِ «سرویس برای دیگران» را منع کرده؛
+   *     با کلیدِ شخصیِ کاربر و فراخوانیِ مستقیم از مرورگر، مصرف‌کننده همان
+   *     صاحبِ کلید است (همان الگوی ناواسان).
+   *
+   * هشدارِ صداقت: مسیرِ دقیقِ اندپوینت و نامِ فیلدها باید با مستنداتِ رسمیِ
+   * BrsApi تطبیق داده شود (صفحه‌ی مستندات برای IP دیتاسنتر پشتِ reCAPTCHA است
+   * و از اینجا قابل تأیید نبود). برای همین نام‌ها در یک جا آمده‌اند و در صورت
+   * ناشناخته بودنِ ساختار، هیچ عددی ساخته نمی‌شود — فقط گزارش می‌شود.
+   */
+  var BRSAPI = {
+    base: 'https://BrsApi.ir/Api/Tsetmc',
+    marketPath: 'MarketWatch.php',   // type=1: سهام بورس و فرابورس + ETF + حق‌تقدم
+    type: 1,
+    minGapMs: 30 * 60000,            // هر نیم‌ساعت بیش از یک بار نه (سقفِ رایگان ۱۵۰۰/روز)
+    unit: 'rial',                    // TSETMC/BrsApi ریال می‌دهند؛ خروجی‌ی ما تومان است
+    timeoutMs: 14000,
+    // مفهوم → نام‌های محتملِ فیلد (قراردادِ TSETMC: I = حقیقی، N = حقوقی)
+    fields: {
+      buyRetail: ['Buy_I_Volume', 'BuyIVolume', 'buy_i_volume', 'BuyCountIVolume'],
+      buyLegal: ['Buy_N_Volume', 'BuyNVolume', 'buy_n_volume'],
+      sellRetail: ['Sell_I_Volume', 'SellIVolume', 'sell_i_volume'],
+      sellLegal: ['Sell_N_Volume', 'SellNVolume', 'sell_n_volume'],
+      price: ['pl', 'pc', 'PClosing', 'PDrCotVal', 'close', 'Close', 'last'],
+      value: ['tval', 'QTotCap', 'value', 'Value', 'TradeValue'],
+      volume: ['tvol', 'QTotTran5J', 'volume', 'Volume']
+    },
+    getKeyUrl: function () { return 'https://brsapi.ir/tsetmc-exchange-free-bourse-api-key-request/'; }
+  };
+
+  /**
    * آستانه‌های «جریانِ پولِ حقیقیِ بورس» — عاملِ نهمِ حکم.
    * نسبتِ جریان = خالصِ پولِ حقیقی ÷ ارزشِ معاملات (بدون بُعد تا با تورم خراب نشود).
    * strong: به‌تنهایی امتیاز می‌گیرد؛ mild: فقط اگر جهتِ شاخص هم با آن هم‌خوان باشد.
@@ -165,6 +199,7 @@
     SESSION: SESSION,
     TSE_SESSION: TSE_SESSION,
     MARKETFLOW: MARKETFLOW,
+    BRSAPI: BRSAPI,
     TGJU_MIRRORS: TGJU_MIRRORS,
     ASSETS: ASSETS,
     CATS: CATS,

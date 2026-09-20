@@ -404,7 +404,7 @@
   <div class="m-card" role="dialog" aria-modal="true" aria-label="تنظیمات منابع داده">
     <button class="m-x" data-st-close aria-label="بستن"><svg class="ic s16"><use href="#i-x"/></svg></button>
     <h3>تنظیمات منابع داده</h3>
-    <p class="dg-sub">سه راه برای قوی‌تر شدن داده‌ها در شبکه‌ی شما:</p>
+    <p class="dg-sub">چهار راه برای قوی‌تر شدن داده‌ها در شبکه‌ی شما:</p>
     <label for="navKey">۱. کلید رایگان ناواسان (مسیر پشتیبان دلار، طلا و سکه)</label>
     <input class="field" id="navKey" type="text" placeholder="کلید API ناواسان" autocomplete="off" dir="ltr">
     <div class="set-row">
@@ -419,7 +419,15 @@
       <button class="btn btn-ghost sm" id="manClear">حذف</button>
     </div>
     <p class="m-hint">اگر هیچ منبعی در شبکه‌ی شما پاسخ نمی‌دهد، دلار را دستی وارد کنید تا محاسبات فعال شود. قیمت دستی همیشه با برچسب «ورود دستی» مشخص است.</p>
-    <label>۳. پاک‌سازی کش محلی</label>
+    <label for="brsKey">۳. کلید رایگان BrsApi — جریانِ ورود و خروجِ پولِ بورس</label>
+    <input class="field" id="brsKey" type="text" placeholder="کلید API BrsApi" autocomplete="off" dir="ltr">
+    <div class="set-row">
+      <button class="btn btn-primary sm" id="brsSave">ذخیره کلید</button>
+      <button class="btn btn-ghost sm" id="brsTest">تست</button>
+      <button class="btn btn-ghost sm" id="brsClear">حذف</button>
+    </div>
+    <p class="m-hint">کلیدِ رایگان را از <b dir="ltr">brsapi.ir</b> بگیرید؛ فقط در مرورگرِ خودتان ذخیره می‌شود و مستقیماً (بدون واسطه) ارسال می‌گردد. این مسیر فقط برای کاربرِ صاحبِ کلید فعال است، چون بازنشرِ آن به‌عنوانِ سرویسِ عمومی ممنوع است.</p>
+    <label>۴. پاک‌سازی کش محلی</label>
     <div class="set-row">
       <button class="btn btn-ghost sm" id="cacheClear">پاک کردن کش قیمت‌ها</button>
     </div>

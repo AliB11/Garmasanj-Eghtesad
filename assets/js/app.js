@@ -161,9 +161,10 @@
   function bindSettings() {
     U.$$('#srcSettingsBtn,#headSettingsBtn').forEach(function (openBtn) {
       openBtn.addEventListener('click', function () {
-      var k = U.$('#navKey'), m = U.$('#manUsd');
+      var k = U.$('#navKey'), m = U.$('#manUsd'), b = U.$('#brsKey');
       if (k) k.value = GS.data.getNavasanKey() || '';
       if (m) m.value = GS.data.getManualUsd() ? U.fmt(GS.data.getManualUsd()) : '';
+      if (b) b.value = GS.data.getBrsKey() || '';
       GS.ui.openModal('#settingsModal');
       });
     });
@@ -184,6 +185,35 @@
       GS.data.clearNavasanKey();
       U.$('#navKey').value = '';
       GS.ui.toast('info', 'کلید حذف شد', 'ناواسان از چرخه خارج شد.');
+    });
+    var brsSave = U.$('#brsSave');
+    if (brsSave) brsSave.addEventListener('click', function () {
+      var k = (U.$('#brsKey').value || '').trim();
+      if (!k) { GS.ui.toast('warn', 'کلید خالی است', 'کلید API BrsApi را وارد کن.'); return; }
+      GS.data.setBrsKey(k);
+      GS.data.fetchBrsFlow(true);
+      GS.ui.closeModal('#settingsModal');
+      GS.ui.toast('ok', 'کلید ذخیره شد', 'جریانِ پولِ بورس در چرخه‌ی بعدی می‌آید.');
+    });
+    var brsTest = U.$('#brsTest');
+    if (brsTest) brsTest.addEventListener('click', function () {
+      var k = (U.$('#brsKey').value || '').trim();
+      if (!k) { GS.ui.toast('warn', 'کلید خالی است', 'اول کلید را وارد و ذخیره کن.'); return; }
+      GS.data.setBrsKey(k);
+      GS.data.fetchBrsFlow(true).then(function (r) {
+        var st = GS.data.src.tsetmc || {};
+        if (r) GS.ui.toast('ok', 'جریانِ پول دریافت شد', U.fa(r.n) + ' نماد — خالص ' +
+          U.fa((Math.abs(r.netToman) / 1e12).toFixed(1)) + ' همت ' + (r.netToman < 0 ? 'خروج' : 'ورود'));
+        else GS.ui.toast('warn', 'پاسخِ قابل استفاده نبود', (st.note || 'بی‌پاسخ') + ' — جزئیات در «سلامت داده».');
+        renderAll();
+      });
+    });
+    var brsClear = U.$('#brsClear');
+    if (brsClear) brsClear.addEventListener('click', function () {
+      GS.data.clearBrsKey();
+      U.$('#brsKey').value = '';
+      renderAll();
+      GS.ui.toast('info', 'کلید حذف شد', 'جریانِ پولِ بورس دیگر دریافت نمی‌شود.');
     });
     var manSave = U.$('#manSave');
     if (manSave) manSave.addEventListener('click', function () {
