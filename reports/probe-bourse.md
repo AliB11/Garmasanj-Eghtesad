@@ -4,33 +4,33 @@
 GitHub Actions (IP خارجِ ایران) نوشته است. فقط برای تصمیم‌گیریِ فنی است و
 هیچ فایلِ داده‌ای (`live.json` / `history.json`) را تغییر نمی‌دهد.
 
-- زمان (UTC): `2026-09-20T04:11:05.602Z`
-- مبدأ درخواست: `{. "ip": "172.214.44.0",. "city": "Dulles Town Center",. "region": "Virginia",. "country": "US",. "loc": "39.0376,-77.41`
+- زمان (UTC): `2026-09-20T04:37:38.968Z`
+- مبدأ درخواست: `{. "ip": "20.55.118.116",. "city": "Dulles Town Center",. "region": "Virginia",. "country": "US",. "loc": "39.0376,-77.4`
 
 ## نتیجه‌ی هر نامزد
 
 | منبع | وضعیت | بایت | زمان (ms) | یادداشت | نمونه‌ی پاسخ |
 |---|---|---:|---:|---|---|
-| `clientTypeAll` | ❌ خطا | 0 | 10610 | خطا: fetch failed | `` |
-| `clientTypeAll.tls` | ❌ خطا | 0 | 10512 | خطا: fetch failed | `` |
-| `closingPriceAll` | ❌ خطا | 0 | 10492 | خطا: fetch failed | `` |
+| `clientTypeAll` | ❌ خطا | 0 | 10545 | خطا: fetch failed | `` |
+| `clientTypeAll.tls` | ❌ خطا | 0 | 10499 | خطا: fetch failed | `` |
+| `closingPriceAll` | ❌ خطا | 0 | 10493 | خطا: fetch failed | `` |
 | `marketWatchInit` | ❌ خطا | 0 | 10494 | خطا: fetch failed | `` |
-| `marketWatchPlus` | ❌ خطا | 0 | 10494 | خطا: fetch failed | `` |
+| `marketWatchPlus` | ❌ خطا | 0 | 10493 | خطا: fetch failed | `` |
 | `indexChart` | ❌ خطا | 0 | 10494 | خطا: fetch failed | `` |
-| `cdn.tsetmc` | ❌ خطا | 0 | 10496 | خطا: fetch failed | `` |
-| `tgju.ajax` | ✅ 200 | 176404 | 196 | — | `{"current":{"zinc":{"p":"2575.6","h":"2575.6","l":"2575.6","d":"0","dp":0,"dt":"","t":".. ......","t_en":"28 Jun","t-g":".. ......","ts":"2021-06-28 14:00:00"},"yemen@kwd` |
-| `brsapi.nokey` | ✅ 200 | 1686 | 876 | پاسخ HTML، نه داده | `<!DOCTYPE html>.<html>.<head>. <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">. <meta http-equiv="X-UA-Compatible" content="IE=edge` |
-| `egress.geo` | ✅ 200 | 271 | 147 | — | `{. "ip": "172.214.44.0",. "city": "Dulles Town Center",. "region": "Virginia",. "country": "US",. "loc": "39.0376,-77.4158",. "org": "AS8075 Microsoft Corporation",. "pos` |
-| `www.tsetmc` | ❌ خطا | 0 | 10346 | خطا: fetch failed | `` |
-| `cdn.marketOverview` | ❌ خطا | 0 | 10494 | خطا: fetch failed | `` |
-| `cdn.clientType` | ❌ خطا | 0 | 10495 | خطا: fetch failed | `` |
+| `cdn.tsetmc` | ❌ خطا | 0 | 10495 | خطا: fetch failed | `` |
+| `tgju.ajax` | ✅ 200 | 176404 | 265 | — | `{"current":{"zinc":{"p":"2575.6","h":"2575.6","l":"2575.6","d":"0","dp":0,"dt":"","t":".. ......","t_en":"28 Jun","t-g":".. ......","ts":"2021-06-28 14:00:00"},"yemen@kwd` |
+| `brsapi.nokey` | ✅ 200 | 1686 | 1222 | پاسخ HTML، نه داده | `<!DOCTYPE html>.<html>.<head>. <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">. <meta http-equiv="X-UA-Compatible" content="IE=edge` |
+| `egress.geo` | ✅ 200 | 272 | 54 | — | `{. "ip": "20.55.118.116",. "city": "Dulles Town Center",. "region": "Virginia",. "country": "US",. "loc": "39.0376,-77.4158",. "org": "AS8075 Microsoft Corporation",. "po` |
+| `www.tsetmc` | ❌ خطا | 0 | 10439 | خطا: fetch failed | `` |
+| `cdn.marketOverview` | ❌ خطا | 0 | 10493 | خطا: fetch failed | `` |
+| `cdn.clientType` | ❌ خطا | 0 | 10494 | خطا: fetch failed | `` |
 | `tse.ir` | ❌ خطا | 0 | 10494 | خطا: fetch failed | `` |
-| `service.tsetmc` | ❌ خطا | 0 | 10494 | خطا: fetch failed | `` |
-| `bourse-trader` | ✅ 200 | 347142 | 1003 | پاسخ HTML، نه داده | `....<!doctype html>.<html lang="en">.<head>. <meta charset="utf-8">. <!--<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">-->. <meta ` |
-| `yahoo.tedpix` | ❌ 404 | 108 | 39 | رد/بلاک؟ | `{"chart":{"result":null,"error":{"code":"Not Found","description":"No data found, symbol may be delisted"}}}` |
-| `yahoo.search` | ✅ 200 | 442 | 81 | — | `{"explains":[],"count":0,"quotes":[],"news":[],"nav":[],"lists":[],"researchReports":[],"screenerFieldResults":[],"totalTime":30,"timeTakenForQuotes":409,"timeTakenForNew` |
-| `stooq.tedpix` | ✅ 200 | 796 | 464 | پاسخ HTML، نه داده | `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"></head><body><noscript>This site requires JavaScript to verify your browse` |
-| `stooq.tse` | ✅ 200 | 796 | 496 | پاسخ HTML، نه داده | `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"></head><body><noscript>This site requires JavaScript to verify your browse` |
+| `service.tsetmc` | ❌ خطا | 0 | 10495 | خطا: fetch failed | `` |
+| `bourse-trader` | ✅ 200 | 347142 | 1004 | پاسخ HTML، نه داده | `....<!doctype html>.<html lang="en">.<head>. <meta charset="utf-8">. <!--<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">-->. <meta ` |
+| `yahoo.tedpix` | ❌ 404 | 108 | 68 | رد/بلاک؟ | `{"chart":{"result":null,"error":{"code":"Not Found","description":"No data found, symbol may be delisted"}}}` |
+| `yahoo.search` | ✅ 200 | 442 | 98 | — | `{"explains":[],"count":0,"quotes":[],"news":[],"nav":[],"lists":[],"researchReports":[],"screenerFieldResults":[],"totalTime":45,"timeTakenForQuotes":409,"timeTakenForNew` |
+| `stooq.tedpix` | ✅ 200 | 796 | 496 | پاسخ HTML، نه داده | `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"></head><body><noscript>This site requires JavaScript to verify your browse` |
+| `stooq.tse` | ✅ 200 | 796 | 472 | پاسخ HTML، نه داده | `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"></head><body><noscript>This site requires JavaScript to verify your browse` |
 
 ## کلیدهای بورسیِ TGJU
 
@@ -42,6 +42,12 @@ GitHub Actions (IP خارجِ ایران) نوشته است. فقط برای ت�
 | `bourse_globaldow` | 2,434 | — |
 | `bourse_asia-dow` | 6,312 | — |
 | `bourse` | 7,448,839.4 | — |
+
+## شکلِ دقیقِ ورودیِ بورس در TGJU
+
+```json
+(در دسترس نبود)
+```
 
 ## واکاویِ متنِ فارسی در TGJU (جست‌وجوی «شاخص/ارزش معاملات/حقیقی/ورود پول/فرابورس/هم‌وزن»)
 
