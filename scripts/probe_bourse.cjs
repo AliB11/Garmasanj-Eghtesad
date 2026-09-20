@@ -152,6 +152,32 @@ async function probe(c) {
     btLines.push('- نشانی‌های پیدا شده: ' + (urls.size ? [...urls].slice(0, 20).join(' | ') : 'هیچ'));
     say('   نشانی‌ها: ' + (urls.size ? [...urls].slice(0, 12).join(' | ') : 'هیچ'));
 
+    // ۲) اندپوینت‌های JSON بالقوه
+    for (const task of ['stats-heartbeat', 'marketwatch', 'board']) {
+      try {
+        const rr = await fetch('https://bourse-trader.ir/api/?task=' + task, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': UA } });
+        const tt = await rr.text();
+        const isJson = /^\s*[\[{]/.test(tt);
+        btLines.push('- `?task=' + task + '` → ' + rr.status + ' · ' + (rr.headers.get('content-type') || '?') +
+          ' · ' + tt.length + ' بایت · ' + (isJson ? ' JSON' : 'JSON نیست') + ' · ' + clean(tt, 160).replace(/`/g, "'"));
+        say('   ?task=' + task + ' → ' + rr.status + ' ' + tt.length + 'B ' + (isJson ? 'JSON' : ''));
+      } catch (e) { btLines.push('- `?task=' + task + '` → خطا: ' + clean(String((e && e.message) || e), 60)); }
+    }
+
+    // ۳) دو جدولِ اصلی را کامل بیاور
+    const sec = (from, to, cap) => {
+      const a = raw.indexOf(from);
+      if (a < 0) return '(یافت نشد: ' + from + ')';
+      const b = to ? raw.indexOf(to, a + from.length) : a + (cap || 2200);
+      return clean(raw.slice(a, b > 0 ? b : a + (cap || 2200)), cap || 2200);
+    };
+    const t1 = sec('گزارش بازار بورس', 'پایش معاملات', 2600);
+    const t2 = sec('پایش معاملات', 'بیشترین', 3000);
+    btLines.push('- جدول «گزارش بازار بورس»: `' + t1.replace(/`/g, "'") + '`');
+    btLines.push('- جدول «پایش معاملات»: `' + t2.replace(/`/g, "'") + '`');
+    say('   جدول گزارش: ' + t1.slice(0, 200));
+    say('   جدول پایش: ' + t2.slice(0, 200));
+
     // ۲) برشِ خام دورِ برچسب‌های کلیدی (برای نوشتنِ پارسرِ دقیق)
     const labels = ['شاخص کل', 'شاخص هم وزن', 'شاخص کل فرابورس', 'ارزش بازار',
       'ورود پول حقیقی', 'ارزش معاملات', 'صندوق درآمدثابت', 'تعداد نماد مثبت', 'سرانه خرید حقیقی'];
