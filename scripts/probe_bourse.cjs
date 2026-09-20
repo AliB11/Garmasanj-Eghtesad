@@ -26,6 +26,13 @@ const CANDIDATES = [
   { tag: 'tgju.ajax', url: 'https://call5.tgju.org/ajax.json', want: 'کلیدهای بورسیِ TGJU' },
   { tag: 'brsapi.nokey', url: 'https://BrsApi.ir/api/Market/GetMarketOverview', want: 'BrsApi بدون کلید (انتظار ۴۰۱)' },
   { tag: 'egress.geo', url: 'https://ipinfo.io/json', want: 'کشورِ IP خروجیِ اکشن' },
+  /* ---- دورِ دوم: میزبان‌ها/مسیرهای دیگر ---- */
+  { tag: 'www.tsetmc', url: 'https://www.tsetmc.com/tsev2/data/MarketWatchInit.aspx?h=0&r=0', want: 'TSETMC روی www' },
+  { tag: 'cdn.marketOverview', url: 'https://cdn.tsetmc.com/api/MarketData/GetMarketOverview/1', want: 'خلاصه‌ی بازار روی CDN' },
+  { tag: 'cdn.clientType', url: 'https://cdn.tsetmc.com/api/ClientType/GetClientTypeAll/1', want: 'حقیقی/حقوقی روی CDN' },
+  { tag: 'tse.ir', url: 'https://tse.ir/', want: 'سایت رسمیِ بورس تهران' },
+  { tag: 'service.tsetmc', url: 'https://service.tsetmc.com/WebService/TsePublicV2.asmx', want: 'وب‌سرویس رسمی (نیازمند اشتراک)' },
+  { tag: 'bourse-trader', url: 'https://bourse-trader.ir/api/?task=api', want: 'وب‌سرویسِ ثالث' },
 ];
 
 function clean(s, n) {
@@ -80,14 +87,23 @@ async function probe(c) {
       const j = await r.json();
       const cur = j.current || {};
       const keys = Object.keys(cur);
-      const hit = keys.filter((k) => /shakhes|index|bourse|tedpix|tedix|tefix|tepi|farabourse/i.test(k));
-      say(`\n--- کلیدهای بورسیِ TGJU: ${hit.length} از ${keys.length} کلید ---`);
-      hit.slice(0, 30).forEach((k) => {
+      const re = /shakhes|index|bourse|tedpix|tedix|tefix|tepi|farabourse|ارزش|حقیقی|پول/i;
+      const hit = keys.filter((k) => {
         const e = cur[k] || {};
-        tgjuKeys.push({ k, p: e.p, name: clean(e.name || '', 30), ts: e.ts || '' });
-        say(`   ${k}  p=${e.p}  name=${clean(e.name || '', 30)}  ts=${e.ts || ''}`);
+        const blob = [k, e.name, e.title, e.name_fa, e.ts].filter(Boolean).join(' ');
+        return re.test(blob);
+      });
+      say(`\n--- کلیدهای بورسیِ TGJU: ${hit.length} از ${keys.length} کلید ---`);
+      hit.slice(0, 40).forEach((k) => {
+        const e = cur[k] || {};
+        const nm = clean(e.name || e.title || e.name_fa || '', 40);
+        tgjuKeys.push({ k, p: e.p, name: nm, ts: e.ts || '' });
+        say(`   ${k}  p=${e.p}  name=${nm}  ts=${e.ts || ''}`);
       });
       if (!hit.length) say('   هیچ کلیدِ بورسی در ajax.json نبود.');
+      ['bourse', 'bourse_shakhes', 'shakhes', 'bourse_index'].forEach((k) => {
+        if (cur[k]) say(`   شیء کاملِ ${k}: ` + JSON.stringify(cur[k]).slice(0, 400));
+      });
     } catch (e) {
       say('\n--- parse نشد: ' + clean(String((e && e.message) || e), 80));
     }
