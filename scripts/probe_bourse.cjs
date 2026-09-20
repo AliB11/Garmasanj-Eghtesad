@@ -113,7 +113,11 @@ async function probe(c) {
       const persian = /شاخص|ارزش معاملات|حقیقی|ورود پول|فرابورس|هم.?وزن/;
       const deep = keys.filter((k) => persian.test(JSON.stringify(cur[k] || {})) || persian.test(k));
       say(`\n--- کلیدهایی که متنِ بورسیِ فارسی دارند: ${deep.length} ---`);
-      deep.slice(0, 25).forEach((k) => say(`   ${k} = ` + JSON.stringify(cur[k]).slice(0, 160)));
+      deep.slice(0, 25).forEach((k) => {
+        const line = `${k} = ` + JSON.stringify(cur[k]).slice(0, 160);
+        deepLines.push(line);
+        say('   ' + line);
+      });
       // نمونه‌ی شکلِ کلیِ آبجکت (برای اینکه بدانیم name/title کجاست)
       const some = keys.slice(0, 3);
       some.forEach((k) => say(`   نمونه-ساختار ${k}: ` + JSON.stringify(cur[k]).slice(0, 300)));
@@ -124,6 +128,7 @@ async function probe(c) {
 
   /* ---- گزارش مارک‌داون ---- */
   const md = [];
+  const deepLines = [];
   md.push('# گزارش پروبِ امکان‌سنجیِ بورس');
   md.push('');
   md.push('این فایل را **خودِ جریان کاری** بعد از اجرای `scripts/probe_bourse.cjs` از روی یک رانرِ');
@@ -151,6 +156,10 @@ async function probe(c) {
   } else {
     md.push('هیچ کلیدِ بورسی در `ajax.json` پیدا نشد.');
   }
+  md.push('');
+  md.push('## واکاویِ متنِ فارسی در TGJU (جست‌وجوی «شاخص/ارزش معاملات/حقیقی/ورود پول/فرابورس/هم‌وزن»)');
+  md.push('');
+  md.push((deepLines.length ? deepLines.map((l) => '- `' + l.replace(/`/g, "'") + '`').join('\n') : 'هیچ کلیدی با این واژه‌ها پیدا نشد.'));
   md.push('');
   md.push('## URLهای امتحان‌شده');
   md.push('');
