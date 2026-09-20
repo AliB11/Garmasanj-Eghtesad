@@ -544,7 +544,7 @@
     tgju: 'TGJU', nobitex: 'نوبیتکس', wallex: 'والکس', bitpin: 'بیت‌پین',
     coingecko: 'CoinGecko', kraken: 'Kraken', binance: 'Binance Vision', coinbase: 'Coinbase',
     frankfurter: 'Frankfurter', erapi: 'ExchangeRate-API', navasan: 'ناواسان', snapshot: 'اسنپ‌شات',
-    tse: 'شاخص بورس', tsetmc: 'جریان پول بورس'
+    tse: 'شاخص بورس', tsetmc: 'جریان پول بورس', btrader: 'بورس‌تریدر'
   };
 
   function renderHealth() {

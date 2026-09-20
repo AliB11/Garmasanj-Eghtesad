@@ -231,16 +231,22 @@ function tgjuIndex(current, anchor) {
     if (!(p > 0) || !inRange('TSE', p, anchor)) continue;
     const hl = saneDayRange(p, num(e.h), num(e.l));
     const ts = tehranMs(e.ts) || Date.now();
-    const dp = sanePct(e.dp);
-    // قیمت گرد می‌شود؛ پس سقف/کف هم باید با همان گرد شوند وگرنه ممکن است
-    // price < low بیفتد (مثلاً p=7,448,839.4 و low=7,448,839.3) و کلِ دامنه
-    // سمتِ کلاینت به‌عنوانِ «غیرواقعی» دور ریخته شود.
+    let chg = num(e.d), pct = sanePct(e.dp);
+    // قانون جهت TGJU: dt=low یعنی منفی (مثل بقیه‌ی دارایی‌ها)
+    if (e.dt === 'low') {
+      if (chg != null && chg > 0) chg = -chg;
+      if (pct != null && pct > 0) pct = -pct;
+    }
+    // TGJU برای شاخص در روزهای بسته d/dp را صفر و dt را خالی می‌فرستد؛ صفرِ بدون جهت «بی‌داده» است
+    if ((pct === 0 || pct == null) && !e.dt) pct = null;
+    if ((chg === 0 || chg == null) && !e.dt) chg = null;
     const pr = Math.round(p);
     const hi = (hl.high == null) ? null : Math.max(Math.round(hl.high), pr);
     const lo = (hl.low == null) ? null : Math.min(Math.round(hl.low), pr);
     return {
       p: pr,
-      chgPct: (dp != null && dp !== 0 && e.dt !== '') ? dp : null,
+      chg: chg != null ? Math.round(chg) : null,
+      chgPct: pct,
       high: hi,
       low: lo,
       ts: ts,

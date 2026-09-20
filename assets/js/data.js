@@ -759,6 +759,8 @@
       if (!v || !isFinite(+v.netToman)) return null;
       if (Math.abs(+v.netToman) > 1e17) return null;
       var val = (v.valueToman != null && isFinite(+v.valueToman) && +v.valueToman > 0) ? +v.valueToman : null;
+      // نگهبانِ نسبت: خالص نمی‌تواند از کلِ ارزش بیشتر باشد (مثلِ ناشر)
+      if (val != null && Math.abs(+v.netToman) > val * 1.05) return null;
       return { netToman: +v.netToman, valueToman: val };
     }
     var out = { ts: +x.ts || Date.now(), src: x.src || 'BourseTrader', fresh: x.fresh !== false };
@@ -814,13 +816,20 @@
     };
     var f = m.flow;
     if (f && isFinite(+f.netToman)) {
+      var r = (f.ratio != null && isFinite(+f.ratio)) ? +f.ratio : null;
+      // نگهبانِ نسبت: خالص نمی‌تواند از کلِ ارزش بیشتر باشد
+      if (r != null && Math.abs(r) > 1) r = null;
       MARKET.flow = {
         netToman: +f.netToman,
-        ratio: (f.ratio != null && isFinite(+f.ratio)) ? +f.ratio : null,
+        ratio: r,
         n: f.n || null,
         src: f.src || 'TSETMC',
         ts: f.ts || m.asOf || Date.now()
       };
+      if (MARKET.flow.ratio == null && r == null && f.ratio != null) {
+        // اگر نسبت ناممکن بود، جریان را نگه ندار — سکوت به‌جای عددِ غلط
+        if (Math.abs(+f.ratio) > 1) MARKET.flow = null;
+      }
     }
     // مکملِ بورس‌تریدر (هم‌وزن/فرابورس/صندوق‌ها/پهنا) — با نگهبانِ شکل و واحد
     MARKET.bt = btShape(m.bt);
