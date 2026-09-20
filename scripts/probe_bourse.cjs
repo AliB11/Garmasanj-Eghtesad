@@ -133,6 +133,41 @@ async function probe(c) {
     }
   }
 
+  /* ---- بورس‌تریدر: HTML است یا JSON؟ ساختارِ خام را بیاور ---- */
+  const btLines = [];
+  const BT = 'https://bourse-trader.ir/api/?task=api';
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => { try { ctl.abort(); } catch (e) {} }, 20000);
+    const r = await fetch(BT, { signal: ctl.signal, headers: { 'User-Agent': UA } });
+    clearTimeout(timer);
+    const raw = await r.text();
+    btLines.push('- وضعیت: ' + r.status + ' · بایت: ' + raw.length + ' · نوع: ' + (r.headers.get('content-type') || '?'));
+    say('\n--- بورس‌تریدر: ' + r.status + ' · ' + raw.length + ' بایت ---');
+
+    // ۱) آیا اندپوینتِ JSON در صفحه هست؟
+    const urls = new Set();
+    const pats = [/["'`](\/api\/[^"'`\s)]{2,80})["'`]/g, /["'`](https?:\/\/[^"'`\s)]*\/api\/[^"'`\s)]{0,60})["'`]/g, /\?task=([a-zA-Z0-9_\-]{2,30})/g];
+    pats.forEach((re) => { let m; while ((m = re.exec(raw)) && urls.size < 25) urls.add(m[0].replace(/["'`]/g, '')); });
+    btLines.push('- نشانی‌های پیدا شده: ' + (urls.size ? [...urls].slice(0, 20).join(' | ') : 'هیچ'));
+    say('   نشانی‌ها: ' + (urls.size ? [...urls].slice(0, 12).join(' | ') : 'هیچ'));
+
+    // ۲) برشِ خام دورِ برچسب‌های کلیدی (برای نوشتنِ پارسرِ دقیق)
+    const labels = ['شاخص کل', 'شاخص هم وزن', 'شاخص کل فرابورس', 'ارزش بازار',
+      'ورود پول حقیقی', 'ارزش معاملات', 'صندوق درآمدثابت', 'تعداد نماد مثبت', 'سرانه خرید حقیقی'];
+    for (const lb of labels) {
+      const i = raw.indexOf(lb);
+      if (i < 0) { btLines.push('- `' + lb + '`: پیدا نشد'); continue; }
+      const count = raw.split(lb).length - 1;
+      const snip = clean(raw.slice(Math.max(0, i - 120), i + 320), 380);
+      btLines.push('- `' + lb + '` (' + count + ' بار): `' + snip.replace(/`/g, "'") + '`');
+      say('   ' + lb + ' (' + count + '): ' + snip.slice(0, 160));
+    }
+  } catch (e) {
+    btLines.push('- خطا: ' + clean(String((e && e.message) || e), 80));
+    say('   خطا: ' + clean(String((e && e.message) || e), 80));
+  }
+
   /* ---- مسیرهای کلیددار: فقط وقتی کلید در محیط باشد ----
      هدف: پیدا کردنِ مسیرِ درستِ اندپوینت و نامِ واقعیِ فیلدها،
      بدونِ چاپِ خودِ کلید. */
@@ -233,6 +268,10 @@ async function probe(c) {
   md.push('## واکاویِ متنِ فارسی در TGJU (جست‌وجوی «شاخص/ارزش معاملات/حقیقی/ورود پول/فرابورس/هم‌وزن»)');
   md.push('');
   md.push((deepLines.length ? deepLines.map((l) => '- `' + l.replace(/`/g, "'") + '`').join('\n') : 'هیچ کلیدی با این واژه‌ها پیدا نشد.'));
+  md.push('');
+  md.push('## بورس‌تریدر (bourse-trader.ir) — ساختارِ خام');
+  md.push('');
+  md.push(btLines.length ? btLines.join('\n') : 'بررسی نشد.');
   md.push('');
   md.push('## مسیرهای کلیددار (بدون نمایشِ کلید)');
   md.push('');
