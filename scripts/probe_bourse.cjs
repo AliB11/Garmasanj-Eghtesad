@@ -33,6 +33,11 @@ const CANDIDATES = [
   { tag: 'tse.ir', url: 'https://tse.ir/', want: 'سایت رسمیِ بورس تهران' },
   { tag: 'service.tsetmc', url: 'https://service.tsetmc.com/WebService/TsePublicV2.asmx', want: 'وب‌سرویس رسمی (نیازمند اشتراک)' },
   { tag: 'bourse-trader', url: 'https://bourse-trader.ir/api/?task=api', want: 'وب‌سرویسِ ثالث' },
+  /* ---- دورِ سوم: تاریخچه‌ی شاخص (برای منطقِ «این هفته») ---- */
+  { tag: 'yahoo.tedpix', url: 'https://query1.finance.yahoo.com/v8/finance/chart/%5ETEDPIX?range=1mo&interval=1d', want: 'تاریخچه‌ی شاخص از یاهو' },
+  { tag: 'yahoo.search', url: 'https://query1.finance.yahoo.com/v1/finance/search?q=tehran&quotesCount=10', want: 'جست‌وجوی نمادِ تهران در یاهو' },
+  { tag: 'stooq.tedpix', url: 'https://stooq.com/q/d/l/?s=%5Etedpix&i=d', want: 'تاریخچه‌ی شاخص از استوک' },
+  { tag: 'stooq.tse', url: 'https://stooq.com/q/?s=%5Etedpix', want: 'صفحه‌ی شاخص در استوک' },
 ];
 
 function clean(s, n) {
@@ -102,8 +107,16 @@ async function probe(c) {
       });
       if (!hit.length) say('   هیچ کلیدِ بورسی در ajax.json نبود.');
       ['bourse', 'bourse_shakhes', 'shakhes', 'bourse_index'].forEach((k) => {
-        if (cur[k]) say(`   شیء کاملِ ${k}: ` + JSON.stringify(cur[k]).slice(0, 400));
+        if (cur[k]) say(`   شیء کاملِ ${k}: ` + JSON.stringify(cur[k]).slice(0, 500));
       });
+      // جست‌وجوی سراسری: هر کلیدی که در مقدار یا نامش واژه‌ی بورسی دارد
+      const persian = /شاخص|ارزش معاملات|حقیقی|ورود پول|فرابورس|هم.?وزن/;
+      const deep = keys.filter((k) => persian.test(JSON.stringify(cur[k] || {})) || persian.test(k));
+      say(`\n--- کلیدهایی که متنِ بورسیِ فارسی دارند: ${deep.length} ---`);
+      deep.slice(0, 25).forEach((k) => say(`   ${k} = ` + JSON.stringify(cur[k]).slice(0, 160)));
+      // نمونه‌ی شکلِ کلیِ آبجکت (برای اینکه بدانیم name/title کجاست)
+      const some = keys.slice(0, 3);
+      some.forEach((k) => say(`   نمونه-ساختار ${k}: ` + JSON.stringify(cur[k]).slice(0, 300)));
     } catch (e) {
       say('\n--- parse نشد: ' + clean(String((e && e.message) || e), 80));
     }
