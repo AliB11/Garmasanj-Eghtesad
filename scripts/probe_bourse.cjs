@@ -107,7 +107,10 @@ async function probe(c) {
       });
       if (!hit.length) say('   هیچ کلیدِ بورسی در ajax.json نبود.');
       ['bourse', 'bourse_shakhes', 'shakhes', 'bourse_index'].forEach((k) => {
-        if (cur[k]) say(`   شیء کاملِ ${k}: ` + JSON.stringify(cur[k]).slice(0, 500));
+        if (cur[k]) {
+          tgjuRowDump += k + ': ' + JSON.stringify(cur[k], null, 1) + '\n';
+          say(`   شیء کاملِ ${k}: ` + JSON.stringify(cur[k]).slice(0, 500));
+        }
       });
       // جست‌وجوی سراسری: هر کلیدی که در مقدار یا نامش واژه‌ی بورسی دارد
       const persian = /شاخص|ارزش معاملات|حقیقی|ورود پول|فرابورس|هم.?وزن/;
@@ -129,6 +132,7 @@ async function probe(c) {
   /* ---- گزارش مارک‌داون ---- */
   const md = [];
   const deepLines = [];
+  let tgjuRowDump = '';
   md.push('# گزارش پروبِ امکان‌سنجیِ بورس');
   md.push('');
   md.push('این فایل را **خودِ جریان کاری** بعد از اجرای `scripts/probe_bourse.cjs` از روی یک رانرِ');
@@ -156,6 +160,12 @@ async function probe(c) {
   } else {
     md.push('هیچ کلیدِ بورسی در `ajax.json` پیدا نشد.');
   }
+  md.push('');
+  md.push('## شکلِ دقیقِ ورودیِ بورس در TGJU');
+  md.push('');
+  md.push('```json');
+  md.push(tgjuRowDump || '(در دسترس نبود)');
+  md.push('```');
   md.push('');
   md.push('## واکاویِ متنِ فارسی در TGJU (جست‌وجوی «شاخص/ارزش معاملات/حقیقی/ورود پول/فرابورس/هم‌وزن»)');
   md.push('');
