@@ -1,6 +1,7 @@
 /* ============================================================
-   گرماسنج — ui.js (نسل ۳)
-   تیکر، گیج نبض، شبکه‌ی دارایی‌ها، جلسات، وضعیت، توست، مودال‌ها.
+   گرماسنج — ui.js (نسل ۹: ترمینال بورس حرفه‌ای + رادار)
+   تیکر، گیج نبض، شبکه‌ی دارایی‌ها، جلسات، وضعیت، توست، مودال‌ها
+   + بورس پرو: رادار ۶ بعدی، دونات پهنا، جریان صندوق‌ها
    ============================================================ */
 (function () {
   'use strict';
@@ -56,7 +57,6 @@
     return { txt: dispPrice(a, q), chg: q.chgPct };
   }
 
-  /** فهرست تیکر: سنجاق‌شده‌ها اول، بعد فهرست پیش‌فرض (بدون تکرار) */
   function tickerList() {
     var pinned = PINS.map(function (k) { return { k: k }; });
     return pinned.concat(TICKER.filter(function (t) { return !isPinned(t.k); }));
@@ -193,7 +193,6 @@
       })();
   }
 
-  /** پیل وضعیت هدر — صادقانه: قطع/بی‌پاسخ/تک‌منبع/متصل */
   function renderNetPill(busy) {
     var pill = U.$('#netStatus');
     if (!pill) return;
@@ -206,7 +205,7 @@
     else { pill.className = 'net-pill ok'; pill.innerHTML = '<i class="s-dot ok"></i>متصل · ' + U.fa(live) + ' زنده'; }
   }
 
-  /* ---------------- وضعیت منابع (نوار خلاصه) ---------------- */
+  /* ---------------- وضعیت منابع ---------------- */
   function renderStatus() {
     var strip = U.$('#srcStrip');
     if (!strip) return;
@@ -249,7 +248,7 @@
   function dispPrice(a, q) {
     if (!q || !(q.p > 0)) return '—';
     if (a.kind === 'usd') return fmtDec(q.p, a.dec != null ? a.dec : 0);
-    if (q.p >= 1e9) return U.fmtCompact(q.p); // فقط ارقام واقعاً بزرگ (بیت‌کوین تومانی) فشرده می‌شوند
+    if (q.p >= 1e9) return U.fmtCompact(q.p);
     return U.fmt(q.p);
   }
 
@@ -280,7 +279,6 @@
   var activeCat = 'all';
   var query = '';
 
-  /* ---------------- سنجاق (واچ‌لیست) ---------------- */
   var LS_PINS = 'garmasanj_pins_v1', PIN_MAX = 6;
   var PINS = [];
   function pinsLoad() {
@@ -303,7 +301,6 @@
     toast('info', i >= 0 ? 'سنجاق برداشته شد' : 'سنجاق شد', i >= 0 ? '«' + a.fa + '» به جای خودش برگشت.' : '«' + a.fa + '» بالای فهرست و اول تیکر می‌آید.');
     return true;
   }
-  /** ترتیب شبکه: سنجاق‌شده‌ها (به ترتیب سنجاق) بعد بقیه به ترتیب رجیستری */
   function applyPins() {
     var grid = U.$('#assetGrid');
     if (!grid) return;
@@ -320,7 +317,6 @@
     });
   }
 
-  /* ---------------- جست‌وجو ---------------- */
   function normFa(x) {
     return String(x || '').toLowerCase().replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/[\u200c\u200f]/g, ' ').replace(/\s+/g, ' ').trim();
   }
@@ -333,7 +329,6 @@
     query = normFa(q);
     var inp = U.$('#qsearch');
     if (inp && normFa(inp.value) !== query) inp.value = q || '';
-    // جست‌وجو همه‌ی بازارها را می‌گردد؛ تب دسته را به «همه» برمی‌گرداند تا نتیجه پنهان نماند
     if (query && activeCat !== 'all') { setCategory('all'); return; }
     applyCatFilter();
   }
@@ -344,7 +339,6 @@
     inp.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') { e.preventDefault(); setQuery(''); inp.blur(); }
       if (e.key === 'Enter') {
-        // اولین کارت دیده‌شده را باز کن
         var first = U.$$('#assetGrid .qcard').filter(function (c) { return c.style.display !== 'none'; })[0];
         if (first) openAssetModal(first.dataset.sym);
       }
@@ -369,7 +363,7 @@
       if (card && card.dataset.sym) openAssetModal(card.dataset.sym);
     });
     grid.addEventListener('keydown', function (e) {
-      if (e.target.closest('.qc-pin')) return; // Enter/Space روی ستاره = کلیک بومی دکمه
+      if (e.target.closest('.qc-pin')) return;
       if (e.key === 'Enter' || e.key === ' ') {
         var card = e.target.closest('.qcard');
         if (card && card.dataset.sym) { e.preventDefault(); openAssetModal(card.dataset.sym); }
@@ -414,7 +408,6 @@
     }
   }
 
-  /** اطمینان از دیده‌شدن کارت یک دارایی (اگر تب یا جست‌وجو آن را پنهان کرده، بازش می‌کند) */
   function ensureCardVisible(sym) {
     var card = document.querySelector('.qcard[data-sym="' + sym + '"]');
     if (!card) return null;
@@ -435,7 +428,6 @@
       var has = q && q.p > 0;
       card.classList.toggle('skel', !has);
       var F = function (k) { return card.querySelector('[data-f="' + k + '"]'); };
-      // قیمت + فلش تغییر
       var pv = has ? dispPrice(a, q) : '—';
       var pEl = F('price');
       if (pEl && pEl.textContent !== pv) {
@@ -447,7 +439,6 @@
           pEl.classList.add(q.p > old ? 'fu' : 'fd');
         }
       }
-      // تغییر روز
       var ch = F('chg');
       if (ch) {
         if (!has || q.chgPct == null) { ch.className = 'qc-chg z'; ch.textContent = '—'; }
@@ -456,7 +447,6 @@
           ch.innerHTML = dayHTML(q.chgPct);
         }
       }
-      // زیرعنوان و بینش تحلیلی (حباب و انحراف)
       var subEl = F('sub');
       if (subEl) {
         var subTxt = a.sub || catFa(a.cat);
@@ -470,16 +460,12 @@
         else if (a.sym === 'MESGHAL' && dv.mesghalDev != null) subTxt = 'مظنه · انحراف ' + U.pct(dv.mesghalDev, 1);
         subEl.textContent = subTxt;
       }
-      // اسپارک‌لاین
       var sp = F('spark');
       if (sp) sp.innerHTML = has ? GS.charts.assetSpark(a.sym, q.chgPct) : '';
-      // دامنه‌ی روز
       var rg = F('range');
       if (rg) rg.innerHTML = has ? GS.charts.rangeBar(q) : '';
-      // منبع
       var sr = F('src');
       if (sr) sr.textContent = feedText(a.sym);
-      // بج تازگی
       var bd = F('badge');
       if (bd) {
         if (!has) { bd.className = 'qc-badge'; bd.textContent = ''; }
@@ -521,7 +507,6 @@
     updateMood();
   }
 
-  /* ---------------- کارت‌های نبض (هیرو) ---------------- */
   function renderPulse() {
     var host = U.$('#pulseCards');
     if (!host) return;
@@ -543,42 +528,7 @@
     }).join('');
   }
 
-  /* ---------------- کارتِ بورس (شاخص + جریان پول) ---------------- */
-  /**
-   * صادقانه: اگر جریانِ پول در دسترس نباشد (حالتِ پیش‌فرض — TSETMC از بیرون
-   * ایران پاسخ نمی‌دهد)، فقط شاخص نشان داده می‌شود و کنارش نوشته می‌شود که
-   * جریانِ پول در دسترس نیست. هرگز از روی شاخص، جریان ساخته نمی‌شود.
-   */
-  function bourseCard() {
-    var mk = null;
-    try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
-    function card(label, val, hint, tone) {
-      return '<div class="mc"><small>' + label + '</small><b class="' + (tone || '') + '">' + val + '</b><span>' + hint + '</span></div>';
-    }
-    if (!mk || !(mk.p > 0)) {
-      return card('شاخص کل بورس', '—', 'منتظر انتشارِ سرور', '');
-    }
-    var tone = mk.chgPct == null ? '' : (mk.chgPct > 0.3 ? 'hot' : mk.chgPct < -0.3 ? 'cold' : '');
-    var hint;
-    if (mk.flow && mk.flowRatio != null) {
-      var out = mk.flow.netToman < 0;
-      hint = (out ? 'خروج ' : 'ورود ') + U.fa((Math.abs(mk.flow.netToman) / 1e12).toFixed(1)) +
-        ' همت پولِ حقیقی (' + U.fa(Math.round(Math.abs(mk.flowRatio) * 100)) + '٪ ارزش معاملات)';
-    } else {
-      hint = 'جریانِ پولِ حقیقی در دسترس نیست';
-    }
-    if (mk.session && mk.session.label === 'باز') hint = 'جلسه باز · ' + hint;
-    else hint = 'آخرین جلسه ' + ((mk.ts && U.dateFa) ? U.dateFa(mk.ts) : U.fa(mk.day || '')) + ' · ' + hint;
-    return card('شاخص کل بورس', U.fmt(Math.round(mk.p)) +
-      (mk.chgPct != null ? ' <small class="' + tone + '">' + U.pct(mk.chgPct, 1) + '</small>' : ''), hint, tone);
-  }
-
-  /* ---------------- ردیفِ بورس: فراتر از شاخصِ کل ---------------- */
-  /**
-   * مکملِ بورس‌تریدر (از انتشارِ سرور؛ بدون کلید): شاخصِ هم‌وزن و فرابورس،
-   * جریانِ پولِ خرد، تحرکاتِ صندوق‌ها، پهنا و ارزشِ معاملات.
-   * فقط چیزی نشان داده می‌شود که واقعاً رسیده باشد — کارتِ خالی ساخته نمی‌شود.
-   */
+  /* ---------------- بورس — ابزارها ---------------- */
   function btMoney(v) {
     var a = Math.abs(+v);
     if (!isFinite(a)) return '—';
@@ -587,37 +537,206 @@
     if (a >= 1e6) return U.fa(Math.round(a / 1e6)) + ' میلیون';
     return U.fmt(Math.round(a)) + ' تومان';
   }
-
-  /** کارتِ جریان: «خروج ۱.۸ همت» با رنگِ جهت و توضیحِ کوتاه */
-  function flowCard(label, net, hint) {
-    if (net == null || !isFinite(+net)) return '';
-    var out = +net < 0;
-    var zero = Math.abs(+net) < 1e6;
-    return '<div class="mc"><small>' + label + '</small><b class="' + (zero ? '' : (out ? 'cold' : 'hot')) + '">' +
-      (zero ? 'بدون جریان' : (out ? 'خروج ' : 'ورود ') + btMoney(net)) + '</b><span>' + (hint || '') + '</span></div>';
+  function btMoneySigned(v) {
+    if (v == null || !isFinite(+v)) return '—';
+    var a = Math.abs(+v);
+    var txt = a >= 1e12 ? U.fa((a / 1e12).toFixed(2)) + ' همت' : a >= 1e9 ? U.fa(Math.round(a / 1e9)) + ' میلیارد' : U.fmt(Math.round(a));
+    return (+v < 0 ? '−' : '+') + txt;
   }
 
+  function bourseCard() {
+    var mk = null;
+    try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+    function card(label, val, hint, tone) {
+      return '<div class="mc"><small>' + label + '</small><b class="' + (tone || '') + '">' + val + '</b><span>' + hint + '</span></div>';
+    }
+    if (!mk || !(mk.p > 0)) return card('شاخص کل بورس', '—', 'منتظر انتشارِ سرور', '');
+    var tone = mk.chgPct == null ? '' : mk.chgPct > 0.3 ? 'hot' : mk.chgPct < -0.3 ? 'cold' : '';
+    var hint;
+    if (mk.flow && mk.flowRatio != null) {
+      var out = mk.flow.netToman < 0;
+      hint = (out ? 'خروج ' : 'ورود ') + U.fa((Math.abs(mk.flow.netToman) / 1e12).toFixed(1)) + ' همت (' + U.fa(Math.round(Math.abs(mk.flowRatio) * 100)) + '٪)';
+    } else hint = 'جریانِ پول در دسترس نیست';
+    if (mk.session && mk.session.label === 'باز') hint = 'جلسه باز · ' + hint;
+    else hint = 'آخرین جلسه ' + ((mk.ts && U.dateFa) ? U.dateFa(mk.ts) : U.fa(mk.day || '')) + ' · ' + hint;
+    return card('شاخص کل بورس', U.fmt(Math.round(mk.p)) + (mk.chgPct != null ? ' <small class="' + tone + '">' + U.pct(mk.chgPct, 1) + '</small>' : ''), hint, tone);
+  }
+
+  /* ---------------- ترمینال حرفه‌ای بورس ---------------- */
+  function bourseHealthScore(mk, bt) {
+    var dims = bourseRadarDims(mk, bt);
+    var avg = dims.reduce(function (s, d) { return s + d.value; }, 0) / (dims.length || 1);
+    var tone = avg >= 60 ? 'hot' : avg <= 35 ? 'cold' : 'mid';
+    var label = avg >= 65 ? 'پرتحرک' : avg >= 50 ? 'متعادل' : avg >= 35 ? 'کم‌رمق' : 'ضعیف';
+    return { pct: Math.round(avg), tone: tone, label: label };
+  }
+
+  function bourseRadarDims(mk, bt) {
+    var dims = [];
+    var breadth = bt.breadth ? bt.breadth.posPct : null;
+    dims.push({ label: 'پهنا', value: breadth != null ? U.clamp(breadth, 0, 100) : 50, color: '#3ECF8E', hint: breadth != null ? U.fa(Math.round(breadth)) + '٪ مثبت' : '—' });
+    var flowVal = 50;
+    if (mk.flow && mk.flowRatio != null) {
+      var ar = Math.abs(mk.flowRatio);
+      flowVal = U.clamp(ar * 100 * 2.5, 0, 100);
+      if (mk.flow.netToman > 0) flowVal = U.clamp(flowVal * 0.7 + 30, 0, 100);
+    }
+    dims.push({ label: 'جریان خرد', value: flowVal, color: '#E8A33D', hint: mk.flow ? btMoneySigned(mk.flow.netToman) : '—' });
+    var fixedVal = 50, fixedHint = '—';
+    if (bt.funds && bt.funds.fixed) {
+      var fn = bt.funds.fixed.netToman;
+      fixedHint = btMoneySigned(fn);
+      if (fn < 0) fixedVal = U.clamp(50 + Math.min(40, Math.abs(fn) / 1e12 * 8), 0, 100);
+      else fixedVal = U.clamp(50 - Math.min(30, fn / 1e12 * 8), 0, 100);
+    }
+    dims.push({ label: 'درآمد ثابت', value: fixedVal, color: '#4E8F8B', hint: fixedHint });
+    var eqVal = 50, eqHint = '—';
+    if (bt.funds && bt.funds.equity) {
+      var en = bt.funds.equity.netToman;
+      eqHint = btMoneySigned(en);
+      if (en > 0) eqVal = U.clamp(50 + Math.min(40, en / 1e12 * 10), 0, 100);
+      else eqVal = U.clamp(50 - Math.min(30, Math.abs(en) / 1e12 * 10), 0, 100);
+    }
+    dims.push({ label: 'سهامی', value: eqVal, color: '#E8A33D', hint: eqHint });
+    var pcVal = 50, pcHint = '—';
+    if (bt.perCapita && bt.perCapita.buy && bt.perCapita.sell) {
+      var ratio = bt.perCapita.buy / bt.perCapita.sell;
+      pcVal = U.clamp(50 + (ratio - 1) * 40, 0, 100);
+      pcHint = U.fa(ratio.toFixed(2)) + '×';
+    }
+    dims.push({ label: 'سرانه', value: pcVal, color: '#7E97A3', hint: pcHint });
+    var qVal = 50, qHint = '—';
+    if (bt.breadth && bt.breadth.queueBuy != null && bt.breadth.queueSell != null) {
+      var tot = bt.breadth.queueBuy + bt.breadth.queueSell;
+      if (tot > 0) {
+        qVal = bt.breadth.queueBuy / tot * 100;
+        qHint = U.fa(bt.breadth.queueBuy) + '/' + U.fa(bt.breadth.queueSell);
+      }
+    }
+    dims.push({ label: 'صف خرید', value: qVal, color: '#3ECF8E', hint: qHint });
+    return dims;
+  }
+
+  function renderBoursePro() {
+    var sec = U.$('#boursePro');
+    if (!sec) return;
+    var mk = null;
+    try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+    var bt = mk && mk.bt ? mk.bt : null;
+    if (!mk || !(mk.p > 0) || !bt) { sec.hidden = true; sec.style.display = 'none'; return; }
+    sec.hidden = false; sec.style.display = '';
+
+    var titleEl = U.$('#bourseProTitle'), metaEl = U.$('#bourseProMeta'), badgeEl = U.$('#bourseProBadge'), ageEl = U.$('#bourseProAge'), srcEl = U.$('#bourseProSource'), explEl = U.$('#bourseProExplain');
+    var chgTxt = mk.chgPct != null ? U.pct(mk.chgPct, 1) : '';
+    var chgTone = mk.chgPct == null ? '' : mk.chgPct > 0 ? 'up' : mk.chgPct < 0 ? 'down' : 'z';
+    if (titleEl) titleEl.innerHTML = 'شاخص کل ' + U.fmt(Math.round(mk.p)) + (chgTxt ? ' <small class="' + chgTone + '">' + chgTxt + '</small>' : '') + ' <small style="font-weight:400;color:var(--mut)">· ' + U.esc(mk.src || '') + '</small>';
+    var ageMin = Math.round((Date.now() - (bt.ts || mk.ts || Date.now())) / 60000);
+    var ageTxt = ageMin < 2 ? 'همین الان' : ageMin < 90 ? U.fa(ageMin) + ' دقیقه پیش' : ageMin < 36 * 60 ? U.fa(Math.round(ageMin / 60)) + ' ساعت پیش' : 'آخرین جلسه';
+    if (metaEl) metaEl.textContent = 'جلسه ' + (mk.day || (mk.ts ? U.dateFa(mk.ts) : '—')) + ' · به‌روزرسانی ' + ageTxt + (mk.session && mk.session.open ? ' · جلسه باز' : ' · بازار بسته');
+    if (badgeEl) {
+      var score = bourseHealthScore(mk, bt);
+      badgeEl.className = 'bp-badge ' + score.tone;
+      badgeEl.textContent = score.label + ' · ' + score.pct + '٪ سلامت';
+    }
+    if (ageEl) ageEl.textContent = ageTxt;
+    if (srcEl) srcEl.textContent = 'شاخص از ' + (mk.src || 'TGJU') + '، مکمل از bourse-trader.ir · ' + ageTxt;
+    if (explEl) {
+      var parts = [];
+      if (bt.breadth) parts.push('پهنا ' + U.fa(Math.round(bt.breadth.posPct)) + '٪ مثبت');
+      if (mk.flow) parts.push((mk.flow.netToman < 0 ? 'خروج ' : 'ورود ') + btMoney(mk.flow.netToman) + ' خرد');
+      if (bt.funds && bt.funds.fixed) parts.push((bt.funds.fixed.netToman < 0 ? 'خروج از' : 'ورود به') + ' درآمد ثابت');
+      explEl.textContent = parts.join(' · ') || '—';
+    }
+
+    var idxHost = U.$('#bourseIndices');
+    if (idxHost) {
+      function idxCard(label, p, chgPct, sub) {
+        if (!(p > 0)) return '';
+        var t = chgPct == null ? '' : chgPct > 0.3 ? 'hot' : chgPct < -0.3 ? 'cold' : '';
+        return '<div class="bp-idx-card"><small>' + label + '</small><b>' + U.fmt(Math.round(p)) + (chgPct != null ? ' <em class="' + t + '">' + U.pct(chgPct, 1) + '</em>' : '') + '</b><span>' + (sub || '') + '</span></div>';
+      }
+      var cards = [];
+      cards.push(idxCard('شاخص کل', mk.p, mk.chgPct, mk.high ? 'سقف ' + U.fmt(mk.high) + ' · کف ' + U.fmt(mk.low) : ''));
+      if (bt.equal) cards.push(idxCard('هم‌وزن', bt.equal.p, bt.equal.chgPct, 'بدنه‌ی بازار'));
+      if (bt.fara) cards.push(idxCard('فرابورس', bt.fara.p, bt.fara.chgPct, 'بازار دوم'));
+      if (bt.cap) cards.push('<div class="bp-idx-card"><small>ارزش بازار</small><b>' + U.fa((bt.cap / 1e15).toFixed(1)) + ' همت</b><span>کل بورس و فرابورس</span></div>');
+      idxHost.innerHTML = cards.join('');
+    }
+
+    var radarHost = U.$('#bourseRadarChart'), legendHost = U.$('#bourseRadarLegend');
+    if (radarHost) {
+      var dims = bourseRadarDims(mk, bt);
+      radarHost.innerHTML = GS.charts.radarChart(dims, { size: 320, levels: 4, showValues: false, label: 'رادار سلامت بورس' });
+      if (legendHost) {
+        legendHost.innerHTML = dims.map(function (d) {
+          var v = Math.round(d.value);
+          var tone = v >= 60 ? 'hot' : v <= 35 ? 'cold' : 'mid';
+          return '<div class="bp-rl-row"><span class="bp-rl-dot" style="background:' + (d.color || '#E8A33D') + '"></span><b>' + U.esc(d.label) + '</b><em class="' + tone + '">' + U.fa(v) + '</em><small>' + U.esc(d.hint || '') + '</small></div>';
+        }).join('');
+      }
+    }
+
+    var donutHost = U.$('#bourseBreadthDonut'), breadthStats = U.$('#bourseBreadthStats'), queueHost = U.$('#bourseQueueChart');
+    if (donutHost && bt.breadth) {
+      donutHost.innerHTML = GS.charts.breadthDonut(bt.breadth, { size: 150, thick: 16 });
+      if (breadthStats) {
+        var B = bt.breadth;
+        breadthStats.innerHTML = '<div class="bp-stat"><span>مثبت</span><b class="up">' + U.fa(B.pos) + '</b><small>' + (B.posPct != null ? U.fa(B.posPct.toFixed(1)) + '٪' : '') + '</small></div>' +
+          '<div class="bp-stat"><span>منفی</span><b class="down">' + U.fa(B.neg) + '</b><small>' + U.fa((100 - (B.posPct || 0)).toFixed(1)) + '٪</small></div>' +
+          '<div class="bp-stat"><span>کل</span><b>' + U.fa(B.total) + '</b><small>خرد</small></div>';
+      }
+      if (queueHost) queueHost.innerHTML = GS.charts.queueChart(bt.breadth);
+    }
+
+    var mainFlowHost = U.$('#bourseMainFlow'), fundsHost = U.$('#bourseFundsFlow');
+    if (mainFlowHost) {
+      if (mk.flow) {
+        var out = mk.flow.netToman < 0;
+        var absT = Math.abs(mk.flow.netToman);
+        var ratio = mk.flowRatio != null ? Math.abs(mk.flowRatio) * 100 : null;
+        mainFlowHost.innerHTML = '<div class="bp-main-flow-card ' + (out ? 'out' : 'in') + '"><div class="bp-mf-icon">' + (out ? '↗' : '↘') + '</div>' +
+          '<div class="bp-mf-main"><small>جریان پول حقیقی خرد</small><b>' + (out ? 'خروج ' : 'ورود ') + btMoney(absT) + '</b><span>' +
+          (ratio != null ? U.fa(ratio.toFixed(1)) + '٪ ارزش معاملات · ' + U.fa(mk.flow.n || '') + ' نماد' : '') + '</span></div>' +
+          '<div class="bp-mf-ratio"><b>' + (ratio != null ? U.fa(ratio.toFixed(1)) + '٪' : '—') + '</b><small>شدت</small></div></div>';
+      } else mainFlowHost.innerHTML = '<div class="lc-empty">جریان خرد در دسترس نیست</div>';
+    }
+    if (fundsHost) fundsHost.innerHTML = GS.charts.fundsFlowChart(bt.funds);
+
+    var tradeHost = U.$('#bourseTradeStats'), pcHost = U.$('#boursePerCapita'), capHost = U.$('#bourseCap');
+    if (tradeHost) {
+      if (bt.trade && bt.trade.valueToman) {
+        tradeHost.innerHTML = '<div class="bp-trade"><div class="bp-tr-row"><span>ارزش معاملات خرد</span><b>' + btMoney(bt.trade.valueToman) + '</b></div>' +
+          (bt.trade.volume ? '<div class="bp-tr-row"><span>حجم</span><b>' + U.fa((bt.trade.volume / 1e9).toFixed(2)) + ' میلیارد برگه</b></div>' : '') +
+          '</div>';
+      } else tradeHost.innerHTML = '<div class="lc-empty">ارزش معاملات نیست</div>';
+    }
+    if (pcHost) pcHost.innerHTML = GS.charts.perCapitaGauge(bt.perCapita);
+    if (capHost && bt.cap) capHost.innerHTML = '<div class="bp-cap-card"><small>ارزش بازار کل</small><b>' + U.fa((bt.cap / 1e15).toFixed(1)) + ' هزار همت</b></div>';
+  }
+
+  function flowCard(label, net, hint) {
+    if (net == null || !isFinite(+net)) return '';
+    var out = +net < 0, zero = Math.abs(+net) < 1e6;
+    return '<div class="mc"><small>' + label + '</small><b class="' + (zero ? '' : (out ? 'cold' : 'hot')) + '">' + (zero ? 'بدون جریان' : (out ? 'خروج ' : 'ورود ') + btMoney(net)) + '</b><span>' + (hint || '') + '</span></div>';
+  }
   function renderBourse() {
     var host = U.$('#bourseStrip'), title = U.$('#bourseTitle');
     if (!host) return;
     var mk = null;
     try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
-    var bt = (mk && mk.bt) ? mk.bt : null;
+    var bt = mk && mk.bt ? mk.bt : null;
     if (!bt) { host.innerHTML = ''; host.style.display = 'none'; if (title) title.style.display = 'none'; return; }
-
-    function card(label, val, hint, tone) {
-      return '<div class="mc"><small>' + label + '</small><b class="' + (tone || '') + '">' + val + '</b><span>' + hint + '</span></div>';
-    }
+    function card(label, val, hint, tone) { return '<div class="mc"><small>' + label + '</small><b class="' + (tone || '') + '">' + val + '</b><span>' + hint + '</span></div>'; }
     function idxCard(label, v, hint) {
       if (!v) return '';
-      var tone = v.chgPct == null ? '' : (v.chgPct > 0.3 ? 'hot' : v.chgPct < -0.3 ? 'cold' : '');
+      var tone = v.chgPct == null ? '' : v.chgPct > 0.3 ? 'hot' : v.chgPct < -0.3 ? 'cold' : '';
       return card(label, U.fmt(Math.round(v.p)) + (v.chgPct != null ? ' <small class="' + tone + '">' + U.pct(v.chgPct, 1) + '</small>' : ''), hint || '', tone);
     }
     var cards = [];
-    var push = function (h) { if (h) cards.push(h); };   // کارتِ خالی هرگز ساخته نمی‌شود
+    var push = function (h) { if (h) cards.push(h); };
+    // labels must stay compatible with tests/bourse.js (old strip) — new rich UI is in renderBoursePro
     push(idxCard('شاخص هم‌وزن', bt.equal, 'وزنِ برابر برای همه‌ی نمادها — تصویرِ بدنه‌ی بازار'));
     push(idxCard('شاخص کل فرابورس', bt.fara, 'شرکت‌های کوچک‌تر و بازارِ دوم'));
-
     if (mk.flow) {
       var ratioTxt = (mk.flowRatio != null) ? U.fa(Math.round(Math.abs(mk.flowRatio) * 100)) + '٪ ارزشِ معاملات خرد' : '';
       push(flowCard('جریانِ پولِ خرد', mk.flow.netToman, ratioTxt || 'از بورس‌تریدر'));
@@ -643,10 +762,7 @@
     if (cards.length < 2) { host.innerHTML = ''; host.style.display = 'none'; if (title) title.style.display = 'none'; return; }
     if (title) {
       var ageMin = Math.round((Date.now() - bt.ts) / 60000);
-      var ageTxt = ageMin < 2 ? 'همین الان'
-        : ageMin < 90 ? U.fa(ageMin) + ' دقیقه پیش'
-        : ageMin < 36 * 60 ? U.fa(Math.round(ageMin / 60)) + ' ساعت پیش'
-        : 'آخرین جلسه';
+      var ageTxt = ageMin < 2 ? 'همین الان' : ageMin < 90 ? U.fa(ageMin) + ' دقیقه پیش' : ageMin < 36 * 60 ? U.fa(Math.round(ageMin / 60)) + ' ساعت پیش' : 'آخرین جلسه';
       title.style.display = '';
       title.textContent = 'بورس تهران — فراتر از شاخصِ کل · منبع: bourse-trader.ir (از انتشارِ سرور) · ' + ageTxt;
     }
@@ -677,6 +793,7 @@
     cards.push(bourseCard());
     host.innerHTML = cards.join('');
     renderBourse();
+    renderBoursePro();
   }
 
   /* ---------------- مودال‌ها ---------------- */
@@ -709,7 +826,6 @@
     m.setAttribute('aria-hidden', 'true');
     m.onkeydown = null;
     document.body.style.overflow = '';
-    // بازگرداندن فوکوس به عنصر بازکننده (دسترس‌پذیری صفحه‌کلید)
     if (lastFocus && typeof lastFocus.focus === 'function' && document.contains(lastFocus)) {
       try { lastFocus.focus(); } catch (e) {}
     }
@@ -763,7 +879,6 @@
       metrics.push({ k: 'بیشترین قیمت امروز', v: (a.kind === 'usd' ? U.fa(q.high.toFixed(a.dec || 0)) : U.fmt(q.high)) + ' ' + a.unit });
       metrics.push({ k: 'کمترین قیمت امروز', v: (a.kind === 'usd' ? U.fa(q.low.toFixed(a.dec || 0)) : U.fmt(q.low)) + ' ' + a.unit });
     }
-    // «چقدر می‌خرد؟» — قدرت خرید سرمایه‌ی شبیه‌ساز با این دارایی
     var simP = (GS.features && GS.features.simAmount) ? GS.features.simAmount() : 0;
     if (simP > 0 && q.p > 0 && a.kind === 'toman') {
       var units = simP / q.p;
@@ -803,7 +918,6 @@
         '<button class="btn btn-ghost sm" id="amPinBtn" aria-pressed="' + (isPinned(sym) ? 'true' : 'false') + '"><svg class="ic s16"><use href="#i-star"/></svg>' + (isPinned(sym) ? 'برداشتن سنجاق' : 'سنجاق') + '</button>' +
       '</div>' : '<p class="micro" style="margin-top:12px">این کوت مشتق (فرمولی) است و رادار قیمت روی اجزای آن — دلار و اونس — تنظیم می‌شود.</p>');
 
-    // بازه‌های تاریخچه
     body.querySelectorAll('[data-hist-days]').forEach(function (b) {
       b.addEventListener('click', function () {
         histDays = +b.dataset.histDays || 30;
@@ -839,14 +953,12 @@
         if (targetIn && q.p > 0) targetIn.value = U.fmt(q.p);
         var radarSec = U.$('#radar');
         try { if (radarSec && radarSec.scrollIntoView) radarSec.scrollIntoView({ behavior: 'smooth' }); } catch (e) {}
-        // قیمت فعلی پیش‌فرض است؛ متن انتخاب می‌شود تا کاربر مستقیم هدف خودش را تایپ کند
         if (targetIn) { try { targetIn.focus(); targetIn.select(); } catch (e) {} }
       });
     }
     openModal('#assetModal');
   }
 
-  /* ---------------- تاریخچه در مودال دارایی ---------------- */
   function priceFmtFor(a) {
     return function (v) { return a.kind === 'usd' ? fmtDec(v, a.dec != null ? a.dec : 0) : (v >= 1e9 ? U.fmtCompact(v) : U.fmt(v)); };
   }
@@ -881,7 +993,6 @@
     return head + chart + stat + note;
   }
 
-  /* ---------------- تم روشن/تیره ---------------- */
   var LS_THEME = 'garmasanj_theme_v1';
   function getTheme() { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }
   function applyTheme(t, persist) {
@@ -906,7 +1017,6 @@
     if (btn) btn.addEventListener('click', toggleTheme);
   }
 
-  /* ---------------- مقایسه‌ی دو دارایی ---------------- */
   var LS_CMP = 'garmasanj_cmp_v1';
   var cmp = { a: 'USD', b: 'G18', days: 30 };
   var CMP_COLORS = ['#E8A33D', '#3E8E9E'];
@@ -958,9 +1068,7 @@
         '<span class="' + (c == null ? 'z' : c > 0.05 ? 'up' : c < -0.05 ? 'down' : 'z') + '" dir="ltr">' + (c == null ? '—' : U.pct(c, 1)) + '</span></div>';
     }
     var legend = '<div class="cmp-legend">' + row(A, qa, ca, CMP_COLORS[0]) + row(B, qb, cb, CMP_COLORS[1]) + '</div>';
-    // جمع‌بندی
     var lines = [];
-    // بازه‌ی واقعیِ پوشش‌داده‌شده (تاریخچه ممکن است کوتاه‌تر از بازه‌ی انتخابی باشد)
     var t0 = Math.max(pa.length ? pa[0].t : 0, pb.length ? pb[0].t : 0);
     var realDays = t0 ? Math.max(1, Math.round((Date.now() - t0) / 86400000)) : cmp.days;
     var spanTxt = cmp.days === 0 ? 'در نشست امروز' : 'در ' + U.fa(Math.min(realDays, cmp.days)) + ' روز گذشته';
@@ -983,7 +1091,6 @@
     body.innerHTML = chart + legend + (lines.length ? '<div class="cmp-note">' + lines.map(function (l) { return '<p>' + U.esc(l) + '</p>'; }).join('') + '</div>' : '');
   }
 
-  /* ---------------- مودال اطلاعات: فرمول‌ها، راهنما، ویجت ---------------- */
   function openInfo(title, html) {
     var t = U.$('#infoTitle'), b = U.$('#infoBody');
     if (!t || !b) return;
@@ -999,49 +1106,60 @@
     if (/پریمیوم/.test(label)) return 'usdtPrem';
     if (/ضمنی بیت|انحراف از دلار آزاد/.test(label)) return 'btcGap';
     if (/برابری ضمنی/.test(label)) return 'eurImplied';
+    if (/رادار سلامت/.test(label)) return 'bourseRadar';
+    if (/بورس/.test(label)) return 'bourseRadar';
     return null;
   }
   function fRow(k, v) { return '<div class="f-row"><span>' + U.esc(k) + '</span><b>' + v + '</b></div>'; }
   function formulaHTML(key) {
     var dv = D().derived(), CH = CFG().CHAIN, q = function (s) { var x = D().quote(s); return x && x.p > 0 ? x.p : null; };
     var m = D().mood(), H = CFG().HOTMONEY;
+    var mk = null; try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+    var bt = mk && mk.bt ? mk.bt : null;
     var F = {
       bubble: { t: 'حباب سکه', f: 'حباب٪ = (قیمت بازار سکه ÷ ارزش ذاتی − ۱) × ۱۰۰\nارزش ذاتی = طلای ۲۴ عیار (هر گرم) × ' + U.fa(CH.EMAMI_G) + ' گرم طلای خالص',
         rows: [['طلای ۲۴ عیار (هر گرم)', q('G24') ? U.fmt(q('G24')) : (q('G18') ? U.fmt(q('G18') * CH.G24_K) + ' (از ۱۸ × ۴/۳)' : '—')], ['ارزش ذاتی سکه امامی', dv.intrinsicEmami ? U.fmt(Math.round(dv.intrinsicEmami)) : '—'], ['قیمت بازار سکه امامی', q('EMAMI') ? U.fmt(q('EMAMI')) : '—'], ['حباب', dv.bubble != null ? U.fa(dv.bubble.toFixed(2)) + '٪' : '—']],
-        n: 'حباب مثبت یعنی بازار برای «سکه بودن» (نقدشوندگی، ضرب، انتظارات) بیش از طلای داخلش می‌پردازد. بالای ۲۲٪ سنگین و بالای ۳۰٪ هیجانی تلقی می‌شود.' },
-      intrinsic: { t: 'ارزش ذاتی سکه', f: 'ارزش ذاتی = طلای ۲۴ عیار (هر گرم) × وزن طلای خالص سکه\nامامی/بهار ' + U.fa(CH.EMAMI_G) + ' گرم · نیم ' + U.fa(CH.NIM_G) + ' · ربع ' + U.fa(CH.ROB_G) + ' · گرمی ' + U.fa(CH.GERAMI_G),
-        rows: [['طلای ۲۴ عیار', q('G24') ? U.fmt(q('G24')) : '—'], ['ذاتی امامی', dv.intrinsicEmami ? U.fmt(Math.round(dv.intrinsicEmami)) : '—'], ['ذاتی نیم', dv.intrinsicNim ? U.fmt(Math.round(dv.intrinsicNim)) : '—'], ['ذاتی ربع', dv.intrinsicRob ? U.fmt(Math.round(dv.intrinsicRob)) : '—']],
-        n: 'وزن‌ها استاندارد ضرب (۸٫۱۳۳ گرم با عیار ۹۰۰) هستند.' },
+        n: 'حباب مثبت یعنی بازار برای «سکه بودن» بیش از طلای داخلش می‌پردازد. بالای ۲۲٪ سنگین و بالای ۳۰٪ هیجانی.' },
+      intrinsic: { t: 'ارزش ذاتی سکه', f: 'ارزش ذاتی = طلای ۲۴ عیار × وزن طلای خالص\nامامی/بهار ' + U.fa(CH.EMAMI_G) + ' گرم · نیم ' + U.fa(CH.NIM_G) + ' · ربع ' + U.fa(CH.ROB_G),
+        rows: [['طلای ۲۴ عیار', q('G24') ? U.fmt(q('G24')) : '—'], ['ذاتی امامی', dv.intrinsicEmami ? U.fmt(Math.round(dv.intrinsicEmami)) : '—']],
+        n: 'وزن‌ها استاندارد ضرب هستند.' },
       fairG18: { t: 'طلای منصفانه', f: 'طلای ۱۸ منصفانه = (اونس ÷ ' + U.fa(CH.OUNCE_G) + ') × ' + U.fa(CH.K18) + ' × دلار آزاد',
-        rows: [['اونس جهانی', q('OUNCE_USD') ? U.fa(q('OUNCE_USD').toFixed(2)) + ' $' : '—'], ['دلار آزاد', q('USD') ? U.fmt(q('USD')) : '—'], ['طلای ۱۸ منصفانه', dv.fairG18 ? U.fmt(Math.round(dv.fairG18)) : '—'], ['طلای ۱۸ بازار', q('G18') ? U.fmt(q('G18')) : '—']],
-        n: 'اختلاف بازار با این عدد، «انحراف داخلی» طلاست: مالیات، اجرت، انتظارات و کمبود عرضه.' },
-      goldPrem: { t: 'انحراف طلا از ارزش جهانی', f: 'انحراف٪ = (طلای ۱۸ بازار ÷ طلای ۱۸ منصفانه − ۱) × ۱۰۰',
-        rows: [['طلای ۱۸ بازار', q('G18') ? U.fmt(q('G18')) : '—'], ['طلای ۱۸ منصفانه', dv.fairG18 ? U.fmt(Math.round(dv.fairG18)) : '—'], ['انحراف', dv.goldPrem != null ? U.pct(dv.goldPrem, 2) : '—']],
-        n: 'بیش از ±۴٪ در حکم امروز هشدار می‌دهد: مثبت = گران‌فروشی داخلی، منفی = فرصت ارزشی.' },
-      mesghal: { t: 'مظنه (مثقال)', f: 'مظنه‌ی معادل = طلای ۱۸ × ' + U.fa(CH.MESGHAL_K) + '\nانحراف٪ = (مظنه‌ی بازار ÷ معادل − ۱) × ۱۰۰',
-        rows: [['طلای ۱۸', q('G18') ? U.fmt(q('G18')) : '—'], ['معادل', q('G18') ? U.fmt(Math.round(q('G18') * CH.MESGHAL_K)) : '—'], ['مظنه‌ی بازار', q('MESGHAL') ? U.fmt(q('MESGHAL')) : '—'], ['انحراف', dv.mesghalDev != null ? U.pct(dv.mesghalDev, 2) : '—']],
-        n: 'یک مثقال = ۴٫۶۰۸ گرم؛ مظنه بر پایه‌ی عیار ۱۷ اعلام می‌شود، از این‌رو ضریب ۴٫۳۵۲ نسبت به گرم ۱۸.' },
-      usdtPrem: { t: 'پریمیوم تتر', f: 'پریمیوم٪ = (تتر − دلار آزاد) ÷ دلار آزاد × ۱۰۰',
-        rows: [['تتر (صرافی‌ها)', q('USDT') ? U.fmt(q('USDT')) : '—'], ['دلار آزاد', q('USD') ? U.fmt(q('USD')) : '—'], ['پریمیوم', dv.usdtPrem != null ? U.pct(dv.usdtPrem, 2) : '—']],
-        n: 'پریمیوم بالای ۱٫۵٪ یعنی عجله برای خروج از ریال از مسیر رمزارز؛ منفی یعنی فشار فروش تتر.' },
-      btcGap: { t: 'دلار ضمنی بیت‌کوین', f: 'دلار ضمنی = بیت‌کوین تومانی ÷ بیت‌کوین دلاری\nشکاف٪ = (دلار ضمنی ÷ دلار آزاد − ۱) × ۱۰۰',
-        rows: [['بیت‌کوین تومانی', q('BTC_TM') ? U.fmtCompact(q('BTC_TM')) : '—'], ['بیت‌کوین دلاری', q('BTC_USD') ? U.fmt(q('BTC_USD')) + ' $' : '—'], ['دلار ضمنی', dv.btcImpliedUsd ? U.fmt(Math.round(dv.btcImpliedUsd)) : '—'], ['شکاف', dv.btcUsdGap != null ? U.pct(dv.btcUsdGap, 2) : '—']],
-        n: 'شکاف بزرگ یعنی یکی از دو سمت (صرافی داخلی یا بازار ارز) هیجانی یا مختل است.' },
-      eurImplied: { t: 'برابری ضمنی یورو/دلار', f: 'برابری ضمنی = یورو (تومان) ÷ دلار (تومان)',
-        rows: [['یورو', q('EUR') ? U.fmt(q('EUR')) : '—'], ['دلار', q('USD') ? U.fmt(q('USD')) : '—'], ['برابری ضمنی', dv.eurUsdImplied ? U.fa(dv.eurUsdImplied.toFixed(4)) : '—']],
-        n: 'اگر با برابری جهانی (Frankfurter) فاصله‌ی زیادی داشت، یکی از دو بازار عقب است.' },
-      mood: { t: 'نبض بازار', f: 'نبض = میانگین تغییر روز × ۱۵ + (پهنا − ۵۰) × ۱٫۱ × مشارکت\nپهنا = سهم مثبت‌ها فقط میان متحرک‌ها · مشارکت = سهم دارایی‌های متحرک (|تغییر| > ۰٫۰۵٪)',
-        rows: [['دارایی‌های شمرده‌شده (بدون مشتق)', U.fa(m.n)], ['مثبت / منفی / بی‌تغییر', U.fa(m.ups) + '٪ / ' + U.fa(m.downs) + '٪ / ' + U.fa(m.flat) + '٪'], ['میانگین تغییر روز', U.pct(m.avg, 2)], ['پهنا (میان متحرک‌ها)', U.fa(m.breadth) + '٪'], ['مشارکت', U.fa(Math.round(m.part * 100)) + '٪' + (m.quiet ? ' — بازار ساکت' : '')], ['نبض', (m.score >= 0 ? '+' : '−') + U.fa(Math.abs(m.score)) + ' (' + m.label + ')']],
-        n: 'در بازار ساکت (مشارکت زیر ۳۵٪، مثل تعطیلات) پهنا با مشارکت وزن می‌خورد تا بی‌تغییری «منفی» خوانده نشود.' },
-      hot: { t: 'امتیاز جریان پول داغ', f: 'امتیاز = (' + U.fa(H.wDay * 100) + '٪ × تغییر روز ÷ ' + U.fa(H.dayScale) + ' + ' + U.fa(H.wSlope * 100) + '٪ × شیب نشست ÷ ' + U.fa(H.slopeScale) + ') × ۱۰۰\nشیب نشست = رگرسیون لگاریتم قیمت بر ساعت در ۲۴ نقطه‌ی اخیر (٪ در ساعت)',
-        rows: [['وزن تغییر روز', U.fa(H.wDay * 100) + '٪'], ['وزن شیب نشست', U.fa(H.wSlope * 100) + '٪'], ['اشباع', '±' + U.fa(H.dayScale) + '٪ روز / ±' + U.fa(H.slopeScale) + '٪ شیب']],
-        n: 'یک شاخص حرکتی شفاف است، نه دیتای سفارش‌گذاری. هر مؤلفه در ±۱ اشباع می‌شود تا یک جهش تنها، تابلو را نبلعد.' },
-      heat: { t: 'حرارت دارایی', f: 'حرارت = تغییر روز × ۸ + شیب نشست × ۵ (محدود به −۴۰ تا +۶۰)',
-        rows: [], n: 'حرارت در شبیه‌ساز (نرخ اسمی = تورم فرضی + ۰٫۵ × حرارت) و ترکیب‌ساز استفاده می‌شود.' },
-      sim: { t: 'شبیه‌ساز سرنوشت پول', f: 'نرخ اسمی (همگام) = تورم فرضی + ۰٫۵ × حرارت زنده‌ی همان بازار\nارزش واقعی = سرمایه × (۱ + نرخ اسمی)^سال ÷ (۱ + تورم)^سال',
-        rows: [['تورم مرجع', U.fa(INFL()) + '٪']], n: 'یک فرض آموزشی صریح است، نه پیش‌بینی: می‌گوید «اگر حرارت امروز ادامه یابد» پول واقعی‌ات کجا می‌رود.' },
-      verdict: { t: 'حکم امروز', f: 'امتیاز = نبض (−۳..+۳) + پهنا (−۲..+۲) + پول داغ (+۱) + حباب سکه (−۲..+۱) + پریمیوم تتر (−۱)\nاطمینان = ۳۵ + پوشش داده‌ی تازه × ۵۵ + min(۱۲, |امتیاز| × ۲)؛ در بازار بسته سقف ۷۰٪',
-        rows: [], n: '۵ پله‌ی حکم: نقد و انتظار (≤ −۵) · حالت دفاعی · حفظ ترکیب · تعادل متمایل به رشد (≥ ۲) · حمله‌ی حساب‌شده (≥ ۵). هیچ‌کدام توصیه‌ی خرید/فروش نیست.' }
+        rows: [['اونس جهانی', q('OUNCE_USD') ? U.fa(q('OUNCE_USD').toFixed(2)) + ' $' : '—'], ['دلار آزاد', q('USD') ? U.fmt(q('USD')) : '—'], ['منصفانه', dv.fairG18 ? U.fmt(Math.round(dv.fairG18)) : '—']],
+        n: 'اختلاف بازار با این عدد، انحراف داخلی طلاست.' },
+      goldPrem: { t: 'انحراف طلا', f: 'انحراف٪ = (بازار ÷ منصفانه − ۱) × ۱۰۰',
+        rows: [['بازار', q('G18') ? U.fmt(q('G18')) : '—'], ['منصفانه', dv.fairG18 ? U.fmt(Math.round(dv.fairG18)) : '—'], ['انحراف', dv.goldPrem != null ? U.pct(dv.goldPrem, 2) : '—']],
+        n: 'بیش از ±۴٪ هشدار می‌دهد.' },
+      mesghal: { t: 'مظنه', f: 'مظنه معادل = طلای ۱۸ × ' + U.fa(CH.MESGHAL_K),
+        rows: [['طلای ۱۸', q('G18') ? U.fmt(q('G18')) : '—'], ['معادل', q('G18') ? U.fmt(Math.round(q('G18') * CH.MESGHAL_K)) : '—'], ['بازار', q('MESGHAL') ? U.fmt(q('MESGHAL')) : '—']],
+        n: 'یک مثقال = ۴٫۶۰۸ گرم.' },
+      usdtPrem: { t: 'پریمیوم تتر', f: 'پریمیوم٪ = (تتر − دلار) ÷ دلار × ۱۰۰',
+        rows: [['تتر', q('USDT') ? U.fmt(q('USDT')) : '—'], ['دلار', q('USD') ? U.fmt(q('USD')) : '—'], ['پریمیوم', dv.usdtPrem != null ? U.pct(dv.usdtPrem, 2) : '—']],
+        n: 'بالای ۱٫۵٪ هیجان خروج از ریال.' },
+      btcGap: { t: 'شکاف بیت‌کوین', f: 'دلار ضمنی = تومانی ÷ دلاری',
+        rows: [['تومانی', q('BTC_TM') ? U.fmtCompact(q('BTC_TM')) : '—'], ['دلاری', q('BTC_USD') ? U.fmt(q('BTC_USD')) + ' $' : '—'], ['شکاف', dv.btcUsdGap != null ? U.pct(dv.btcUsdGap, 2) : '—']],
+        n: 'شکاف بزرگ = اختلال یک سمت.' },
+      eurImplied: { t: 'برابری یورو', f: 'یورو ÷ دلار',
+        rows: [['یورو', q('EUR') ? U.fmt(q('EUR')) : '—'], ['دلار', q('USD') ? U.fmt(q('USD')) : '—']],
+        n: 'مقایسه با Frankfurter.' },
+      mood: { t: 'نبض بازار', f: 'نبض = میانگین تغییر × ۱۵ + (پهنا − ۵۰) × ۱٫۱ × مشارکت',
+        rows: [['شمرده‌شده', U.fa(m.n)], ['مثبت/منفی/بی‌تغییر', U.fa(m.ups) + '٪ / ' + U.fa(m.downs) + '٪ / ' + U.fa(m.flat) + '٪'], ['میانگین', U.pct(m.avg, 2)], ['نبض', (m.score >= 0 ? '+' : '−') + U.fa(Math.abs(m.score))]],
+        n: 'در بازار ساکت پهنا با مشارکت وزن می‌خورد.' },
+      hot: { t: 'پول داغ', f: '۶۰٪ تغییر روز + ۴۰٪ شیب نشست',
+        rows: [['وزن روز', U.fa(H.wDay * 100) + '٪'], ['وزن شیب', U.fa(H.wSlope * 100) + '٪']],
+        n: 'شاخص حرکتی شفاف.' },
+      heat: { t: 'حرارت', f: 'تغییر×۸ + شیب×۵', rows: [], n: 'در شبیه‌ساز و ترکیب‌ساز.' },
+      sim: { t: 'شبیه‌ساز', f: 'اسمی = تورم + ۰٫۵×حرارت\nواقعی = سرمایه×(۱+اسمی)^سال ÷ (۱+تورم)^سال', rows: [['تورم', U.fa(INFL()) + '٪']], n: 'فرض آموزشی.' },
+      verdict: { t: 'حکم امروز', f: 'امتیاز = نبض + پهنا + پول داغ + حباب + تتر + بورس (پهنا، جریان خرد، صندوق‌ها، سرانه)', rows: [], n: '۵ پله: نقد و انتظار · دفاعی · حفظ ترکیب · تعادل رشد · حمله حساب‌شده.' },
+      bourseRadar: { t: 'رادار سلامت بورس', f: '۶ بُعد ۰..۱۰۰:\n• پهنا = posPct (٪ مثبت)\n• جریان خرد = |ratio|×۲۵۰ (شدت) + ورود +۳۰\n• درآمد ثابت: خروج → ۵۰+ |net|/1T×۸ (پول از پناهگاه به سهام)\n• سهامی: ورود → ۵۰+ net/1T×۱۰\n• سرانه = ۵۰ + (buy/sell −۱)×۴۰\n• صف خرید = buy/(buy+sell)×۱۰۰',
+        rows: bt ? [
+          ['پهنا', bt.breadth ? U.fa(Math.round(bt.breadth.posPct)) + '٪ (' + U.fa(bt.breadth.pos) + '/' + U.fa(bt.breadth.neg) + ')' : '—'],
+          ['جریان خرد', mk && mk.flow ? btMoneySigned(mk.flow.netToman) + (mk.flowRatio != null ? ' · ' + U.fa((Math.abs(mk.flowRatio) * 100).toFixed(1)) + '٪' : '') : '—'],
+          ['درآمد ثابت', bt.funds && bt.funds.fixed ? btMoneySigned(bt.funds.fixed.netToman) : '—'],
+          ['سهامی', bt.funds && bt.funds.equity ? btMoneySigned(bt.funds.equity.netToman) : '—'],
+          ['سرانه خرید/فروش', bt.perCapita ? U.fa(bt.perCapita.buy) + '/' + U.fa(bt.perCapita.sell) + ' = ' + U.fa((bt.perCapita.buy / (bt.perCapita.sell || 1)).toFixed(2)) + '×' : '—'],
+          ['صف خرید/فروش', bt.breadth ? U.fa(bt.breadth.queueBuy || 0) + '/' + U.fa(bt.breadth.queueSell || 0) : '—']
+        ] : [],
+        n: 'هر بُعد ۰=ضعیف، ۱۰۰=قوی. میانگین ۶ بُعد = سلامت کل بورس. داده از bourse-trader.ir (بدون کلید، صفحه عمومی) + شاخص TGJU.' }
     };
     var x = F[key];
     if (!x) return null;
@@ -1063,6 +1181,7 @@
       '<li>روی هر کارت بزن تا فرمول‌ها، تاریخچه و قدرت خریدت را ببینی؛ علامت «؟» کنار هر متریک فرمول و ورودی‌های لحظه‌ای را نشان می‌دهد.</li>' +
       '<li>ستاره‌ی هر کارت آن را سنجاق می‌کند (بالای فهرست و اول تیکر).</li>' +
       '<li>رادار قیمت در همین مرورگر پایش می‌کند؛ با «تکرارشونده» بعد از هر عبور دوباره مسلح می‌شود.</li>' +
+      '<li>بورس: رادار ۶ بعدی پهنا، جریان خرد، صندوق‌ها، سرانه و صف‌ها را از بورس‌تریدر می‌خواند.</li>' +
       '<li>هیچ‌چیز در گرماسنج توصیه‌ی خرید یا فروش نیست.</li></ul>';
     openInfo('راهنما و میان‌برهای کیبورد', html);
   }
@@ -1087,12 +1206,9 @@
     });
   }
 
-  /* ---------------- خلاصه‌ی قابل اشتراک ---------------- */
-  /** متن خلاصه‌ی بازار برای کپی/اشتراک در پیام‌رسان‌ها */
   function summaryText() {
     var lines = ['📊 گرماسنج — ' + U.todayFa() + ' ' + U.clockFa()];
     var rows = [['USD', 'دلار'], ['EUR', 'یورو'], ['USDT', 'تتر'], ['G18', 'طلای ۱۸'], ['MESGHAL', 'مثقال'], ['EMAMI', 'سکه امامی'], ['OUNCE_USD', 'اونس'], ['BTC_USD', 'بیت‌کوین']];
-    // سنجاق‌شده‌ها اول می‌آیند
     PINS.slice().reverse().forEach(function (k) {
       var a = D().asset(k); if (!a) return;
       rows = rows.filter(function (r) { return r[0] !== k; });
@@ -1112,6 +1228,12 @@
     try {
       var v = GS.features && GS.features.verdict ? GS.features.verdict() : null;
       if (v && v.action) lines.push('• حکم امروز: ' + v.action.t + ' — اطمینان ' + U.fa(v.conf) + '٪');
+      var mk = D().market ? D().market() : null;
+      if (mk && mk.p > 0) {
+        lines.push('• شاخص بورس: ' + U.fmt(Math.round(mk.p)) + (mk.chgPct != null ? ' (' + U.pct(mk.chgPct, 1) + ')' : ''));
+        if (mk.bt && mk.bt.breadth) lines.push('• پهنا بورس: ' + U.fa(Math.round(mk.bt.breadth.posPct)) + '٪ مثبت (' + U.fa(mk.bt.breadth.pos) + '/' + U.fa(mk.bt.breadth.neg) + ')');
+        if (mk.flow) lines.push('• جریان خرد: ' + (mk.flow.netToman < 0 ? 'خروج ' : 'ورود ') + U.fa((Math.abs(mk.flow.netToman) / 1e12).toFixed(1)) + ' همت');
+      }
     } catch (e) {}
     lines.push('');
     lines.push('🔗 https://alib11.github.io/Garmasanj-Eghtesad/');
@@ -1144,7 +1266,6 @@
       '<h4>گزارش شبکه (از جدید به قدیم)</h4>' + (net || '<p class="dg-empty">—</p>');
   }
 
-  /* ---------------- ظهور تدریجی و شمارنده‌ها ---------------- */
   function initReveal() {
     if (!('IntersectionObserver' in window)) {
       U.$$('.rv').forEach(function (el) { el.classList.add('on'); });
@@ -1185,12 +1306,11 @@
     buildGrid: buildGrid, updateGrid: updateGrid, setCategory: setCategory, ensureCardVisible: ensureCardVisible,
     summaryText: summaryText, shareSummary: shareSummary,
     refreshAllFeeds: refreshAllFeeds,
-    renderPulse: renderPulse, renderMacro: renderMacro,
+    renderPulse: renderPulse, renderMacro: renderMacro, renderBoursePro: renderBoursePro,
     openModal: openModal, closeModal: closeModal, buildDiag: buildDiag,
     openAssetModal: openAssetModal,
     initReveal: initReveal, initCounters: initCounters,
     dayHTML: dayHTML, dispPrice: dispPrice, feedText: feedText,
-    // نسل ۵
     pins: function () { return PINS.slice(); }, isPinned: isPinned, togglePin: togglePin, applyPins: applyPins,
     setQuery: setQuery, focusSearch: focusSearch,
     getTheme: getTheme, applyTheme: applyTheme, toggleTheme: toggleTheme, initTheme: initTheme,

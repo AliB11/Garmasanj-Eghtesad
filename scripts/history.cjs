@@ -48,11 +48,22 @@ function dayKey(ms) { return new Date(ms + TEHRAN_OFFSET_MS).toISOString().slice
  * برایش بی‌معناست و فقط خلاصه‌ی روزانه نگه می‌داریم — با به‌روزرسانیِ درجا
  * در طولِ همان جلسه (تا آخرین مقدارِ روز ثبت شود، نه اولینش).
  */
+const RANGE_MAX_SPAN = 0.35;
+function saneDayRange(price, high, low) {
+  if (!(price > 0) || high == null || low == null) return { high: null, low: null };
+  if (!(high > 0) || !(low > 0)) return { high: null, low: null };
+  if (high < low) return { high: null, low: null };
+  if (price < low || price > high) return { high: null, low: null };
+  if ((high - low) / price > RANGE_MAX_SPAN) return { high: null, low: null };
+  return { high, low };
+}
+
 function addMarketPoint(doc, ms, p, hi, lo) {
   if (!(p > 0) || !isFinite(p) || !(ms > 0)) return false;
   const k = dayKey(ms);
-  const h0 = (hi > 0 && isFinite(hi)) ? hi : p;
-  const l0 = (lo > 0 && isFinite(lo)) ? lo : p;
+  const hl = saneDayRange(p, (hi > 0 && isFinite(hi)) ? hi : null, (lo > 0 && isFinite(lo)) ? lo : null);
+  const h0 = hl.high != null ? hl.high : p;
+  const l0 = hl.low != null ? hl.low : p;
   const d = doc.daily.TSE || (doc.daily.TSE = []);
   const ld = d[d.length - 1];
   if (ld && ld[0] === k) {
@@ -75,8 +86,9 @@ function addPoint(doc, sym, ms, p, hi, lo) {
   r.push([sec, p]);
   const d = doc.daily[sym] || (doc.daily[sym] = []);
   const k = dayKey(ms);
-  const h0 = (hi > 0 && isFinite(hi)) ? hi : p;
-  const l0 = (lo > 0 && isFinite(lo)) ? lo : p;
+  const hl = saneDayRange(p, (hi > 0 && isFinite(hi)) ? hi : null, (lo > 0 && isFinite(lo)) ? lo : null);
+  const h0 = hl.high != null ? hl.high : p;
+  const l0 = hl.low != null ? hl.low : p;
   const ld = d[d.length - 1];
   if (ld && ld[0] === k) {
     ld[1] = p;
@@ -168,4 +180,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { load, save, appendLive, addPoint, addMarketPoint, backfillFromGit, prune, dayKey, stats, empty, HIST, KEEP_RECENT_DAYS, KEEP_DAILY_DAYS };
+module.exports = { load, save, appendLive, addPoint, addMarketPoint, backfillFromGit, prune, dayKey, stats, empty, HIST, KEEP_RECENT_DAYS, KEEP_DAILY_DAYS, saneDayRange };

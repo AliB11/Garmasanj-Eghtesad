@@ -544,7 +544,7 @@
     tgju: 'TGJU', nobitex: 'نوبیتکس', wallex: 'والکس', bitpin: 'بیت‌پین',
     coingecko: 'CoinGecko', kraken: 'Kraken', binance: 'Binance Vision', coinbase: 'Coinbase',
     frankfurter: 'Frankfurter', erapi: 'ExchangeRate-API', navasan: 'ناواسان', snapshot: 'اسنپ‌شات',
-    tse: 'شاخص بورس', tsetmc: 'جریان پول بورس'
+    tse: 'شاخص بورس', tsetmc: 'جریان پول بورس', btrader: 'بورس‌تریدر'
   };
 
   function renderHealth() {
@@ -648,50 +648,96 @@
         if (usdW && usdW.pct >= 3) { warns.push('دلار ' + span + ' ' + U.pct(usdW.pct, 1) + ' بالا رفته — پله‌ای عمل کن؛ بعد از جهش‌های تند، اصلاح کوتاه رایج است.'); }
       }
     }
-    // ۹) بورس — شاخص «زمینه» است؛ جریانِ پول اگر واقعاً در دسترس باشد ۱± امتیاز می‌گیرد
-    var mk = null, bourseScored = null, bourseCtx = null;
+    // ۹) بورس — رادار ۶ بعدی (پهنا، جریان خرد، صندوق‌ها، سرانه، صف)
+    var mk = null, bourseScored = null, bourseCtx = null, bourseScore = 0, bourseBits = [];
     try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
     if (mk && mk.p > 0) {
       var MF = CFG().MARKETFLOW || { strong: 0.10, mild: 0.04 };
       var idxTxt = 'شاخص کلِ بورس ' + U.fmt(Math.round(mk.p)) + (mk.chgPct != null ? ' (' + U.pct(mk.chgPct, 1) + ')' : '');
+      // جریان خرد
       if (mk.flow && mk.flowRatio != null && !mk.stale) {
         var rr = mk.flowRatio, ar = Math.abs(rr);
         var netTxt = U.fa((Math.abs(mk.flow.netToman) / 1e12).toFixed(1)) + ' همت';
         var agree = (mk.chgPct == null) || (rr < 0 && mk.chgPct < 0) || (rr > 0 && mk.chgPct > 0);
         if (ar >= MF.strong || (ar >= MF.mild && agree)) {
           if (rr < 0) {
-            score += 1;
-            bourseScored = 'خروجِ ' + netTxt + ' پولِ حقیقی از بورس (' + U.fa(Math.round(ar * 100)) +
-              '٪ ارزشِ معاملات) — این را تأییدکننده بگیر، نه سیگنالِ مستقل.';
+            bourseScore += 1;
+            bourseBits.push('خروج ' + netTxt + ' پول حقیقی (' + U.fa(Math.round(ar * 100)) + '٪ ارزش معاملات)');
           } else {
-            score -= 1;
-            bourseScored = 'ورودِ ' + netTxt + ' پولِ حقیقی به بورس (' + U.fa(Math.round(ar * 100)) +
-              '٪ ارزشِ معاملات) — بخشی از تقاضای ارز/طلا کوتاه‌مدت در سهام پارک شده.';
+            bourseScore -= 0.8;
+            bourseBits.push('ورود ' + netTxt + ' پول حقیقی (' + U.fa(Math.round(ar * 100)) + '٪) — پارک تقاضا در سهام');
           }
         } else {
-          bourseCtx = idxTxt + '؛ جریانِ پولِ حقیقی خفیف است (' + U.fa(Math.round(ar * 100)) + '٪ ارزشِ معاملات).';
+          bourseBits.push('جریان خرد خفیف ' + netTxt + ' (' + U.fa(Math.round(ar * 100)) + '٪)');
         }
-      } else {
-        bourseCtx = idxTxt + '؛ جریانِ پولِ حقیقیِ بورس در دسترس نیست (منبعش از بیرون ایران پاسخ نمی‌دهد) — فقط زمینه.';
       }
-      /* تحرکاتِ صندوق‌ها و پهنا (مکملِ بورس‌تریدر): فقط زمینه و تأیید —
-         وزنی جداگانه نمی‌گیرند چون آستانه‌ی «چه مقداری بزرگ است» برای‌شان
-         اندازه‌گیری نشده؛ عدد را می‌گوییم، از روی آن حکم نمی‌سازیم. */
       var bt = mk.bt;
       if (bt) {
-        var btBits = [];
-        if (bt.funds && bt.funds.fixed) {
-          btBits.push('درآمد ثابت: ' + (bt.funds.fixed.netToman < 0 ? 'خروج ' : 'ورود ') + fMoney(Math.abs(bt.funds.fixed.netToman)));
+        // پهنا
+        if (bt.breadth && bt.breadth.posPct != null) {
+          var bp = bt.breadth.posPct;
+          if (bp >= 65) { bourseScore += 1; bourseBits.push('پهنا ' + U.fa(Math.round(bp)) + '٪ — فراگیر صعودی'); }
+          else if (bp >= 55) { bourseScore += 0.5; bourseBits.push('پهنا ' + U.fa(Math.round(bp)) + '٪ مثبت'); }
+          else if (bp <= 20) { bourseScore -= 1; bourseBits.push('پهنا ' + U.fa(Math.round(bp)) + '٪ — فراگیر منفی'); }
+          else if (bp <= 35) { bourseScore -= 0.5; bourseBits.push('پهنا ' + U.fa(Math.round(bp)) + '٪ کم‌رمق'); }
+          else bourseBits.push('پهنا ' + U.fa(Math.round(bp)) + '٪ (' + U.fa(bt.breadth.pos) + '/' + U.fa(bt.breadth.neg) + ')');
+        }
+        // صندوق درآمد ثابت — خروج = پول از پناهگاه به سهام → ریسک‌پذیر
+        if (bt.funds && bt.funds.fixed && bt.funds.fixed.netToman != null) {
+          var fFix = bt.funds.fixed.netToman;
+          var fAbs = Math.abs(fFix);
+          if (fFix < -2e12) { bourseScore += 1; bourseBits.push('خروج ' + fMoney(fAbs) + ' از درآمد ثابت → چرخش به سهام'); }
+          else if (fFix < -5e11) { bourseScore += 0.5; bourseBits.push('خروج ' + fMoney(fAbs) + ' از درآمد ثابت'); }
+          else if (fFix > 2e12) { bourseScore -= 1; bourseBits.push('ورود ' + fMoney(fAbs) + ' به درآمد ثابت — پناهگاه‌خواهی'); }
+          else if (fFix > 5e11) { bourseScore -= 0.5; bourseBits.push('ورود ' + fMoney(fAbs) + ' به درآمد ثابت'); }
+          else bourseBits.push('درآمد ثابت: ' + (fFix < 0 ? 'خروج ' : 'ورود ') + fMoney(fAbs));
+        }
+        // صندوق سهامی
+        if (bt.funds && bt.funds.equity && bt.funds.equity.netToman != null) {
+          var fEq = bt.funds.equity.netToman;
+          if (fEq > 1e12) { bourseScore += 0.8; bourseBits.push('ورود ' + fMoney(fEq) + ' به صندوق‌های سهامی'); }
+          else if (fEq > 2e11) { bourseScore += 0.4; bourseBits.push('ورود ' + fMoney(fEq) + ' به سهامی'); }
+          else if (fEq < -1e12) { bourseScore -= 0.8; bourseBits.push('خروج ' + fMoney(Math.abs(fEq)) + ' از سهامی'); }
+          else if (Math.abs(fEq) >= 1e9) bourseBits.push('سهامی: ' + (fEq < 0 ? 'خروج ' : 'ورود ') + fMoney(Math.abs(fEq)));
         }
         if (bt.funds && bt.funds.commodity && Math.abs(bt.funds.commodity.netToman) >= 1e9) {
-          btBits.push('صندوق‌های طلا: ' + (bt.funds.commodity.netToman < 0 ? 'خروج ' : 'ورود ') + fMoney(Math.abs(bt.funds.commodity.netToman)));
+          bourseBits.push('صندوق طلا: ' + (bt.funds.commodity.netToman < 0 ? 'خروج ' : 'ورود ') + fMoney(Math.abs(bt.funds.commodity.netToman)));
         }
-        if (bt.breadth) btBits.push('پهنا ' + U.fa(Math.round(bt.breadth.posPct)) + '٪ مثبت');
-        if (btBits.length) {
-          var btNote = 'صندوق‌ها و پهنا — ' + btBits.join('، ');
-          if (bourseScored) bourseScored += ' · ' + btNote;
-          else bourseCtx = (bourseCtx ? bourseCtx + ' ' : idxTxt + '. ') + btNote + '.';
+        // سرانه
+        if (bt.perCapita && bt.perCapita.buy && bt.perCapita.sell) {
+          var rBuy = bt.perCapita.buy / bt.perCapita.sell;
+          if (rBuy >= 1.3) { bourseScore += 1; bourseBits.push('سرانه خرید ' + U.fa(rBuy.toFixed(2)) + '× فروش — قدرت خریدار'); }
+          else if (rBuy >= 1.1) { bourseScore += 0.5; bourseBits.push('سرانه ' + U.fa(rBuy.toFixed(2)) + '×'); }
+          else if (rBuy <= 0.75) { bourseScore -= 1; bourseBits.push('سرانه ' + U.fa(rBuy.toFixed(2)) + '× — فشار فروش'); }
+          else if (rBuy <= 0.9) { bourseScore -= 0.4; bourseBits.push('سرانه ' + U.fa(rBuy.toFixed(2)) + '× ضعیف'); }
+          else bourseBits.push('سرانه ' + U.fa(rBuy.toFixed(2)) + '×');
         }
+        // صف خرید
+        if (bt.breadth && bt.breadth.queueBuy != null && bt.breadth.queueSell != null) {
+          var totQ = bt.breadth.queueBuy + bt.breadth.queueSell;
+          if (totQ > 0) {
+            var qR = bt.breadth.queueBuy / totQ;
+            if (qR >= 0.65) { bourseScore += 0.6; bourseBits.push('صف خرید ' + U.fa(bt.breadth.queueBuy) + ' / فروش ' + U.fa(bt.breadth.queueSell) + ' — غلبه خرید'); }
+            else if (qR <= 0.35) { bourseScore -= 0.6; bourseBits.push('صف فروش سنگین ' + U.fa(bt.breadth.queueSell) + ' در برابر ' + U.fa(bt.breadth.queueBuy) + ' خرید'); }
+            else bourseBits.push('صف ' + U.fa(bt.breadth.queueBuy) + ' خرید / ' + U.fa(bt.breadth.queueSell) + ' فروش');
+          }
+        }
+        // ارزش معاملات خرد — نقدشوندگی
+        if (bt.trade && bt.trade.valueToman) {
+          var tv = bt.trade.valueToman;
+          if (tv >= 15e12) bourseBits.push('ارزش معاملات خرد ' + fMoney(tv) + ' — پرحجم');
+          else if (tv <= 3e12) bourseBits.push('ارزش خرد ' + fMoney(tv) + ' — کم‌حجم');
+        }
+      }
+      // اعمال امتیاز بورس به امتیاز کل — سقف ±۲٫۵
+      bourseScore = U.clamp(bourseScore, -2.5, 2.5);
+      score += bourseScore;
+      if (bourseBits.length) {
+        var joined = bourseBits.slice(0, 5).join(' · ');
+        if (Math.abs(bourseScore) >= 0.8) bourseScored = 'بورس: ' + joined + ' — رادار سلامت ' + (bourseScore > 0 ? '+' : '') + U.fa(bourseScore.toFixed(1)) + '.';
+        else bourseCtx = idxTxt + ' · ' + joined + '.';
+      } else {
+        bourseCtx = idxTxt + '؛ جریان بورس در دسترس نیست — فقط زمینه.';
       }
     }
 
