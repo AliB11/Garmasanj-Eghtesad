@@ -71,6 +71,7 @@ async function probe(c) {
 (async () => {
   const lines = [];
   const say = (s) => { lines.push(s); console.log(s); };
+  let tgjuRowDump = '';
 
   say('=== گرماسنج — پروب امکان‌سنجیِ بورس ===');
   say('زمان (UTC): ' + new Date().toISOString());
@@ -106,7 +107,7 @@ async function probe(c) {
         say(`   ${k}  p=${e.p}  name=${nm}  ts=${e.ts || ''}`);
       });
       if (!hit.length) say('   هیچ کلیدِ بورسی در ajax.json نبود.');
-      ['bourse', 'bourse_shakhes', 'shakhes', 'bourse_index'].forEach((k) => {
+      ['bourse', 'bourse_nikkei-225', 'bourse_asia-dow'].forEach((k) => {
         if (cur[k]) {
           tgjuRowDump += k + ': ' + JSON.stringify(cur[k], null, 1) + '\n';
           say(`   شیء کاملِ ${k}: ` + JSON.stringify(cur[k]).slice(0, 500));
@@ -132,7 +133,6 @@ async function probe(c) {
   /* ---- گزارش مارک‌داون ---- */
   const md = [];
   const deepLines = [];
-  let tgjuRowDump = '';
   md.push('# گزارش پروبِ امکان‌سنجیِ بورس');
   md.push('');
   md.push('این فایل را **خودِ جریان کاری** بعد از اجرای `scripts/probe_bourse.cjs` از روی یک رانرِ');
