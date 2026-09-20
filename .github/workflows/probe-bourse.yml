@@ -5,7 +5,13 @@
 name: پروب بورس
 
 on:
+  # اجرای دستی (وقتی روی شاخه‌ی پیش‌فرض باشد) و اجرای خودکار با هر تغییرِ پروب
   workflow_dispatch:
+  push:
+    branches: ['**']
+    paths:
+      - 'scripts/probe_bourse.cjs'
+      - '.github/workflows/probe-bourse.yml'
 
 permissions:
   contents: read
