@@ -769,9 +769,12 @@
         ts: f.ts || m.asOf || Date.now()
       };
     }
-    // جریانِ پول ممکن است از مسیرِ کلیددار/مرورگرِ داخل ایران آمده باشد؛
-    // انتشارِ بعدی که flow ندارد نباید آن را پاک کند (بازمحاسبه مدام رخ می‌دهد)
-    if (!MARKET.flow && prev && prev.flow) MARKET.flow = prev.flow;
+    // جریانِ پول ممکن است از کلیدِ شخصیِ کاربر (مرورگر) آمده باشد؛
+    // انتشارِ سرور نباید آن را پاک کند، و اگر هر دو دارند، تازه‌تر برنده است
+    if (prev && prev.flow) {
+      if (!MARKET.flow) MARKET.flow = prev.flow;
+      else if ((prev.flow.ts || 0) > (MARKET.flow.ts || 0)) MARKET.flow = prev.flow;
+    }
     // اگر انتشارِ جدیدتر از همان جلسه آمد، جایگزین؛ اگر قدیمی‌تر بود، رد شود
     if (prev && prev.ts && MARKET.ts && MARKET.ts < prev.ts - 3600000) { MARKET = prev; return false; }
     var dayFa = (MARKET.ts && U.dateFa) ? U.dateFa(MARKET.ts) : (MARKET.day ? U.fa(MARKET.day) : '—');

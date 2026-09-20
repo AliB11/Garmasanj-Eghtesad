@@ -58,6 +58,37 @@ const TGJU_KEYS = {
 const TGJU_MARKET_KEYS = ['bourse'];
 const TEHRAN_OFFSET_MS = 3.5 * 3600e3;
 
+/* ------------------------------------------------------------------
+   مسیرهای کلیددارِ سمت‌سرور (اختیاری)
+   کلیدها فقط از محیطِ اجرا (Secretsِ گیت‌هاب) خوانده می‌شوند و هرگز وارد
+   کد یا فایلِ داده نمی‌شوند. اگر نباشند، این مسیرها کاملاً خاموش‌اند.
+   ------------------------------------------------------------------ */
+function envKey(name) {
+  var v = (process.env && process.env[name]) ? String(process.env[name]).trim() : '';
+  return v || null;
+}
+const NAVASAN_KEY = envKey('NAVASAN_KEY');
+const BRS_KEY = envKey('BRS_API_KEY');
+const BRS_MIN_GAP_MS = 3 * 3600e3; // جریانِ پول در هر جلسه یک‌بار کافی است
+
+/* پنهان‌سازیِ کلید در پیام‌ها (کلید نباید واردِ لاگ یا فایل شود) */
+function redact(url) { return String(url).replace(/([?&](?:api_key|key)=)[^&]+/i, '$1***'); }
+
+/* قراردادِ BrsApi — همان قراردادِ کلاینت (assets/js/config.js → BRSAPI) */
+const BRS = {
+  base: 'https://BrsApi.ir/Api/Tsetmc',
+  marketPath: 'MarketWatch.php',   // type=1: سهام بورس و فرابورس + ETF + حق‌تقدم
+  type: 1,
+  unit: 'rial',                    // TSETMC/BrsApi ریال می‌دهند
+  fields: {
+    buyRetail: ['Buy_I_Volume', 'BuyIVolume', 'buy_i_volume'],
+    sellRetail: ['Sell_I_Volume', 'SellIVolume', 'sell_i_volume'],
+    price: ['pl', 'pc', 'PClosing', 'PDrCotVal', 'close', 'Close', 'last'],
+    value: ['tval', 'QTotCap', 'value', 'Value', 'TradeValue'],
+    volume: ['tvol', 'QTotTran5J', 'volume', 'Volume']
+  }
+};
+
 /* نگهبانِ دامنه‌ی روز */
 const RANGE_MAX_SPAN = 0.35; // سقف−کفِ بیش از ۳۵٪ قیمت در یک روز، غیرقابل‌اتکاست
 /* تطبیق با جابه‌جایی سطح قیمت‌ها: نسبت به آخرین انتشار معتبر */
@@ -281,6 +312,91 @@ function krakenChg(t) {
   return { p: last, chgPct: open > 0 ? (last / open - 1) * 100 : null };
 }
 
+/** ناواسان (کلیددار) — نقشه‌ی فیلدها از پیاده‌سازیِ آزموده‌ی کلاینت آمده */
+function parseNavasan(j) {
+  if (!j || typeof j !== 'object') return null;
+  function pick(keys, div) {
+    for (const k of keys) {
+      const o = j[k];
+      if (!o) continue;
+      const v = num(o.value != null ? o.value : o.price);
+      if (!(v > 0)) continue;
+      const p = v / div;
+      const ch = num(o.change) || 0;
+      return { p: p, chgPct: sanePct(v > 0 ? ch / v * 100 : null) };
+    }
+    return null;
+  }
+  const out = {
+    USD: pick(['usd_sell', 'usd', 'dollar', 'usd_buy'], 10),
+    G18: pick(['geram18', 'geram_18', 'gold18'], 10),
+    EMAMI: pick(['sekke', 'sekee', 'emami'], 10),
+    OUNCE_USD: pick(['ounce', 'ons', 'xau'], 1),
+  };
+  Object.keys(out).forEach((k) => {
+    const q = out[k];
+    if (!q || !inRange(k, q.p, 0)) delete out[k]; // فقط پنجره‌ی استاتیک (لنگر نداریم)
+  });
+  if (out.OUNCE_USD && !(out.OUNCE_USD.p > 200 && out.OUNCE_USD.p < 20000)) delete out.OUNCE_USD;
+  return Object.keys(out).length ? out : null;
+}
+
+function pickField(o, names) {
+  if (!o) return null;
+  for (const n of names) {
+    const v = o[n];
+    if (v != null && v !== '') { const x = num(v); if (x != null && isFinite(x)) return x; }
+  }
+  return null;
+}
+
+/**
+ * تجمیعِ جریانِ پولِ حقیقی از ردیف‌های نمادها.
+ * خالص (تومان) = Σ (حجم خرید حقیقی − حجم فروش حقیقی) × میانگینِ قیمت
+ * میانگین = ارزش ÷ حجم (وگرنه قیمتِ پایانی)؛ واحد از قرارداد، نه حدس.
+ */
+function aggregateFlow(rows) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const F = BRS.fields, U10 = (BRS.unit === 'toman') ? 1 : 10;
+  let netToman = 0, valueToman = 0, n = 0, known = 0;
+  for (const r of rows) {
+    if (!r || typeof r !== 'object') continue;
+    const br = pickField(r, F.buyRetail), sr = pickField(r, F.sellRetail);
+    if (br == null && sr == null) continue;
+    known++;
+    const vw = pickField(r, F.value), vv = pickField(r, F.volume), px = pickField(r, F.price);
+    const avg = (vw != null && vv != null && vv > 0) ? vw / vv : (px != null && px > 0 ? px : null);
+    if (avg == null || !(avg > 0)) continue;
+    netToman += ((br || 0) - (sr || 0)) * (avg / U10);
+    if (vw != null && vw > 0) valueToman += vw / U10;
+    n++;
+  }
+  if (!n || !known) return null;
+  return {
+    netToman: Math.round(netToman),
+    valueToman: valueToman > 0 ? Math.round(valueToman) : null,
+    ratio: valueToman > 0 ? netToman / valueToman : null,
+    n: n,
+    known: known,
+    src: 'BrsApi'
+  };
+}
+
+/** خروجیِ BrsApi: آرایه در خودِ ریشه یا در data/result */
+function parseBrsMarket(j) {
+  if (!j) return { ok: false, why: 'بدون پاسخ' };
+  // پیامِ خطای خودِ سرویس (مثلِ «Invalid API Key») زودتر از هر چیز بررسی می‌شود
+  const msg = j.error || j.message || j.msg || j.ErrorMessage || j.Message;
+  if (msg) return { ok: false, why: String(msg).slice(0, 90) };
+  const rows = Array.isArray(j) ? j : (Array.isArray(j.data) ? j.data : (Array.isArray(j.result) ? j.result : null));
+  if (!rows || !rows.length) return { ok: false, why: 'ردیفی نبود', keys: Object.keys(j || {}).slice(0, 12) };
+  const agg = aggregateFlow(rows);
+  if (!agg) return { ok: false, why: 'ساختارِ ناشناخته', keys: Object.keys(rows[0] || {}).slice(0, 14) };
+  if (agg.valueToman != null && (agg.valueToman < 1e9 || agg.valueToman > 5e15)) return { ok: false, why: 'مقیاسِ ارزشِ معاملات غیرمعقول' };
+  if (agg.ratio != null && Math.abs(agg.ratio) > 1) return { ok: false, why: 'نسبتِ جریان ناممکن' };
+  return { ok: true, agg: agg };
+}
+
 /* ---------------- واکشی منابع ---------------- */
 async function fetchTGJU(log) {
   const jobs = TGJU_MIRRORS.map((host) => (async () => {
@@ -334,6 +450,15 @@ async function main() {
         .catch((e) => { log('erapi', false, String((e && e.message) || e).slice(0, 60)); return null; })),
   ]);
 
+  /* ---- مسیرهای کلیددار (اختیاری؛ فقط وقتی Secrets تنظیم شده باشد) ----
+     کلیدها از محیط می‌آیند و در هیچ لاگ یا فایلی نوشته نمی‌شوند. */
+  let nv = null;
+  if (NAVASAN_KEY) {
+    const url = 'https://api.navasan.tech/latest/?api_key=' + encodeURIComponent(NAVASAN_KEY);
+    try { const r = await getJSON(url, { timeout: 15000 }); nv = r.j; log('navasan', true, 'مسیر کلیددارِ سرور', r.ms); }
+    catch (e) { log('navasan', false, String((e && e.message) || e).slice(0, 60)); }
+  } else log('navasan', false, 'بدون کلید — مسیر خاموش');
+
   /* ---- لنگرِ تطبیقی: آخرین انتشار معتبر روی دیسک ----
      اگر سطح قیمت‌ها جابه‌جا شده باشد، پنجره‌ی استاتیک دیگر صادق نیست؛
      لنگر اجازه می‌دهد انتشار ادامه یابد (نه اینکه بی‌صدا متوقف شود). */
@@ -374,6 +499,16 @@ async function main() {
     }
   }
 
+  // ناواسان (کلیددار) فقط برای کوت‌هایی که از مسیرهای بالا نیامده‌اند
+  if (nv) {
+    const nvq = parseNavasan(nv);
+    if (nvq) {
+      Object.keys(nvq).forEach(function (sym) {
+        if (!quotes[sym]) put(sym, { p: nvq[sym].p, chg: null, chgPct: nvq[sym].chgPct, ts: now }, 'ناواسان (سرور)');
+      });
+    }
+  }
+
   // تتر و بیت‌کوین تومانی: نوبیتکس ← والکس ← بیت‌پین (با لنگر) ← TGJU
   const nbUsdt = parseNobitex(nbU, 'usdt'), wxUsdt = parseWallex(wx, 'USDTTMN');
   const tgUsdt = tgju ? pickTGJU(tgju, 'USDT', anchorOf('USDT')) : null;
@@ -410,7 +545,7 @@ async function main() {
   const bc = consensus(cands, 0.02, anchorOf('BTC_USD'));
   if (bc) put('BTC_USD', { ...bc, ts: now }, 'اجماع جهانی');
 
-  /* ---- بورس: شاخص کل از TGJU ----
+  /* ---- بورس: شاخص کل از TGJU + جریانِ پول (اگر کلید باشد) ----
      جریانِ پولِ حقیقی/حقوقی اینجا وجود ندارد چون TSETMC از IP خارجی پاسخ نمی‌دهد؛
      پس market.flow عمداً منتشر نمی‌شود (سکوتِ صادقانه به‌جای عددِ ساختگی). */
   let marketOut = null;
@@ -422,6 +557,29 @@ async function main() {
       marketOut = { index: ix, day: ix.day, asOf: ix.ts, src: 'TGJU' };
       log('tse', true, 'شاخص کل ' + faNum(ix.p) + (ix.ts ? ' · جلسه ' + faDay(ix.ts) : ''));
     } else log('tse', false, 'کلید bourse در TGJU نبود یا از بازه بیرون بود');
+  }
+
+  // جریانِ پولِ حقیقی: فقط با کلید، و حداکثر هر ۳ ساعت یک‌بار (احترام به سقفِ رایگان)
+  if (!BRS_KEY) log('tsetmc', false, 'بدون کلید — جریانِ پول منتشر نمی‌شود');
+  else if (!marketOut) log('tsetmc', false, 'شاخص نیامد؛ جریان هم منتشر نمی‌شود');
+  else {
+    const pf = prevDoc.market && prevDoc.market.flow;
+    if (pf && pf.ts && (Date.now() - pf.ts < BRS_MIN_GAP_MS)) {
+      marketOut.flow = pf;
+      log('tsetmc', true, 'از انتشارِ قبلی (هنوز تازه است)');
+    } else {
+      const url = BRS.base + '/' + BRS.marketPath + '?key=' + encodeURIComponent(BRS_KEY) + '&type=' + encodeURIComponent(BRS.type);
+      try {
+        const r = await getJSON(url, { timeout: 20000 });
+        const pr = parseBrsMarket(r.j);
+        if (pr.ok) {
+          marketOut.flow = { netToman: pr.agg.netToman, ratio: pr.agg.ratio, n: pr.agg.n, src: 'BrsApi', ts: Date.now() };
+          log('tsetmc', true, 'جریانِ پولِ ' + pr.agg.n + ' نماد از BrsApi', r.ms);
+        } else {
+          log('tsetmc', false, pr.why + (pr.keys ? ' — کلیدها: ' + pr.keys.join(', ') : '') + ' · ' + redact(url));
+        }
+      } catch (e) { log('tsetmc', false, String((e && e.message) || e).slice(0, 70) + ' · ' + redact(url)); }
+    }
   }
 
   // برابری‌های جهانی
@@ -481,4 +639,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('PUBLISH FATAL: ' + ((e && e.stack) || e)); process.exitCode = 1; });
 }
 
-module.exports = { num, tehranMs, tehranDay, faDay, faNum, inRange, saneDayRange, sanePct, tgjuRow, tgjuIndex, pickTGJU, TGJU_MARKET_KEYS, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS };
+module.exports = { num, tehranMs, tehranDay, faDay, faNum, redact, envKey, parseNavasan, aggregateFlow, parseBrsMarket, inRange, saneDayRange, sanePct, tgjuRow, tgjuIndex, pickTGJU, TGJU_MARKET_KEYS, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS };

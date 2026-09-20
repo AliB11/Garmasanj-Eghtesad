@@ -40,6 +40,9 @@ const CANDIDATES = [
   { tag: 'stooq.tse', url: 'https://stooq.com/q/?s=%5Etedpix', want: 'صفحه‌ی شاخص در استوک' },
 ];
 
+/** کلید در هیچ خروجی‌ای نباید بیاید */
+function redact(url) { return String(url).replace(/([?&](?:api_key|key)=)[^&]+/i, '$1***'); }
+
 function clean(s, n) {
   return String(s).replace(/\s+/g, ' ').replace(/[|`]/g, ' ').slice(0, n || 150);
 }
@@ -130,6 +133,66 @@ async function probe(c) {
     }
   }
 
+  /* ---- مسیرهای کلیددار: فقط وقتی کلید در محیط باشد ----
+     هدف: پیدا کردنِ مسیرِ درستِ اندپوینت و نامِ واقعیِ فیلدها،
+     بدونِ چاپِ خودِ کلید. */
+  const keyLines = [];
+  const BRS_KEY = (process.env.BRS_API_KEY || '').trim();
+  const NAV_KEY = (process.env.NAVASAN_KEY || '').trim();
+  const BASE = 'https://BrsApi.ir/Api/Tsetmc';
+  const PATHS = ['MarketWatch.php', 'Market.php', 'All.php', 'Tse.php', 'Bourse.php',
+    'Overview.php', 'MarketOverview.php', 'ClientType.php', 'Symbol.php', 'Index.php'];
+
+  async function keyProbe(url) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => { try { ctl.abort(); } catch (e) {} }, TIMEOUT);
+    const t0 = Date.now();
+    try {
+      const r = await fetch(url, { signal: ctl.signal, headers: { 'User-Agent': UA, Accept: 'application/json' } });
+      const txt = await r.text();
+      const out = { status: r.status, bytes: txt.length, ms: Date.now() - t0, note: '', keys: [], fields: [], rows: 0 };
+      try {
+        const j = JSON.parse(txt);
+        const msg = j && (j.error || j.message || j.msg || j.ErrorMessage || j.Message);
+        if (msg) { out.note = 'پیامِ سرویس: ' + clean(msg, 90); return out; }
+        const rows = Array.isArray(j) ? j : (Array.isArray(j.data) ? j.data : (Array.isArray(j.result) ? j.result : null));
+        out.keys = Object.keys(j || {}).slice(0, 12);
+        if (rows && rows.length) {
+          out.rows = rows.length;
+          out.fields = Object.keys(rows[0] || {}).slice(0, 30);
+        } else out.note = 'ردیفی نبود';
+      } catch (e) { out.note = 'پاسخ JSON نبود: ' + clean(txt, 90); }
+      return out;
+    } catch (e) {
+      return { status: 'خطا', bytes: 0, ms: Date.now() - t0, note: clean(String((e && e.message) || e), 60), keys: [], fields: [], rows: 0 };
+    } finally { clearTimeout(timer); }
+  }
+
+  if (BRS_KEY) {
+    say('\n--- BrsApi با کلید: جست‌وجوی مسیر و نقشه‌ی فیلدها ---');
+    for (const p of PATHS) {
+      const url = BASE + '/' + p + '?key=' + encodeURIComponent(BRS_KEY) + '&type=1';
+      const r = await keyProbe(url);
+      const line = p + ' → status=' + r.status + ' bytes=' + r.bytes + ' ردیف=' + r.rows +
+        (r.note ? ' · ' + r.note : '') +
+        (r.fields.length ? ' · فیلدها: ' + r.fields.join(', ') : '') +
+        (r.rows ? '' : (r.keys.length ? ' · کلیدهای ریشه: ' + r.keys.join(', ') : ''));
+      keyLines.push('- `' + clean(redact(url), 70) + '` → ' + line);
+      say('   ' + line);
+    }
+  } else say('\n--- BRS_API_KEY در محیط نبود (مسیرِ کلیددارِ بورس تست نشد) ---');
+
+  if (NAV_KEY) {
+    say('\n--- ناواسان با کلید ---');
+    const url = 'https://api.navasan.tech/latest/?api_key=' + encodeURIComponent(NAV_KEY);
+    const r = await keyProbe(url);
+    const line = 'status=' + r.status + ' bytes=' + r.bytes + ' ms=' + r.ms +
+      (r.note ? ' · ' + r.note : '') + ' · کلیدها: ' + r.keys.join(', ') +
+      (r.fields.length ? ' · فیلدهای اولین: ' + r.fields.join(', ') : '');
+    keyLines.push('- `' + clean(redact(url), 70) + '` → ' + line);
+    say('   ' + line);
+  } else say('--- NAVASAN_KEY در محیط نبود (مسیرِ کلیددارِ ناواسان تست نشد) ---');
+
   /* ---- گزارش مارک‌داون ---- */
   const md = [];
   const deepLines = [];
@@ -170,6 +233,10 @@ async function probe(c) {
   md.push('## واکاویِ متنِ فارسی در TGJU (جست‌وجوی «شاخص/ارزش معاملات/حقیقی/ورود پول/فرابورس/هم‌وزن»)');
   md.push('');
   md.push((deepLines.length ? deepLines.map((l) => '- `' + l.replace(/`/g, "'") + '`').join('\n') : 'هیچ کلیدی با این واژه‌ها پیدا نشد.'));
+  md.push('');
+  md.push('## مسیرهای کلیددار (بدون نمایشِ کلید)');
+  md.push('');
+  md.push(keyLines.length ? keyLines.join('\n') : 'هیچ کلیدی در محیط نبود (Secrets تنظیم نشده).');
   md.push('');
   md.push('## URLهای امتحان‌شده');
   md.push('');

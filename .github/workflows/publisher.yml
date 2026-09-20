@@ -28,6 +28,11 @@ concurrency:
 env:
   ROUNDS: ${{ github.event.inputs.rounds || '3' }}
   INTERVAL_MIN: '15'
+  # مسیرهای کلیددار (اختیاری): اگر این Secrets تنظیم شوند، ناشر از آن‌ها هم
+  # استفاده می‌کند؛ اگر نباشند، این مسیرها کاملاً خاموش می‌مانند.
+  # کلیدها هرگز وارد کد، لاگ یا فایلِ داده نمی‌شوند.
+  NAVASAN_KEY: ${{ secrets.NAVASAN_KEY }}
+  BRS_API_KEY: ${{ secrets.BRS_API_KEY }}
 
 jobs:
   publish:

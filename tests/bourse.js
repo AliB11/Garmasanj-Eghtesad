@@ -431,6 +431,24 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     W.close(); GS.data.clearCache();
   });
 
+  await ta('جریانِ تازه‌تر برنده است (کلیدِ شخصی vs انتشارِ سرور)', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    // جریانِ قدیمی از «انتشارِ سرور»
+    const withFlow = liveDoc(MK_SESSION);
+    withFlow.market = Object.assign({}, MK_SESSION, { flow: { netToman: -1e12, ratio: -0.05, src: 'BrsApi', ts: Date.now() - 3600e3 } });
+    GS.data._ingest('live', { quotes: withFlow.quotes, market: withFlow.market, at: Date.now() });
+    assert.ok(GS.data.market().flow, 'جریانِ سرور باید بیاید');
+    // جریانِ تازه‌تر از کلیدِ شخصی
+    GS.data.setMarketFlow({ netToman: -5e12, ratio: -0.15, src: 'BrsApi', ts: Date.now() });
+    const mk = GS.data.market();
+    assert.strictEqual(mk.flow.netToman, -5e12, 'تازه‌تر باید برنده شود: ' + JSON.stringify(mk.flow));
+    // انتشارِ قدیمی‌تر بعدی نباید آن را عوض کند
+    GS.data._ingest('live', { quotes: withFlow.quotes, market: withFlow.market, at: Date.now() });
+    assert.strictEqual(GS.data.market().flow.netToman, -5e12, 'انتشارِ قدیمی نباید جریانِ تازه را بپوشاند');
+    W.close(); GS.data.clearCache();
+  });
+
   console.log('\nbourse.js: ' + n + ' tests, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();

@@ -164,4 +164,90 @@ t('snapshot.json btc scale fixed', () => {
   assert.ok(doc.quotes.BTC_TM.p > 1e10, 'got=' + doc.quotes.BTC_TM.p);
 });
 
+
+// --- مسیرهای کلیددارِ سمت‌سرور (اختیاری؛ فقط با Secrets) ---
+t('redact: کلید در پیام‌ها پنهان می‌شود', () => {
+  assert.strictEqual(
+    P.redact('https://x.y/api?key=SECRET123&type=1'),
+    'https://x.y/api?key=***&type=1'
+  );
+  assert.strictEqual(
+    P.redact('https://x.y/latest/?api_key=abc&d=1'),
+    'https://x.y/latest/?api_key=***&d=1'
+  );
+  assert.strictEqual(P.redact('https://x.y/plain'), 'https://x.y/plain');
+});
+
+t('بدون کلید در محیط، مسیرهای کلیددار خاموش‌اند', () => {
+  // ماژول در این فرایند بدون NAVASAN_KEY/BRS_API_KEY بارگذاری شده
+  assert.strictEqual(P.envKey('NAVASAN_KEY'), null);
+  assert.strictEqual(P.envKey('BRS_API_KEY'), null);
+});
+
+t('parseNavasan: ریال→تومان و بازه‌ی معتبر', () => {
+  const q = P.parseNavasan({
+    usd_sell: { value: '2,306,000', change: '1500' },
+    geram18: { value: '238,900,000', change: '1200000' },
+    sekke: { value: '2,376,000,000', change: '0' },
+    ons: { value: '4385.20', change: '12.4' },
+  });
+  assert.strictEqual(q.USD.p, 230600);
+  assert.strictEqual(q.G18.p, 23890000);
+  assert.strictEqual(q.EMAMI.p, 237600000);
+  assert.strictEqual(q.OUNCE_USD.p, 4385.2);
+  assert.ok(Math.abs(q.USD.chgPct - 0.065) < 0.01, 'chgPct=' + q.USD.chgPct);
+});
+
+t('parseNavasan: مقادیرِ خارج از بازه رد می‌شوند', () => {
+  assert.strictEqual(P.parseNavasan(null), null);
+  assert.strictEqual(P.parseNavasan({ usd_sell: { value: '12' } }), null, 'دلار ۱۲ تومانی');
+  // فقط اونسِ غیرمعقول بود ⇒ بعد از حذف، هیچ کوتِ معتبری نمی‌ماند ⇒ null
+  assert.strictEqual(P.parseNavasan({ ons: { value: '999999' } }), null, 'اونسِ غیرمعقول');
+  assert.strictEqual(P.parseNavasan({ foo: { value: '1' } }), null);
+});
+
+t('aggregateFlow: خالصِ پولِ حقیقی (ریال→تومان، بدون حدسِ واحد)', () => {
+  const rows = [
+    { l18: 'فملی', pl: 45200, tvol: 10000000, tval: 452000000000, Buy_I_Volume: 6000000, Sell_I_Volume: 8000000 },
+    { l18: 'وبملت', pl: 31000, tvol: 20000000, tval: 620000000000, Buy_I_Volume: 9000000, Sell_I_Volume: 11000000 },
+  ];
+  const a = P.aggregateFlow(rows);
+  assert.strictEqual(a.netToman, Math.round(-2e6 * 4520 + -2e6 * 3100));
+  assert.strictEqual(a.valueToman, Math.round(45.2e9 + 62e9));
+  assert.ok(Math.abs(a.ratio - (-15.24e9 / 107.2e9)) < 1e-9);
+  assert.strictEqual(a.n, 2);
+});
+
+t('aggregateFlow: ساختارِ ناشناخته عدد نمی‌سازد', () => {
+  assert.strictEqual(P.aggregateFlow([{ alpha: 1, beta: 2 }]), null);
+  assert.strictEqual(P.aggregateFlow([]), null);
+  assert.strictEqual(P.aggregateFlow(null), null);
+});
+
+t('parseBrsMarket: پاسخِ سالم پذیرفته می‌شود', () => {
+  const pr = P.parseBrsMarket({
+    data: [
+      { l18: 'فملی', pl: 45200, tvol: 10000000, tval: 452000000000, Buy_I_Volume: 6e6, Sell_I_Volume: 8e6 },
+      { l18: 'وبملت', pl: 31000, tvol: 20000000, tval: 620000000000, Buy_I_Volume: 9e6, Sell_I_Volume: 11e6 },
+    ],
+  });
+  assert.strictEqual(pr.ok, true);
+  assert.strictEqual(pr.agg.n, 2);
+});
+
+t('parseBrsMarket: نگهبان‌های مقیاس و ساختار', () => {
+  const tiny = P.parseBrsMarket({ data: [{ l18: 'x', pl: 10, tvol: 100, tval: 1000, Buy_I_Volume: 60, Sell_I_Volume: 40 }] });
+  assert.strictEqual(tiny.ok, false);
+  assert.ok(tiny.why.indexOf('مقیاس') >= 0, tiny.why);
+
+  const weird = P.parseBrsMarket({ data: [{ alpha: 1, beta: 2 }] });
+  assert.strictEqual(weird.ok, false);
+  assert.ok(weird.why.indexOf('ناشناخته') >= 0, weird.why);
+  assert.ok(weird.keys && weird.keys.indexOf('alpha') >= 0, 'کلیدهای واقعی گزارش شوند');
+
+  const err = P.parseBrsMarket({ ErrorMessage: 'Invalid API Key' });
+  assert.strictEqual(err.ok, false);
+  assert.ok(err.why.indexOf('Invalid') >= 0, err.why);
+});
+
 console.log('publish.js: ' + n + ' tests, exit=' + (process.exitCode || 0));

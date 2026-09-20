@@ -34,6 +34,10 @@ jobs:
           node-version: 22
 
       - name: اجرای پروب
+        # کلیدها فقط از Secrets می‌آیند و در خروجی پنهان می‌شوند
+        env:
+          NAVASAN_KEY: ${{ secrets.NAVASAN_KEY }}
+          BRS_API_KEY: ${{ secrets.BRS_API_KEY }}
         run: node scripts/probe_bourse.cjs --out=reports/probe-bourse.md
 
       - name: گزارش را در همین شاخه بنویس (هرگز روی main)
