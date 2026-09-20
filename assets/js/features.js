@@ -543,7 +543,8 @@
     live: 'انتشار زنده',
     tgju: 'TGJU', nobitex: 'نوبیتکس', wallex: 'والکس', bitpin: 'بیت‌پین',
     coingecko: 'CoinGecko', kraken: 'Kraken', binance: 'Binance Vision', coinbase: 'Coinbase',
-    frankfurter: 'Frankfurter', erapi: 'ExchangeRate-API', navasan: 'ناواسان', snapshot: 'اسنپ‌شات'
+    frankfurter: 'Frankfurter', erapi: 'ExchangeRate-API', navasan: 'ناواسان', snapshot: 'اسنپ‌شات',
+    tse: 'شاخص بورس', tsetmc: 'جریان پول بورس'
   };
 
   function renderHealth() {
@@ -647,6 +648,34 @@
         if (usdW && usdW.pct >= 3) { warns.push('دلار ' + span + ' ' + U.pct(usdW.pct, 1) + ' بالا رفته — پله‌ای عمل کن؛ بعد از جهش‌های تند، اصلاح کوتاه رایج است.'); }
       }
     }
+    // ۹) بورس — شاخص «زمینه» است؛ جریانِ پول اگر واقعاً در دسترس باشد ۱± امتیاز می‌گیرد
+    var mk = null, bourseScored = null, bourseCtx = null;
+    try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+    if (mk && mk.p > 0) {
+      var MF = CFG().MARKETFLOW || { strong: 0.10, mild: 0.04 };
+      var idxTxt = 'شاخص کلِ بورس ' + U.fmt(Math.round(mk.p)) + (mk.chgPct != null ? ' (' + U.pct(mk.chgPct, 1) + ')' : '');
+      if (mk.flow && mk.flowRatio != null && !mk.stale) {
+        var rr = mk.flowRatio, ar = Math.abs(rr);
+        var netTxt = U.fa((Math.abs(mk.flow.netToman) / 1e12).toFixed(1)) + ' همت';
+        var agree = (mk.chgPct == null) || (rr < 0 && mk.chgPct < 0) || (rr > 0 && mk.chgPct > 0);
+        if (ar >= MF.strong || (ar >= MF.mild && agree)) {
+          if (rr < 0) {
+            score += 1;
+            bourseScored = 'خروجِ ' + netTxt + ' پولِ حقیقی از بورس (' + U.fa(Math.round(ar * 100)) +
+              '٪ ارزشِ معاملات) — این را تأییدکننده بگیر، نه سیگنالِ مستقل.';
+          } else {
+            score -= 1;
+            bourseScored = 'ورودِ ' + netTxt + ' پولِ حقیقی به بورس (' + U.fa(Math.round(ar * 100)) +
+              '٪ ارزشِ معاملات) — بخشی از تقاضای ارز/طلا کوتاه‌مدت در سهام پارک شده.';
+          }
+        } else {
+          bourseCtx = idxTxt + '؛ جریانِ پولِ حقیقی خفیف است (' + U.fa(Math.round(ar * 100)) + '٪ ارزشِ معاملات).';
+        }
+      } else {
+        bourseCtx = idxTxt + '؛ جریانِ پولِ حقیقیِ بورس در دسترس نیست (منبعش از بیرون ایران پاسخ نمی‌دهد) — فقط زمینه.';
+      }
+    }
+
     // تصمیم
     var hotName = top ? top.a.short : 'دارایی‌های داغ';
     var A;
@@ -662,7 +691,10 @@
     if (liveN < 3) { warns.unshift('داده‌ی زنده‌ی کافی نرسیده — این حکم موقت است؛ وضعیت منابع را در «سلامت داده» ببین.'); conf = Math.min(conf, 45); }
     else if (!ses.open && m.quiet) { warns.push('بازار تهران بسته است' + (ses.next ? ' (' + ses.next + ')' : '') + ' — حکم بر پایه‌ی آخرین جلسه و بازارهای ۲۴ساعته است؛ اقدام را به بازگشایی موکول کن.'); conf = Math.min(conf, 70); }
     else if (coverage < 0.4) { warns.push('پوشش داده‌ی تازه پایین است — حکم را با احتیاط اجرا کن.'); conf = Math.min(conf, 60); }
-    return { mood: m, score: score, conf: conf, reasons: reasons.slice(0, 5), warns: warns.slice(0, 3), action: A, top: top, low: low, coverage: coverage, liveN: liveN, session: ses, weekly: wk };
+    if (bourseScored) reasons.unshift(bourseScored);
+    else if (bourseCtx) reasons.push(bourseCtx);
+    // ۶ سطر: پنج عاملِ اصلی + زمینه‌ی بورس (اگر جریانِ پول داشت، همان اول می‌آمد)
+    return { mood: m, score: score, conf: conf, reasons: reasons.slice(0, 6), warns: warns.slice(0, 3), action: A, top: top, low: low, coverage: coverage, liveN: liveN, session: ses, weekly: wk, market: mk };
   }
 
   var TONE_C = { hot: '#FF4E2E', warm: '#E8833A', neutral: '#9AA4AD', cold: '#3E8E9E', ice: '#7FB3D5' };

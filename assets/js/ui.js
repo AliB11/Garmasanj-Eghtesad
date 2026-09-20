@@ -180,7 +180,17 @@
     el.innerHTML =
       '<span class="sess" title="' + U.esc(ses.next || 'ساعات تقریبی بازار آزاد تهران') + '"><i class="led ' + (ses.open ? 'on' : '') + '"></i>بازار ارز و طلا: ' + ses.label +
       (!ses.open && ses.next ? ' <small>(' + U.esc(ses.next) + ')</small>' : '') + '</span>' +
-      '<span class="sess"><i class="led on"></i>رمزارز جهانی: ۲۴/۷</span>';
+      '<span class="sess"><i class="led on"></i>رمزارز جهانی: ۲۴/۷</span>' +
+      (function () {
+        var t = U.tseSession ? U.tseSession() : null;
+        if (!t || t.label === 'نامشخص') return '';
+        var mk = null;
+        try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+        var tail = (t.open || !mk || !(mk.p > 0)) ? '' :
+          ' <small>(آخرین جلسه ' + ((mk.ts && U.dateFa) ? U.dateFa(mk.ts) : U.fa(mk.day || '')) + ')</small>';
+        return '<span class="sess" title="جلسه‌ی بورس تهران: شنبه تا چهارشنبه"><i class="led ' + (t.open ? 'on' : '') + '"></i>بورس تهران: ' +
+          t.label + (!t.open && t.next ? ' <small>(' + U.esc(t.next) + ')</small>' : '') + tail + '</span>';
+      })();
   }
 
   /** پیل وضعیت هدر — صادقانه: قطع/بی‌پاسخ/تک‌منبع/متصل */
@@ -533,6 +543,36 @@
     }).join('');
   }
 
+  /* ---------------- کارتِ بورس (شاخص + جریان پول) ---------------- */
+  /**
+   * صادقانه: اگر جریانِ پول در دسترس نباشد (حالتِ پیش‌فرض — TSETMC از بیرون
+   * ایران پاسخ نمی‌دهد)، فقط شاخص نشان داده می‌شود و کنارش نوشته می‌شود که
+   * جریانِ پول در دسترس نیست. هرگز از روی شاخص، جریان ساخته نمی‌شود.
+   */
+  function bourseCard() {
+    var mk = null;
+    try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+    function card(label, val, hint, tone) {
+      return '<div class="mc"><small>' + label + '</small><b class="' + (tone || '') + '">' + val + '</b><span>' + hint + '</span></div>';
+    }
+    if (!mk || !(mk.p > 0)) {
+      return card('شاخص کل بورس', '—', 'منتظر انتشارِ سرور', '');
+    }
+    var tone = mk.chgPct == null ? '' : (mk.chgPct > 0.3 ? 'hot' : mk.chgPct < -0.3 ? 'cold' : '');
+    var hint;
+    if (mk.flow && mk.flowRatio != null) {
+      var out = mk.flow.netToman < 0;
+      hint = (out ? 'خروج ' : 'ورود ') + U.fa((Math.abs(mk.flow.netToman) / 1e12).toFixed(1)) +
+        ' همت پولِ حقیقی (' + U.fa(Math.round(Math.abs(mk.flowRatio) * 100)) + '٪ ارزش معاملات)';
+    } else {
+      hint = 'جریانِ پولِ حقیقی در دسترس نیست';
+    }
+    if (mk.session && mk.session.label === 'باز') hint = 'جلسه باز · ' + hint;
+    else hint = 'آخرین جلسه ' + ((mk.ts && U.dateFa) ? U.dateFa(mk.ts) : U.fa(mk.day || '')) + ' · ' + hint;
+    return card('شاخص کل بورس', U.fmt(Math.round(mk.p)) +
+      (mk.chgPct != null ? ' <small class="' + tone + '">' + U.pct(mk.chgPct, 1) + '</small>' : ''), hint, tone);
+  }
+
   /* ---------------- نوار ماکرو ---------------- */
   function renderMacro() {
     var host = U.$('#macroStrip');
@@ -553,6 +593,7 @@
     cards.push(card('پهنای بازار', m.n ? U.fa(m.ups) + '٪' : '—',
       m.n ? 'سهم دارایی‌های مثبت امروز' : 'منتظر داده',
       m.n ? (m.ups >= 60 ? 'hot' : m.ups < 40 ? 'cold' : '') : ''));
+    cards.push(bourseCard());
     host.innerHTML = cards.join('');
   }
 

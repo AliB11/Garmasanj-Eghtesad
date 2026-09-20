@@ -12,6 +12,7 @@
     GS.ui.updateGrid();
     GS.ui.renderPulse();
     GS.ui.renderMacro();
+    GS.ui.renderSessions();
     GS.features.renderHotmoney();
     GS.features.renderMix();
     GS.features.renderVerdict();

@@ -33,9 +33,12 @@
   var FAST_TTL = 90000, SLOW_TTL = 25 * 60000;
   var REJECT = {};   // sym -> {p, n} شمارنده‌ی جهش‌های ردشده‌ی پیاپی (خودترمیمی نگهبان)
   var BOOT_CACHE = null; // کوت‌های نشست قبلی برای «از آخرین بازدیدت»
+  var MARKET = null;     // بورس: {p,high,low,ts,day,src,flow} — شاخص از انتشارِ سرور، جریان فقط اگر منبعش در دسترس باشد
 
   CFG.SOURCES.forEach(function (s) { SRC[s.id] = { ok: null, ms: null, at: 0, note: 'هنوز تلاش نشده' }; });
   CFG.ASSETS.forEach(function (a) { QUOTES[a.sym] = { p: null, chg: null, chgPct: null, high: null, low: null, src: null, srcFa: '', ts: 0, live: false, stale: true, agree: 0 }; });
+  // جریانِ پولِ بورس از IP خارجی در دسترس نیست (اندازه‌گیری‌شده) — از همان اول شفاف بگوییم
+  if (SRC.tsetmc) SRC.tsetmc.note = 'TSETMC از IP خارجی پاسخ نمی‌دهد — فقط از مرورگرِ داخل ایران یا منبعِ کلیددار';
 
   function on(ev, fn) { (listeners[ev] = listeners[ev] || []).push(fn); }
   function emit(ev, data) { (listeners[ev] || []).forEach(function (fn) { try { fn(data); } catch (e) {} }); }
@@ -722,6 +725,7 @@
           n++;
         }
       });
+      if (j.market) setMarket(j.market, 'snapshot');
       markSrc('snapshot', true, U.fa(n) + ' کوت اولیه (' + (j.generated_fa || '') + ')', r.ms);
       try { recompute(true); } catch (e) {}
       emit('quotes', { boot: true });
@@ -730,6 +734,124 @@
       markSrc('snapshot', false, 'فایل اسنپ‌شات خوانده نشد');
       return 0;
     });
+  }
+
+  /* ============================================================
+     بورس تهران — شاخص + جریانِ پول (نسل ۷)
+     شاخص از انتشارِ سرور می‌آید (TGJU؛ تنها مسیرِ در دسترس از IP خارجی).
+     جریانِ پول عمداً اینجا ساخته نمی‌شود: TSETMC از بیرون ایران پاسخ نمی‌دهد
+     و تخمین زدنِ آن از روی شاخص، عددسازی است. وقتی منبعی پیدا شد
+     (مرورگرِ کاربرِ داخل ایران یا منبعِ کلیددار)، همین شیء پر می‌شود.
+     ============================================================ */
+  function setMarket(m, origin) {
+    if (!m || !m.index || !(m.index.p > 0)) return false;
+    var ix = m.index;
+    var hl = saneRange(+ix.p, +ix.high, +ix.low);
+    var prev = MARKET;
+    MARKET = {
+      p: +ix.p,
+      high: hl.high,
+      low: hl.low,
+      ts: ix.ts || (m.asOf) || Date.now(),
+      day: ix.day || null,
+      src: ix.src || m.src || 'TGJU',
+      origin: origin || 'live',
+      flow: null
+    };
+    var f = m.flow;
+    if (f && isFinite(+f.netToman)) {
+      MARKET.flow = {
+        netToman: +f.netToman,
+        ratio: (f.ratio != null && isFinite(+f.ratio)) ? +f.ratio : null,
+        n: f.n || null,
+        src: f.src || 'TSETMC',
+        ts: f.ts || m.asOf || Date.now()
+      };
+    }
+    // جریانِ پول ممکن است از مسیرِ کلیددار/مرورگرِ داخل ایران آمده باشد؛
+    // انتشارِ بعدی که flow ندارد نباید آن را پاک کند (بازمحاسبه مدام رخ می‌دهد)
+    if (!MARKET.flow && prev && prev.flow) MARKET.flow = prev.flow;
+    // اگر انتشارِ جدیدتر از همان جلسه آمد، جایگزین؛ اگر قدیمی‌تر بود، رد شود
+    if (prev && prev.ts && MARKET.ts && MARKET.ts < prev.ts - 3600000) { MARKET = prev; return false; }
+    var dayFa = (MARKET.ts && U.dateFa) ? U.dateFa(MARKET.ts) : (MARKET.day ? U.fa(MARKET.day) : '—');
+    var flowNote = MARKET.flow
+      ? ' · جریانِ پول: ' + U.fa((Math.abs(MARKET.flow.netToman) / 1e12).toFixed(1)) + ' همت ' + (MARKET.flow.netToman < 0 ? 'خروج' : 'ورود')
+      : ' · جریانِ پول در دسترس نیست';
+    markSrc('tse', true, 'شاخص کل ' + U.fmt(Math.round(MARKET.p)) + ' (جلسه ' + dayFa + ')' + flowNote);
+    if (MARKET.flow) markSrc('tsetmc', true, 'جریانِ پولِ حقیقی از ' + MARKET.flow.src);
+    else markIdle('tsetmc', 'TSETMC از IP خارجی پاسخ نمی‌دهد — فقط از مرورگرِ داخل ایران یا منبعِ کلیددار');
+    return true;
+  }
+
+  /** سریِ روزانه‌ی شاخص از history.json (TSE یک شبه‌نماد است، نه دارایی) */
+  function tseDaily() { return (HISTORY && HISTORY.daily && HISTORY.daily.TSE) || []; }
+
+  /** بستنِ «آخرین جلسه‌ی متفاوت» — مرجعِ محاسبه‌ی تغییرِ شاخص */
+  function tsePrevClose() {
+    if (!MARKET || !(MARKET.p > 0)) return null;
+    var d = tseDaily();
+    for (var i = d.length - 1; i >= 0; i--) {
+      if (d[i] && d[i][1] > 0 && Math.abs(d[i][1] - MARKET.p) / MARKET.p > 0.0002) {
+        return { day: d[i][0], p: d[i][1], t: dayMs(d[i][0]) };
+      }
+    }
+    return null;
+  }
+
+  /** قدیمی‌ترین نقطه‌ی سری (برای «این هفته») — فقط اگر حداقل minDays روز قدمت دارد */
+  function tseOldest(minDays) {
+    var d = tseDaily();
+    if (!d.length || !(d[0][1] > 0)) return null;
+    var age = (Date.now() - dayMs(d[0][0])) / 86400000;
+    if (age < (minDays || 2)) return null;
+    return { day: d[0][0], p: d[0][1], t: dayMs(d[0][0]), days: Math.round(age) };
+  }
+
+  /**
+   * وضعیتِ بورس برای نمایش و برای حکم.
+   * chgPct از سریِ تاریخچه حساب می‌شود چون TGJU برای شاخص d/dp نمی‌فرستد.
+   */
+  function market() {
+    if (!MARKET || !(MARKET.p > 0)) return null;
+    var pv = tsePrevClose();
+    var old = tseOldest(2);
+    var ses = (U.tseSession) ? U.tseSession() : { open: false, label: 'نامشخص', next: '' };
+    var ageDays = MARKET.ts ? (Date.now() - MARKET.ts) / 86400000 : 99;
+    return {
+      p: MARKET.p,
+      high: MARKET.high,
+      low: MARKET.low,
+      ts: MARKET.ts,
+      day: MARKET.day,
+      src: MARKET.src,
+      origin: MARKET.origin,
+      chgPct: (pv && pv.p > 0) ? (MARKET.p / pv.p - 1) * 100 : null,
+      prevClose: pv ? pv.p : null,
+      prevDay: pv ? pv.day : null,
+      weekPct: (old && old.p > 0) ? (MARKET.p / old.p - 1) * 100 : null,
+      weekDays: old ? old.days : null,
+      session: ses,
+      ageDays: ageDays,
+      stale: ageDays > 4,          // بیش از ۴ روز یعنی حتی یک جلسه هم عقب نیستیم... بلکه خیلی عقبیم
+      flow: MARKET.flow || null,
+      flowRatio: (MARKET.flow && MARKET.flow.ratio != null) ? MARKET.flow.ratio : null
+    };
+  }
+
+  /** ورودِ دستیِ جریانِ پول (برای مسیرِ کلیددار یا مرورگرِ داخل ایران) */
+  function setMarketFlow(f) {
+    if (!MARKET) MARKET = { p: null, ts: Date.now(), src: 'TSETMC', origin: 'client', flow: null, high: null, low: null, day: null };
+    if (!f || !isFinite(+f.netToman)) { MARKET.flow = null; try { recompute(); } catch (e) {} emit('quotes', {}); return false; }
+    MARKET.flow = {
+      netToman: +f.netToman,
+      ratio: (f.ratio != null && isFinite(+f.ratio)) ? +f.ratio : null,
+      n: f.n || null,
+      src: f.src || 'TSETMC',
+      ts: f.ts || Date.now()
+    };
+    try { recompute(); } catch (e) {}
+    emit('quotes', {});
+    return true;
   }
 
   /* ----- انتشار زنده‌ی سرور (هم‌مبدأ؛ از CORS و فیلتر عبور می‌کند) ----- */
@@ -741,7 +863,7 @@
       var age = '';
       try { age = U.relLabel(Date.parse(r.j.generated_at) || 0); } catch (e) {}
       markSrc('live', true, U.fa(Object.keys(r.j.quotes).length) + ' کوت · ' + age, r.ms);
-      return { quotes: r.j.quotes, fx: r.j.fx || null, at: Date.parse(r.j.generated_at) || 0 };
+      return { quotes: r.j.quotes, fx: r.j.fx || null, market: r.j.market || null, at: Date.parse(r.j.generated_at) || 0 };
     }).catch(function () { markSrc('live', false, 'فایل انتشار خوانده نشد'); return null; });
   }
 
@@ -820,6 +942,8 @@
         };
       });
     }
+    // بورس: شاخص از همان انتشار (جریانِ پول فقط اگر سرور توانسته باشد بیاورد)
+    if (lvRaw && lvRaw.market) setMarket(lvRaw.market, 'live');
 
     /* ---- دلار (ورود دستی بر همه مقدم است) ---- */
     var man = manualUsd();
@@ -1264,6 +1388,15 @@
       var a = asset(s);
       out.rows.push({ sym: s, fa: a ? a.short : s, pct: c.pct, days: c.days });
     });
+    // شاخصِ بورس: سری‌اش روزانه است و کوت ندارد، برای همین جدا حساب می‌شود
+    if (MARKET && MARKET.p > 0) {
+      var mo = tseOldest(2);
+      if (mo && mo.p > 0) {
+        any = true;
+        out.days = Math.max(out.days, mo.days);
+        out.rows.push({ sym: 'TSE', fa: 'شاخص بورس', pct: (MARKET.p / mo.p - 1) * 100, days: mo.days });
+      }
+    }
     if (!any) return null;
     // حباب سکه‌ی هفته‌ی پیش از سری‌های تاریخی
     var e = changeOverAvail('EMAMI', 7, 2), g24 = changeOverAvail('G24', 7, 2), g18 = changeOverAvail('G18', 7, 2);
@@ -1290,6 +1423,9 @@
     derived: derived,
     chain: chain,
     mood: mood,
+    market: market,
+    setMarket: setMarket,
+    setMarketFlow: setMarketFlow,
     tickFast: tickFast,
     tickSlow: tickSlow,
     snapshotLoad: snapshotLoad,

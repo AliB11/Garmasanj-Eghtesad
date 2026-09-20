@@ -30,6 +30,8 @@ const RANGES = {
   G18: [5e6, 1e8], G24: [7e6, 1.3e8], MESGHAL: [2e7, 5e8], OUNCE_USD: [1e3, 2e4],
   EMAMI: [5e7, 1e9], BAHAR: [5e7, 1e9], NIM: [2e7, 6e8], ROB: [1e7, 3e8], GERAMI: [5e6, 1.5e8],
   USDT: [8e4, 2e6], BTC_USD: [1e3, 1e7], BTC_TM: [5e8, 5e11],
+  // شاخص کل بورس تهران (واحدِ شاخص، نه تومان): لنگرِ تطبیقی مثل بقیه عمل می‌کند
+  TSE: [1e6, 5e7],
 };
 
 /* نگاشت TGJU: sym -> [کلیدها] + تقسیم ریال */
@@ -45,6 +47,16 @@ const TGJU_KEYS = {
   USDT: [['crypto-tether-irr'], 10],
   BTC_TM: [['crypto-bitcoin-irr'], 10],
 };
+
+/**
+ * شاخصِ کلِ بورس تهران در TGJU — تنها داده‌ی بورسی که از IP خارجی در دسترس است
+ * (اندازه‌گیری: ۳ دور پروب روی رانرِ GitHub Actions؛ همه‌ی میزبان‌های TSETMC
+ * و tse.ir از خارج timeout می‌شوند — ببینید reports/probe-bourse.md).
+ * TGJU برای شاخص d/dp را صفر می‌فرستد، پس تغییرِ روزانه را اینجا نمی‌سازیم؛
+ * سمتِ کلاینت از سریِ تاریخچه حساب می‌شود تا عددی ساخته نشود.
+ */
+const TGJU_MARKET_KEYS = ['bourse'];
+const TEHRAN_OFFSET_MS = 3.5 * 3600e3;
 
 /* نگهبانِ دامنه‌ی روز */
 const RANGE_MAX_SPAN = 0.35; // سقف−کفِ بیش از ۳۵٪ قیمت در یک روز، غیرقابل‌اتکاست
@@ -140,6 +152,59 @@ function tgjuRow(sym, entry, anchor) {
     ts: tehranMs(entry.ts) || Date.now(),
   };
 }
+/** عدد با جداکننده برای پیامِ لاگ (فارسی اگر ممکن باشد) */
+/** تاریخِ جلسه به شمسی برای پیامِ لاگ */
+function faDay(ms) {
+  try {
+    return new Intl.DateTimeFormat('fa-IR', { calendar: 'persian', timeZone: 'Asia/Tehran', day: 'numeric', month: 'long' }).format(new Date(ms));
+  } catch (e) { return tehranDay(ms) || ''; }
+}
+function faNum(v) {
+  try { return new Intl.NumberFormat('fa-IR').format(Math.round(v)); }
+  catch (e) { return String(Math.round(v)); }
+}
+
+/** کلیدِ روز به وقت تهران (تاریخ میلادی؛ فقط برای بازه‌بندیِ جلسه) */
+function tehranDay(ms) {
+  try { return new Date(ms + TEHRAN_OFFSET_MS).toISOString().slice(0, 10); }
+  catch (e) { return null; }
+}
+
+/**
+ * شاخصِ کل از TGJU. نکته‌های صداقتِ داده:
+ *  - مقدارِ شاخص رشته‌ی کامادار است ("7,448,839.4")؛ num() جداکننده‌ها را می‌برد.
+ *  - dp برای کلیدهای شاخص همیشه صفر است؛ صفر را «بی‌داده» می‌گیریم نه «بدون تغییر».
+ *  - دامنه‌ی روز فقط وقتی می‌ماند که قیمت را در بر بگیرد (همان saneDayRange).
+ */
+function tgjuIndex(current, anchor) {
+  if (!current || typeof current !== 'object') return null;
+  for (const k of TGJU_MARKET_KEYS) {
+    const e = current[k];
+    if (!e || typeof e !== 'object') continue;
+    const p = num(e.p);
+    if (!(p > 0) || !inRange('TSE', p, anchor)) continue;
+    const hl = saneDayRange(p, num(e.h), num(e.l));
+    const ts = tehranMs(e.ts) || Date.now();
+    const dp = sanePct(e.dp);
+    // قیمت گرد می‌شود؛ پس سقف/کف هم باید با همان گرد شوند وگرنه ممکن است
+    // price < low بیفتد (مثلاً p=7,448,839.4 و low=7,448,839.3) و کلِ دامنه
+    // سمتِ کلاینت به‌عنوانِ «غیرواقعی» دور ریخته شود.
+    const pr = Math.round(p);
+    const hi = (hl.high == null) ? null : Math.max(Math.round(hl.high), pr);
+    const lo = (hl.low == null) ? null : Math.min(Math.round(hl.low), pr);
+    return {
+      p: pr,
+      chgPct: (dp != null && dp !== 0 && e.dt !== '') ? dp : null,
+      high: hi,
+      low: lo,
+      ts: ts,
+      day: tehranDay(ts),
+      src: 'TGJU',
+    };
+  }
+  return null;
+}
+
 function pickTGJU(current, sym, anchor) {
   if (!current || typeof current !== 'object') return null;
   const keys = (TGJU_KEYS[sym] || [])[0] || [];
@@ -272,10 +337,11 @@ async function main() {
   /* ---- لنگرِ تطبیقی: آخرین انتشار معتبر روی دیسک ----
      اگر سطح قیمت‌ها جابه‌جا شده باشد، پنجره‌ی استاتیک دیگر صادق نیست؛
      لنگر اجازه می‌دهد انتشار ادامه یابد (نه اینکه بی‌صدا متوقف شود). */
-  const prevQuotes = (() => {
-    try { return JSON.parse(fs.readFileSync(OUT, 'utf8')).quotes || {}; }
+  const prevDoc = (() => {
+    try { return JSON.parse(fs.readFileSync(OUT, 'utf8')) || {}; }
     catch (e) { return {}; }
   })();
+  const prevQuotes = prevDoc.quotes || {};
   const anchorOf = (sym) => {
     const q = prevQuotes[sym];
     return q && q.p > 0 && isFinite(q.p) ? q.p : 0;
@@ -344,6 +410,20 @@ async function main() {
   const bc = consensus(cands, 0.02, anchorOf('BTC_USD'));
   if (bc) put('BTC_USD', { ...bc, ts: now }, 'اجماع جهانی');
 
+  /* ---- بورس: شاخص کل از TGJU ----
+     جریانِ پولِ حقیقی/حقوقی اینجا وجود ندارد چون TSETMC از IP خارجی پاسخ نمی‌دهد؛
+     پس market.flow عمداً منتشر نمی‌شود (سکوتِ صادقانه به‌جای عددِ ساختگی). */
+  let marketOut = null;
+  if (!tgju) log('tse', false, 'TGJU بی‌پاسخ — شاخص بورس هم نرسید');
+  else {
+    const pm = prevDoc.market && prevDoc.market.index;
+    const ix = tgjuIndex(tgju, (pm && pm.p > 0) ? pm.p : 0);
+    if (ix) {
+      marketOut = { index: ix, day: ix.day, asOf: ix.ts, src: 'TGJU' };
+      log('tse', true, 'شاخص کل ' + faNum(ix.p) + (ix.ts ? ' · جلسه ' + faDay(ix.ts) : ''));
+    } else log('tse', false, 'کلید bourse در TGJU نبود یا از بازه بیرون بود');
+  }
+
   // برابری‌های جهانی
   let fxOut = null;
   if (fx && fx.rates && num(fx.rates.EUR) > 0.5 && num(fx.rates.EUR) < 2) {
@@ -380,6 +460,8 @@ async function main() {
     fx: fxOut,
     meta: { sources: SRC },
   };
+  // فقط وقتی شاخص واقعاً معتبر است اضافه می‌شود؛ در غیر این صورت کلید وجود ندارد
+  if (marketOut) doc.market = marketOut;
   fs.writeFileSync(OUT, JSON.stringify(doc) + '\n');
   console.log('PUBLISH OK: n=' + n + ' usd=' + quotes.USD.p + ' btc=' + quotes.BTC_USD.p +
     ' -> ' + path.relative(process.cwd(), OUT));
@@ -399,4 +481,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('PUBLISH FATAL: ' + ((e && e.stack) || e)); process.exitCode = 1; });
 }
 
-module.exports = { num, tehranMs, inRange, saneDayRange, sanePct, tgjuRow, pickTGJU, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS };
+module.exports = { num, tehranMs, tehranDay, faDay, faNum, inRange, saneDayRange, sanePct, tgjuRow, tgjuIndex, pickTGJU, TGJU_MARKET_KEYS, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS };

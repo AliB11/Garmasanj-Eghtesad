@@ -44,6 +44,10 @@ step "gen5.js (تاریخچه، مقایسه، سنجاق، جست‌وجو، م
 node tests/gen5.js | tail -n 3 || fail=1
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail=1
 
+step "bourse.js (شاخص بورس، جریان پول با نگهبان، عامل نهمِ حکم)"
+node tests/bourse.js | tail -n 3 || fail=1
+[ "${PIPESTATUS[0]}" -eq 0 ] || fail=1
+
 echo
 if [ "$fail" -eq 0 ]; then echo "✔ همه‌ی تست‌ها سبز"; else echo "✘ شکست در تست‌ها"; fi
 exit $fail
