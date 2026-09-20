@@ -171,45 +171,50 @@
     <div class="macro-strip rv" id="macroStrip" aria-live="polite"></div>
     <!-- بورس تهران — ترمینال حرفه‌ای (رادار + دونات + جریان صندوق‌ها) -->
     <section class="bourse-pro rv" id="boursePro" hidden aria-live="polite">
-      <div class="bourse-pro-head">
+      <div class="bp-head">
         <div class="bp-head-main">
-          <span class="bp-kicker"><i class="live-dot"></i>بورس تهران — ترمینال حرفه‌ای</span>
-          <h3 id="bourseProTitle">نبض بازار سرمایه</h3>
-          <p class="micro" id="bourseProMeta">در انتظار انتشار سرور…</p>
+          <span class="bp-kicker" style="display:inline-flex;align-items:center;gap:6px;font-size:.72rem;font-weight:800;color:var(--gold2);margin-bottom:4px"><i class="live-dot"></i>بورس تهران — ترمینال حرفه‌ای</span>
+          <b id="bourseProTitle">نبض بازار سرمایه</b>
+          <div class="bp-meta" id="bourseProMeta">در انتظار انتشار سرور…</div>
         </div>
         <div class="bp-head-side">
           <span class="bp-badge" id="bourseProBadge">—</span>
           <span class="micro" id="bourseProAge">—</span>
+          <button class="link-btn bp-link" type="button" data-formula="bourseRadar" title="فرمول رادار سلامت">فرمول رادار ؟</button>
         </div>
       </div>
-      <div class="bourse-pro-grid">
-        <div class="bp-indices" id="bourseIndices"></div>
-        <div class="bp-radar-panel">
-          <div class="bp-panel-title"><b>رادار سلامت بازار</b><small>۶ بُعد کلیدی · ۰ تا ۱۰۰</small><button class="f-help" data-formula="bourseRadar" title="فرمول رادار">؟</button></div>
-          <div id="bourseRadarChart"></div>
-          <div id="bourseRadarLegend" class="bp-radar-legend"></div>
+      <div class="bp-indices" id="bourseIndices"></div>
+      <div class="bp-grid">
+        <div class="bp-panel bp-radar-panel">
+          <div class="bp-panel-h"><h4>رادار سلامت بازار</h4><span>۶ بُعد · ۰–۱۰۰ <button class="f-help" data-formula="bourseRadar" title="فرمول رادار">؟</button></span></div>
+          <div class="bp-radar-box">
+            <div id="bourseRadarChart"></div>
+            <div id="bourseRadarLegend" class="bp-radar-legend"></div>
+          </div>
         </div>
-        <div class="bp-breadth-panel">
-          <div class="bp-panel-title"><b>پهنای بازار</b><small>مثبت vs منفی</small></div>
-          <div id="bourseBreadthDonut" class="bp-donut-wrap"></div>
-          <div id="bourseBreadthStats" class="bp-stats"></div>
-          <div id="bourseQueueChart" style="margin-top:12px"></div>
+        <div class="bp-panel bp-breadth-panel">
+          <div class="bp-panel-h"><h4>پهنای بازار</h4><span>مثبت vs منفی</span></div>
+          <div class="bp-donut-wrap">
+            <div id="bourseBreadthDonut"></div>
+            <div id="bourseBreadthStats" class="bp-stats"></div>
+          </div>
+          <div id="bourseQueueChart" class="bp-queue"></div>
         </div>
-        <div class="bp-flow-panel">
-          <div class="bp-panel-title"><b>جریان پول حقیقی</b><small>خرد + صندوق‌ها · همت</small></div>
-          <div id="bourseMainFlow" class="bp-main-flow"></div>
-          <div id="bourseFundsFlow"></div>
+        <div class="bp-panel bp-flow-panel">
+          <div class="bp-panel-h"><h4>جریان پول حقیقی</h4><span>خرد + صندوق‌ها</span></div>
+          <div id="bourseMainFlow"></div>
+          <div id="bourseFundsFlow" class="bp-funds"></div>
         </div>
-        <div class="bp-trade-panel">
-          <div class="bp-panel-title"><b>ارزش و حجم معاملات خرد</b><small>معیار نقدشوندگی</small></div>
+        <div class="bp-panel bp-trade-panel">
+          <div class="bp-panel-h"><h4>ارزش و نقدشوندگی</h4><span>خرد · همت</span></div>
           <div id="bourseTradeStats"></div>
-          <div id="boursePerCapita" style="margin-top:14px"></div>
-          <div id="bourseCap" class="bp-cap"></div>
+          <div id="boursePerCapita" class="bp-pc"></div>
+          <div id="bourseCap"></div>
         </div>
       </div>
       <div class="bp-foot">
-        <span class="micro">منبع: <b>bourse-trader.ir</b> (صفحه‌ی عمومی، بدون کلید) + <b>TGJU</b> شاخص کل · از انتشار سرور · <span id="bourseProSource">—</span></span>
-        <span class="micro" id="bourseProExplain">—</span>
+        <span>منبع: <b>bourse-trader.ir</b> (عمومی، بدون کلید) + <b>TGJU</b> شاخص · از انتشار سرور · <span id="bourseProSource">—</span></span>
+        <span id="bourseProExplain">—</span>
       </div>
     </section>
     <!-- نگهداری برای سازگاری با تست‌های قدیمی -->

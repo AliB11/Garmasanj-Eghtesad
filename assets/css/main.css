@@ -819,6 +819,41 @@ kbd{display:inline-block;min-width:26px;text-align:center;font-family:inherit;fo
   .bp-radar-legend{grid-template-columns:1fr 1fr}
 }
 
+/* ---- چارت‌های بورس پرو — پشتیبانی از خروجی charts.js (funds, pc, queue, donut) ---- */
+.radar-chart{width:100%;height:auto;display:block}
+.donut-chart{width:100%;height:auto;display:block;margin:auto}
+.funds-chart{display:flex;flex-direction:column;gap:8px}
+.fund-row{display:grid;grid-template-columns:1fr auto;gap:8px 12px;align-items:center;background:var(--tint2);border:1px solid var(--line);border-radius:11px;padding:10px 12px}
+.fund-label{display:flex;align-items:center;gap:8px;font-size:.82rem;font-weight:700}
+.fund-label i{width:10px;height:10px;border-radius:3px;background:var(--c,#E8A33D);display:inline-block}
+.fund-track{grid-column:1/-1;height:6px;border-radius:4px;background:var(--track);overflow:hidden}
+.fund-fill{display:block;height:100%;border-radius:4px;transition:width .6s}
+.fund-fill.in{background:var(--up)} .fund-fill.out{background:var(--down)}
+.fund-val{font-size:.82rem;font-weight:800;text-align:left;direction:ltr}
+.fund-val.in{color:var(--up)} .fund-val.out{color:var(--down)}
+
+.pc-gauge{display:flex;flex-direction:column;gap:6px;background:var(--tint2);border:1px solid var(--line);border-radius:12px;padding:12px}
+.pc-head{display:flex;justify-content:space-between;font-size:.76rem;color:var(--mut)}
+.pc-head b{color:var(--txt);font-weight:800}
+.pc-track{height:10px;border-radius:5px;background:var(--track);display:flex;overflow:hidden}
+.pc-track i{display:block;height:100%;transition:width .6s}
+.pc-buy{background:linear-gradient(to left,var(--up),#7FE9B6)} .pc-sell{background:linear-gradient(to left,var(--down),#FFA49A);margin-inline-start:auto}
+.pc-foot{display:flex;justify-content:space-between;align-items:center;font-size:.74rem;color:var(--mut)}
+.pc-badge{font-size:.7rem;font-weight:800;border-radius:999px;padding:3px 10px}
+.pc-badge.hot{background:rgba(62,207,142,.14);color:var(--up)} .pc-badge.cold{background:rgba(255,107,94,.14);color:var(--down)} .pc-badge.neutral{background:var(--tint3);color:var(--mut)}
+
+.queue-chart{display:flex;flex-direction:column;gap:8px}
+.queue-row{display:grid;grid-template-columns:80px 1fr 50px;gap:10px;align-items:center;background:var(--tint2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.8rem}
+.q-label{font-size:.72rem;color:var(--mut);font-weight:700}
+.q-label.buy{color:var(--up)} .q-label.sell{color:var(--down)}
+.queue-track{height:8px;border-radius:5px;background:var(--track);overflow:hidden}
+.queue-fill{display:block;height:100%;border-radius:5px;transition:width .6s}
+.queue-fill.buy{background:var(--up)} .queue-fill.sell{background:var(--down)}
+.queue-foot{font-size:.72rem;color:var(--dim);background:var(--field);border:1px dashed var(--line);border-radius:8px;padding:8px 12px;line-height:1.8}
+
+/* بافت قدیمی bp-* برای سازگاری */
+.bp-cap{margin-top:10px}
+
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
   html{scroll-behavior:auto}
