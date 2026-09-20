@@ -189,6 +189,20 @@ async function probe(c) {
       btLines.push('- `' + lb + '` (' + count + ' بار): `' + snip.replace(/`/g, "'") + '`');
       say('   ' + lb + ' (' + count + '): ' + snip.slice(0, 160));
     }
+    // ۴) پارسرِ واقعیِ پروژه روی همین صفحه (تطبیقِ کد با دنیای واقعی)
+    try {
+      const P = require('./publish.cjs');
+      const pr = P.parseBourseTrader(raw);
+      btLines.push('- خروجیِ `parseBourseTrader` (کدِ پروژه روی صفحه‌ی زنده):');
+      btLines.push('  ```json');
+      btLines.push(JSON.stringify(pr, null, 1).split('\n').slice(0, 60).join('\n'));
+      btLines.push('  ```');
+      btLines.push('- جلسه‌ی تهران باز است؟ ' + (P.tseSessionOpen(Date.now()) ? 'بله' : 'خیر') +
+        ' (اگر خیر، ناشر همان مقدارِ قبلی را نگه می‌دارد)');
+      say('   parseBourseTrader.ok=' + pr.ok + (pr.missing && pr.missing.length ? ' missing=' + pr.missing.join(', ') : ''));
+    } catch (e) {
+      btLines.push('- خطا در اجرای پارسر: ' + clean(String((e && e.message) || e), 120));
+    }
   } catch (e) {
     btLines.push('- خطا: ' + clean(String((e && e.message) || e), 80));
     say('   خطا: ' + clean(String((e && e.message) || e), 80));

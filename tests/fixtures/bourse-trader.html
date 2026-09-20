@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head><meta charset="utf-8"><title>گزارش بازار — بورس‌تریدر</title></head>
+<body>
+<!-- این فیکسچر از برش‌های خامِ واقعیِ صفحه ساخته شده (reports/probe-bourse.md،
+     خروجیِ پروب روی رانرِ GitHub Actions) تا پارسر روی همان ساختار آزمایش شود. -->
+
+<div class="cardbox">
+  <div class="cardbox__title">گزارش بازار بورس
+    <a target="_blank" href="#" class="q_in_h top"><i class="q_i_in_h fa fa-question-circle" title="گزارش بازار (مبالغ به تومان)"></i></a>
+  </div>
+  <div class="cardbox__body p-0">
+    <div class="border_inner responsive-table height600">
+      <table class="table marketTable mb-0">
+        <tbody>
+          <!-- شاخص ها -->
+          <tr> <td class='text-right'>شاخص کل</td> <td dir='ltr' class='bl-colu text-nowrap'> 7,298,500 <span class='text-danger'>(-150,339) -2.0183%</span> </td> </tr>
+          <tr> <td class='text-right'>شاخص هم وزن</td> <td dir='ltr' class='bl-colu text-nowrap'> 1,950,840 <span class='text-danger'>(-35,926) -1.8083%</span> </td> </tr>
+          <tr> <td class='text-right'>شاخص کل فرابورس</td> <td dir='ltr' class='bl-colu text-nowrap'> 56,577.0 <span class='text-danger'>(-989) -1.7196%</span> </td> </tr>
+          <tr> <td class='text-right'>ارزش بازار</td> <td dir='ltr' class='bl-colu'> 25,489T (110.6B $) </td> </tr>
+          <!-- 🔹 خرد -->
+          <tr> <td class='text-right text-nowrap'>معاملات خرد</td> <td class='bl-colu'>
+            <div class='d-flex justify-content-between align-items-center'>
+              <div class='text-center'> <div class='fw-bold'><a target='_blank' href='charts#trade-value' class='text-dark'>7.7T</a></div> <small class='text-muted'>معاملات</small> </div>
+              <div class='text-center'> <div class='fw-bold'><a target='_blank' href='charts#money-inflow' class='text-danger'>-1.8T</a></div> <small class='text-muted'>ورود پول</small> </div>
+            </div> </td> </tr>
+          <!-- 🔹 درآمد ثابت -->
+          <tr> <td class='text-right text-nowrap'>صندوق درآمدثابت</td> <td class='bl-colu'>
+            <div class='d-flex justify-content-between align-items-center'>
+              <div class='text-center'> <div class='fw-bold'>3.1T</div> <small class='text-muted'>معاملات</small> </div>
+              <div class='text-center'> <div class='fw-bold text-danger'>-745.6B</div> <small class='text-muted'>ورود پول</small> </div>
+            </div> </td> </tr>
+          <!-- 🔹 کالایی -->
+          <tr> <td class='text-right text-nowrap'>صندوق کالایی</td> <td class='bl-colu'>
+            <div class='d-flex justify-content-between align-items-center'>
+              <div class='text-center'> <div class='fw-bold'>0</div> <small class='text-muted'>معاملات</small> </div>
+              <div class='text-center'> <div class='fw-bold text-danger'>0</div> <small class='text-muted'>ورود پول</small> </div>
+            </div> </td> </tr>
+          <!-- سایر موارد -->
+          <tr> <td class='text-right'>معاملات آپشن</td> <td class='bl-colu'>213.6B</td> </tr>
+          <tr> <td class='text-right'>معاملات بلوک سهام</td> <td class='bl-colu'>0</td> </tr>
+          <tr> <td class='text-right'>معاملات بلوک صندوق</td> <td class='bl-colu'>11.4B</td> </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="cardbox">
+  <div class="cardbox__title">پایش معاملات بازار بورس</div>
+  <div class="cardbox__body p-0">
+    <div class="border_inner responsive-table fixTableHead height600">
+      <table class="table payeshTable mb-0">
+        <thead>
+          <tr> <th>#</th> <th class='bl-colu'>خرد</th> <th>بورس</th> <th>فرابورس</th> <th>سهامی</th> <th>درآمدثابت</th> <th>آپشن</th> <th>کالایی</th> </tr>
+        </thead>
+        <tbody>
+          <tr> <td class='text-right'>نمادها</td> <td class='payeshKhord'>919</td> <td>353</td> <td>379</td> <td>187</td> <td>92</td> <td>1499</td> <td>35</td> </tr>
+          <tr class='bl-colu'> <td class='text-right'>نماد مثبت</td> <td class='payeshKhord text-success'>(14%) 126</td> <td>(7%) 26</td> <td>(22%) 82</td> <td>18</td> <td>-</td><td>-</td><td>-</td> </tr>
+          <tr class='text-danger'> <td class='text-right'>نماد منفی</td> <td class='payeshKhord'>(86%) 793</td> <td>(93%) 327</td> <td>(78%) 297</td> <td>169</td> <td>-</td><td>-</td><td>-</td> </tr>
+          <tr class='bl-colu'> <td class='text-right'>صف خرید</td> <td class='payeshKhord'>(7%) 64</td> <td>(4%) 15</td> <td>(13%) 48</td> <td>1</td> <td>-</td><td>-</td><td>-</td> </tr>
+          <tr class='text-danger'> <td class='text-right'>صف فروش</td> <td class='payeshKhord'>(55%) 509</td> <td>(69%) 244</td> <td>(55%) 210</td> <td>55</td> <td>-</td><td>-</td><td>-</td> </tr>
+          <tr class='dir_left bl-colu'> <td class='text-right'>ارزش صف خرید</td> <td class='payeshKhord'>5.5T</td> <td>3T</td> <td>2.5T</td> <td>56.9M</td> <td>-</td><td>-</td><td>-</td> </tr>
+          <tr class='dir_left text-danger'> <td class='text-right'>ارزش صف فروش</td> <td class='payeshKhord'>21.7T</td> <td>11.3T</td> <td>3.8T</td> <td>6.6T</td> <td>-</td><td>-</td><td>-</td> </tr>
+          <tr class='dir_left bl-colu'> <td class='text-right'>ورود پول حقیقی</td> <td class='text-danger payeshKhord'>-1.8T</td> <td class='text-danger'>-1.1T</td> <td class='text-danger'>-299.3B</td> <td class='text-danger'>-425B</td> <td class='text-danger'>-745.6B</td> <td class='text-danger'>-654.6K</td> <td class='text-danger'>0</td> </tr>
+          <tr class='dir_left text-primary'> <td class='text-right'>ارزش معاملات</td> <td class='payeshKhord'>7.7T</td> <td>5.1T</td> <td>1.7T</td> <td>1T</td> <td>3.1T</td> <td>213.6B</td> <td>0</td> </tr>
+          <tr class='dir_left text-primary'> <td class='text-right'>حجم معاملات</td> <td class='payeshKhord'>13.1B</td> <td>9.3B</td> <td>3.6B</td> <td>225.8M</td> <td>1.2B</td> <td>12.3M</td> <td>0</td> </tr>
+          <tr class='dir_left text-primary'> <td class='text-right'>تعداد معاملات</td> <td class='payeshKhord'>452,311</td> <td>301,120</td> <td>141,203</td> <td>22,105</td> <td>19,004</td> <td>9,918</td> <td>0</td> </tr>
+          <tr> <td class='text-right'>سرانه خرید حقیقی</td> <td class='bl-colu text-success'>51.8</td> </tr>
+          <tr> <td class='text-right'>سرانه فروش حقیقی</td> <td class='bl-colu text-danger'>135.6</td> </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</body>
+</html>
