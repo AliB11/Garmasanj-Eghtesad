@@ -19,7 +19,11 @@ const TGJU_MIRRORS = [
   'https://call.tgju.org',
 ];
 
-/* محدوده‌های اعتبارسنجی (واحد نهایی: تومان، جز OUNCE_USD دلاری) */
+/* محدوده‌های اعتبارسنجی (واحد نهایی: تومان، جز OUNCE_USD دلاری)
+   این پنجره‌ها فقط برای ردِ «آشغال» (اشتباهِ مقیاس ریال/تومان، صفر، نویز) اند؛
+   سطح قیمت‌ها در اقتصاد ایران مدام بالا می‌رود، برای همین یک پنجره‌ی تطبیقی هم
+   داریم که نسبت به آخرین انتشار معتبر سنجیده می‌شود تا انتشار با جابه‌جاییِ
+   تدریجیِ قیمت‌ها متوقف نشود (ببینید: DRIFT / HARD_K در inRange). */
 const RANGES = {
   USD: [3e4, 5e6], EUR: [3e4, 5e6], GBP: [3e4, 5e6], CHF: [3e4, 5e6],
   AED: [5e3, 1.5e6], CNY: [3e3, 6e5], TRY: [5e2, 2e5],
@@ -37,9 +41,16 @@ const TGJU_KEYS = {
   OUNCE_USD: [['ons', 'once', 'ounce'], 1],
   EMAMI: [['sekee'], 10], BAHAR: [['sekeb'], 10],
   NIM: [['nim', 'retail_nim'], 10], ROB: [['rob', 'retail_rob'], 10], GERAMI: [['gerami', 'retail_gerami'], 10],
-  USDT: [['crypto-tether-irr', 'crypto-usd-coin-irr'], 10],
+  // فقط تترِ واقعی: کلید usd-coin مربوط به USDC است و نباید با برچسب «تتر» منتشر شود
+  USDT: [['crypto-tether-irr'], 10],
   BTC_TM: [['crypto-bitcoin-irr'], 10],
 };
+
+/* نگهبانِ دامنه‌ی روز */
+const RANGE_MAX_SPAN = 0.35; // سقف−کفِ بیش از ۳۵٪ قیمت در یک روز، غیرقابل‌اتکاست
+/* تطبیق با جابه‌جایی سطح قیمت‌ها: نسبت به آخرین انتشار معتبر */
+const DRIFT = 6;    // حداکثر ۶ برابر کوچک/بزرگ شدن نسبت به آخرین مقدار منتشرشده
+const HARD_K = 10;  // اما هرگز بیش از ۱۰ برابرِ پنجره‌ی استاتیک (جلوی مسموم‌شدنِ لنگر را می‌گیرد)
 
 /* ---------------- ابزار ---------------- */
 function num(x) {
@@ -56,9 +67,30 @@ function tehranMs(s) {
   if (!isFinite(t) || t < Date.UTC(2024, 0, 1) || t > Date.now() + 3600000) return null;
   return t;
 }
-function inRange(sym, v) {
+/**
+ * اعتبارسنجی بازه. دو مرحله:
+ *  ۱) پنجره‌ی استاتیکِ همان نماد (حالت عادی)
+ *  ۲) اگر سطح قیمت‌ها از آن پنجره بیرون زده (تورم/جهش ارزی)، پنجره‌ی تطبیقی
+ *     نسبت به آخرین مقدار منتشرشده — با سقف/کفِ سختِ ۱۰ برابر پنجره‌ی استاتیک.
+ * پارامترِ سوم (anchor) اختیاری است؛ صفر/خالی یعنی فقط پنجره‌ی استاتیک.
+ */
+function inRange(sym, v, anchor) {
   const r = RANGES[sym];
-  return r && v != null && v >= r[0] && v <= r[1];
+  if (v == null || typeof v !== 'number' || !isFinite(v) || !(v > 0)) return false;
+  if (r && v >= r[0] && v <= r[1]) return true;
+  const a = (typeof anchor === 'number' && isFinite(anchor) && anchor > 0) ? anchor : 0;
+  if (!a || !r) return false;
+  return v >= Math.max(a / DRIFT, r[0] / HARD_K) && v <= Math.min(a * DRIFT, r[1] * HARD_K);
+}
+
+/** دامنه‌ی روز فقط وقتی معتبر است که قیمت را در بر بگیرد و وارونه/غیرواقعی نباشد */
+function saneDayRange(price, high, low) {
+  if (!(price > 0) || high == null || low == null) return { high: null, low: null };
+  if (!(high > 0) || !(low > 0)) return { high: null, low: null };
+  if (high < low) return { high: null, low: null };
+  if (price < low || price > high) return { high: null, low: null };
+  if ((high - low) / price > RANGE_MAX_SPAN) return { high: null, low: null };
+  return { high, low };
 }
 function sanePct(v) {
   v = num(v);
@@ -84,7 +116,7 @@ async function getJSON(url, opt) {
 /* ---------------- پارسرهای خالص (تست‌پذیر) ---------------- */
 
 /** یک سطر TGJU: قانون dt (جهت) + تبدیل ریال + اعتبارسنجی بازه */
-function tgjuRow(sym, entry) {
+function tgjuRow(sym, entry, anchor) {
   if (!entry || typeof entry !== 'object') return null;
   const keys = TGJU_KEYS[sym];
   if (!keys) return null;
@@ -97,22 +129,22 @@ function tgjuRow(sym, entry) {
     if (pct != null && pct > 0) pct = -pct;
   }
   const price = p / div;
-  if (!inRange(sym, price)) return null;
-  const h = num(entry.h), l = num(entry.l);
+  if (!inRange(sym, price, anchor)) return null;
+  const hl = saneDayRange(price, num(entry.h) / div, num(entry.l) / div);
   return {
     p: sym === 'OUNCE_USD' ? Math.round(price * 100) / 100 : Math.round(price),
     chg: chg == null ? null : Math.round(chg / div),
     chgPct: pct,
-    high: h == null ? null : h / div,
-    low: l == null ? null : l / div,
+    high: hl.high,
+    low: hl.low,
     ts: tehranMs(entry.ts) || Date.now(),
   };
 }
-function pickTGJU(current, sym) {
+function pickTGJU(current, sym, anchor) {
   if (!current || typeof current !== 'object') return null;
   const keys = (TGJU_KEYS[sym] || [])[0] || [];
   for (const k of keys) {
-    const q = tgjuRow(sym, current[k]);
+    const q = tgjuRow(sym, current[k], anchor);
     if (q) return q;
   }
   return null;
@@ -164,9 +196,9 @@ function parseBitpin(j, code, anchor, lo, hi) {
 }
 
 /** اجماع خوشه‌ای BTC دلاری */
-function consensus(cands, tol) {
+function consensus(cands, tol, anchor) {
   tol = tol || 0.02;
-  const v = (cands || []).filter((c) => c && c.p > 0 && isFinite(c.p) && inRange('BTC_USD', c.p));
+  const v = (cands || []).filter((c) => c && c.p > 0 && isFinite(c.p) && inRange('BTC_USD', c.p, anchor));
   if (!v.length) return null;
   let best = null, bestScore = -1;
   for (const c of v) {
@@ -237,16 +269,29 @@ async function main() {
         .catch((e) => { log('erapi', false, String((e && e.message) || e).slice(0, 60)); return null; })),
   ]);
 
+  /* ---- لنگرِ تطبیقی: آخرین انتشار معتبر روی دیسک ----
+     اگر سطح قیمت‌ها جابه‌جا شده باشد، پنجره‌ی استاتیک دیگر صادق نیست؛
+     لنگر اجازه می‌دهد انتشار ادامه یابد (نه اینکه بی‌صدا متوقف شود). */
+  const prevQuotes = (() => {
+    try { return JSON.parse(fs.readFileSync(OUT, 'utf8')).quotes || {}; }
+    catch (e) { return {}; }
+  })();
+  const anchorOf = (sym) => {
+    const q = prevQuotes[sym];
+    return q && q.p > 0 && isFinite(q.p) ? q.p : 0;
+  };
+
   /* ---- ساخت کوت‌ها ---- */
   const quotes = {};
   const put = (sym, q, srcFa) => {
-    if (!q || !inRange(sym, q.p)) return false;
+    if (!q || !inRange(sym, q.p, anchorOf(sym))) return false;
+    const hl = saneDayRange(q.p, q.high, q.low);
     quotes[sym] = {
       p: q.p,
       chg: q.chg != null && isFinite(q.chg) ? q.chg : null,
       chgPct: sanePct(q.chgPct),
-      high: q.high != null && q.high > 0 ? q.high : null,
-      low: q.low != null && q.low > 0 ? q.low : null,
+      high: hl.high,
+      low: hl.low,
       ts: q.ts || now,
       src: srcFa,
     };
@@ -258,29 +303,29 @@ async function main() {
   if (tgju) {
     for (const sym of Object.keys(TGJU_KEYS)) {
       if (sym === 'USDT' || sym === 'BTC_TM') continue; // این دو: صرافی اول، TGJU پشتیبان
-      const q = pickTGJU(tgju, sym);
+      const q = pickTGJU(tgju, sym, anchorOf(sym));
       if (q) put(sym, q, 'TGJU');
     }
   }
 
   // تتر و بیت‌کوین تومانی: نوبیتکس ← والکس ← بیت‌پین (با لنگر) ← TGJU
   const nbUsdt = parseNobitex(nbU, 'usdt'), wxUsdt = parseWallex(wx, 'USDTTMN');
-  const tgUsdt = tgju ? pickTGJU(tgju, 'USDT') : null;
-  const usdtAnchor = (nbUsdt && inRange('USDT', nbUsdt.p) && nbUsdt.p) ||
-    (wxUsdt && inRange('USDT', wxUsdt.p) && wxUsdt.p) || (tgUsdt && tgUsdt.p) || 0;
+  const tgUsdt = tgju ? pickTGJU(tgju, 'USDT', anchorOf('USDT')) : null;
+  const usdtOK = (q) => !!q && inRange('USDT', q.p, anchorOf('USDT')) && q.p;
+  const usdtAnchor = usdtOK(nbUsdt) || usdtOK(wxUsdt) || (tgUsdt && tgUsdt.p) || 0;
   const bpUsdt = parseBitpin(bp, 'USDT_IRT', usdtAnchor, 8e4, 2e6);
-  if (nbUsdt && inRange('USDT', nbUsdt.p)) put('USDT', { ...nbUsdt, ts: now }, 'نوبیتکس');
-  else if (wxUsdt && inRange('USDT', wxUsdt.p)) put('USDT', { ...wxUsdt, ts: now }, 'والکس');
+  if (usdtOK(nbUsdt)) put('USDT', { ...nbUsdt, ts: now }, 'نوبیتکس');
+  else if (usdtOK(wxUsdt)) put('USDT', { ...wxUsdt, ts: now }, 'والکس');
   else if (bpUsdt) put('USDT', { ...bpUsdt, ts: now }, 'بیت‌پین');
   else if (tgUsdt) put('USDT', tgUsdt, 'TGJU');
 
   const nbBtc = parseNobitex(nbB, 'btc'), wxBtc = parseWallex(wx, 'BTCTMN');
-  const tgBtc = tgju ? pickTGJU(tgju, 'BTC_TM') : null;
-  const btcAnchor = (nbBtc && inRange('BTC_TM', nbBtc.p) && nbBtc.p) ||
-    (wxBtc && inRange('BTC_TM', wxBtc.p) && wxBtc.p) || (tgBtc && tgBtc.p) || 0;
+  const tgBtc = tgju ? pickTGJU(tgju, 'BTC_TM', anchorOf('BTC_TM')) : null;
+  const btcOK = (q) => !!q && inRange('BTC_TM', q.p, anchorOf('BTC_TM')) && q.p;
+  const btcAnchor = btcOK(nbBtc) || btcOK(wxBtc) || (tgBtc && tgBtc.p) || 0;
   const bpBtc = parseBitpin(bp, 'BTC_IRT', btcAnchor, 5e8, 5e11);
-  if (nbBtc && inRange('BTC_TM', nbBtc.p)) put('BTC_TM', { ...nbBtc, ts: now }, 'نوبیتکس');
-  else if (wxBtc && inRange('BTC_TM', wxBtc.p)) put('BTC_TM', { ...wxBtc, ts: now }, 'والکس');
+  if (btcOK(nbBtc)) put('BTC_TM', { ...nbBtc, ts: now }, 'نوبیتکس');
+  else if (btcOK(wxBtc)) put('BTC_TM', { ...wxBtc, ts: now }, 'والکس');
   else if (bpBtc) put('BTC_TM', { ...bpBtc, ts: now }, 'بیت‌پین');
   else if (tgBtc) put('BTC_TM', tgBtc, 'TGJU');
 
@@ -296,7 +341,7 @@ async function main() {
     cands.push({ p: num(bn.lastPrice), chgPct: sanePct(bn.priceChangePercent), w: 10 });
   if (cb && cb.data && num(cb.data.amount) > 0)
     cands.push({ p: num(cb.data.amount), chgPct: null, w: 8 });
-  const bc = consensus(cands);
+  const bc = consensus(cands, 0.02, anchorOf('BTC_USD'));
   if (bc) put('BTC_USD', { ...bc, ts: now }, 'اجماع جهانی');
 
   // برابری‌های جهانی
@@ -354,4 +399,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('PUBLISH FATAL: ' + ((e && e.stack) || e)); process.exitCode = 1; });
 }
 
-module.exports = { num, tehranMs, inRange, sanePct, tgjuRow, pickTGJU, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS };
+module.exports = { num, tehranMs, inRange, saneDayRange, sanePct, tgjuRow, pickTGJU, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS };

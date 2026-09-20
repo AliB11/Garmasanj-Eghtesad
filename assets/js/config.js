@@ -80,7 +80,8 @@
     { sym: 'ROB', fa: 'ربع سکه', short: 'ربع', cat: 'coin', unit: 'تومان', icon: 'i-coin', kind: 'toman', tgju: ['rob', 'retail_rob'] },
     { sym: 'GERAMI', fa: 'سکه گرمی', short: 'گرمی', cat: 'coin', unit: 'تومان', icon: 'i-coin', kind: 'toman', tgju: ['gerami', 'retail_gerami'] },
     // رمزارز
-    { sym: 'USDT', fa: 'تتر', short: 'تتر', cat: 'crypto', unit: 'تومان', sub: 'صرافی‌های ایران', icon: 'i-usdt', kind: 'toman', tgju: ['crypto-tether-irr', 'crypto-usd-coin-irr'] },
+    // فقط کلید تترِ واقعی: crypto-usd-coin مربوط به USDC است، نه تتر
+    { sym: 'USDT', fa: 'تتر', short: 'تتر', cat: 'crypto', unit: 'تومان', sub: 'صرافی‌های ایران', icon: 'i-usdt', kind: 'toman', tgju: ['crypto-tether-irr'] },
     { sym: 'BTC_USD', fa: 'بیت‌کوین (دلاری)', short: 'بیت‌کوین $', cat: 'crypto', unit: 'دلار', icon: 'i-btc', kind: 'usd', dec: 0, tgju: [] },
     { sym: 'BTC_TM', fa: 'بیت‌کوین (تومانی)', short: 'بیت‌کوین', cat: 'crypto', unit: 'تومان', sub: 'معادل تومانی', icon: 'i-btc', kind: 'toman', tgju: ['crypto-bitcoin-irr', 'btc-irr'] }
   ];

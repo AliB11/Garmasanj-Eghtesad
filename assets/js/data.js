@@ -510,6 +510,23 @@
   }
 
   /**
+   * بهداشتِ دامنه‌ی روز: سقف و کف فقط وقتی پذیرفته می‌شوند که قیمت را در بر
+   * بگیرند، وارونه نباشند و دامنه‌ای غیرممکن نسازند.
+   * چرا؟ سقف/کفِ یک منبع (یا اسنپ‌شاتِ چند روز پیش) نباید روی قیمتِ امروزِ
+   * منبعی دیگر بنشیند و عددی مثل «قیمت زیر کف امروز» تولید کند.
+   */
+  var RANGE_MAX_SPAN = 0.35; // دامنه‌ی روزِ بیش از ۳۵٪ قیمت، غیرواقعی است
+  function saneRange(p, high, low) {
+    var h = (high != null && isFinite(high) && high > 0) ? high : null;
+    var l = (low != null && isFinite(low) && low > 0) ? low : null;
+    if (h == null || l == null) return { high: null, low: null };
+    if (h < l) return { high: null, low: null };
+    if (p < l || p > h) return { high: null, low: null };
+    if ((h - l) / p > RANGE_MAX_SPAN) return { high: null, low: null };
+    return { high: h, low: l };
+  }
+
+  /**
    * ثبت کوت با اعتبارسنجی جهش: اگر قیمت زنده‌ی جدید بیش از ۲۵٪ با
    * آخرین قیمت زنده فاصله داشت، رد می‌شود و قبلی می‌ماند.
    */
@@ -535,12 +552,15 @@
     delete REJECT[sym];
     var dir = (cur.p != null) ? Math.sign(q.p - cur.p) : 1;
     var changed = (cur.p !== q.p);
+    // به‌روزرسانی از همان منبع می‌تواند فیلدهای ناقص را از کوت قبلی قرض بگیرد؛
+    // کوتِ تازه از منبعی دیگر باید خودبسنده باشد (تغییرِ دیروز به قیمتِ امروز نسبت داده نشود)
+    var sameSrc = !!(cur.src && q.src && cur.src === q.src);
+    var rng = saneRange(q.p, q.high, q.low);
     QUOTES[sym] = {
       p: q.p,
-      chg: (q.chg != null && isFinite(q.chg)) ? q.chg : cur.chg,
-      chgPct: (q.chgPct != null && isFinite(q.chgPct) && Math.abs(q.chgPct) <= 25) ? q.chgPct : cur.chgPct,
-      high: (q.high != null ? q.high : cur.high),
-      low: (q.low != null ? q.low : cur.low),
+      chg: (q.chg != null && isFinite(q.chg)) ? q.chg : (sameSrc ? cur.chg : null),
+      chgPct: (q.chgPct != null && isFinite(q.chgPct) && Math.abs(q.chgPct) <= 25) ? q.chgPct : (sameSrc ? cur.chgPct : null),
+      high: rng.high, low: rng.low,
       src: q.src || cur.src, srcFa: q.srcFa || cur.srcFa,
       ts: q.ts || Date.now(),
       live: q.live !== false, stale: !!q.stale,
@@ -692,9 +712,10 @@
         var cur = QUOTES[s];
         var olderCache = !!(cur && cur.fromCache && SNAP_TS > (cur.ts || 0) + 60000);
         if (x && x.p > 0 && (cur.p == null || olderCache)) {
+          var sr = saneRange(x.p, x.high, x.low);
           QUOTES[s] = {
             p: x.p, chg: x.chg != null ? x.chg : null, chgPct: x.chgPct != null ? x.chgPct : null,
-            high: x.high != null ? x.high : null, low: x.low != null ? x.low : null,
+            high: sr.high, low: sr.low,
             src: 'snapshot', srcFa: x.derived ? 'اسنپ‌شات (مشتق)' : 'اسنپ‌شات انتشار',
             ts: SNAP_TS, live: false, stale: true, agree: 1
           };
@@ -1043,9 +1064,11 @@
     var score = U.clamp(avg * 15 + (breadth - 50) * 1.1 * part, -100, 100);
     var label = score >= 50 ? 'طوفانی' : score >= 20 ? 'داغ' : score >= 5 ? 'مثبت' :
       score > -5 ? 'آرام' : score > -20 ? 'منفی' : score > -50 ? 'سرد' : 'یخ‌زده';
+    var upsP = Math.round(upN / act.length * 100), downsP = Math.round(downN / act.length * 100);
     return {
-      n: act.length, ups: Math.round(upN / act.length * 100), downs: Math.round(downN / act.length * 100),
-      flat: Math.round(flatN / act.length * 100), part: part, breadth: Math.round(breadth),
+      // بی‌تغییر از تفاضل حساب می‌شود تا سه درصدِ نمایشی هیچ‌وقت روی هم ۹۹ یا ۱۰۱ نشود
+      n: act.length, ups: upsP, downs: downsP, flat: Math.max(0, 100 - upsP - downsP),
+      part: part, breadth: Math.round(breadth),
       quiet: part < 0.35, avg: avg, score: Math.round(score),
       best: sorted[0].sym, worst: sorted[sorted.length - 1].sym, label: label
     };

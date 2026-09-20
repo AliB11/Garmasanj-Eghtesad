@@ -71,7 +71,57 @@ t('bitpin rejects far-from-anchor', () => {
   assert.strictEqual(P.parseBitpin(j, 'USDT_IRT', 230500, 8e4, 2e6), null);
 });
 
-// --- consensus / kraken ---
+// --- بهداشتِ دامنه‌ی روز (سقف/کف باید قیمت را در بر بگیرند) ---
+t('day range kept when it brackets price', () => {
+  const q = P.tgjuRow('USD', { p: '2,305,000', dp: 0.05, dt: 'high', h: '2,311,200', l: '2,293,600', ts: '2026-09-16 19:59:59' });
+  assert.strictEqual(q.high, 231120);
+  assert.strictEqual(q.low, 229360);
+});
+t('day range dropped when high < low (TGJU coin glitch)', () => {
+  // نیم‌سکه در یک انتشار واقعی: سقف ۹۳۰٬۰۰۰٬۰۰۰ ریال کمتر از کف ۱٬۱۹۰٬۰۰۰٬۰۰۰ و کمتر از خودِ قیمت
+  const q = P.tgjuRow('NIM', { p: '1,210,000,000', dp: 0, dt: 'high', h: '930,000,000', l: '1,190,000,000', ts: '2026-09-20 00:48:06' });
+  assert.ok(q, 'price itself is valid');
+  assert.strictEqual(q.high, null);
+  assert.strictEqual(q.low, null);
+});
+t('day range dropped when it does not contain price', () => {
+  const q = P.tgjuRow('USD', { p: '2,305,000', dp: 0, dt: 'high', h: '2,300,000', l: '2,290,000', ts: '2026-09-16 19:59:59' });
+  assert.strictEqual(q.high, null);
+  assert.strictEqual(q.low, null);
+});
+t('day range dropped when absurdly wide', () => {
+  const q = P.tgjuRow('USD', { p: '2,305,000', dp: 0, dt: 'high', h: '2,900,000', l: '1,000,000', ts: '2026-09-16 19:59:59' });
+  assert.strictEqual(q.high, null);
+  assert.strictEqual(q.low, null);
+});
+t('saneDayRange is exported and symmetric', () => {
+  assert.deepStrictEqual(P.saneDayRange(100, 110, 90), { high: 110, low: 90 });  // دامنه‌ی ۲۰٪: سالم
+  assert.deepStrictEqual(P.saneDayRange(100, 120, 80), { high: null, low: null }); // دامنه‌ی ۴۰٪: رد
+  assert.deepStrictEqual(P.saneDayRange(100, 80, 120), { high: null, low: null }); // وارونه
+  assert.deepStrictEqual(P.saneDayRange(100, null, 80), { high: null, low: null }); // ناقص
+});
+
+// --- پنجره‌ی تطبیقی: با جابه‌جاییِ سطح قیمت‌ها انتشار متوقف نشود ---
+t('static window still authoritative', () => {
+  assert.ok(P.inRange('USD', 230275), 'inside static window');
+  assert.ok(!P.inRange('USD', 100), 'garbage below');
+  assert.ok(!P.inRange('USD', 1e12), 'garbage above (no anchor)');
+});
+t('adaptive window follows price drift', () => {
+  const anchor = 5.5e6; // دلارِ ۵٫۵ میلیون تومان: بیرون از پنجره‌ی استاتیکِ فعلی
+  assert.ok(P.inRange('USD', 5.9e6, anchor), 'moderate drift accepted');
+  assert.ok(!P.inRange('USD', 5.9e6, 0), 'but rejected without anchor');
+  assert.ok(!P.inRange('USD', 5.9e7, anchor), '10x jump rejected (unit error)');
+  assert.ok(!P.inRange('USD', 1e3, anchor), 'far below rejected');
+});
+t('adaptive window never exceeds hard envelope', () => {
+  // لنگرِ مسموم نباید هر عددی را مجاز کند: سقف سخت ۱۰ برابر پنجره‌ی استاتیک است
+  assert.ok(P.inRange('USD', 5e6, 5e7), 'exactly at the hard cap (10x static)');
+  assert.ok(!P.inRange('USD', 6e7, 5e7), 'above hard cap rejected');
+  assert.ok(!P.inRange('USD', 4e3, 5e7), 'below hard floor rejected');
+});
+
+// --- consistency / kraken ---
 t('consensus picks highest-weight in cluster', () => {
   const c = P.consensus([
     { p: 75970, chgPct: 0.12, w: 9 }, { p: 76023.6, chgPct: 0.58, w: 9 },
