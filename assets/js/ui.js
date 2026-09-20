@@ -589,7 +589,7 @@
   }
 
   /** کارتِ جریان: «خروج ۱.۸ همت» با رنگِ جهت و توضیحِ کوتاه */
-  function flowCard(label, net, hint, extra) {
+  function flowCard(label, net, hint) {
     if (net == null || !isFinite(+net)) return '';
     var out = +net < 0;
     var zero = Math.abs(+net) < 1e6;
@@ -614,30 +614,31 @@
       return card(label, U.fmt(Math.round(v.p)) + (v.chgPct != null ? ' <small class="' + tone + '">' + U.pct(v.chgPct, 1) + '</small>' : ''), hint || '', tone);
     }
     var cards = [];
-    cards.push(idxCard('شاخص هم‌وزن', bt.equal, 'وزنِ برابر برای همه‌ی نمادها — تصویرِ بدنه‌ی بازار'));
-    cards.push(idxCard('شاخص کل فرابورس', bt.fara, 'شرکت‌های کوچک‌تر و بازارِ دوم'));
+    var push = function (h) { if (h) cards.push(h); };   // کارتِ خالی هرگز ساخته نمی‌شود
+    push(idxCard('شاخص هم‌وزن', bt.equal, 'وزنِ برابر برای همه‌ی نمادها — تصویرِ بدنه‌ی بازار'));
+    push(idxCard('شاخص کل فرابورس', bt.fara, 'شرکت‌های کوچک‌تر و بازارِ دوم'));
 
     if (mk.flow) {
       var ratioTxt = (mk.flowRatio != null) ? U.fa(Math.round(Math.abs(mk.flowRatio) * 100)) + '٪ ارزشِ معاملات خرد' : '';
-      cards.push(flowCard('جریانِ پولِ خرد', mk.flow.netToman, ratioTxt || 'از بورس‌تریدر'));
+      push(flowCard('جریانِ پولِ خرد', mk.flow.netToman, ratioTxt || 'از بورس‌تریدر'));
     }
     if (bt.funds) {
-      if (bt.funds.fixed) cards.push(flowCard('صندوق‌های درآمد ثابت', bt.funds.fixed.netToman, 'پناهگاهِ کم‌ریسکِ بورس'));
-      if (bt.funds.equity) cards.push(flowCard('صندوق‌های سهامی', bt.funds.equity.netToman, 'پولِ تازه در سهام'));
+      push(flowCard('صندوق‌های درآمد ثابت', bt.funds.fixed && bt.funds.fixed.netToman, 'پناهگاهِ کم‌ریسکِ بورس'));
+      push(flowCard('صندوق‌های سهامی', bt.funds.equity && bt.funds.equity.netToman, 'پولِ تازه در سهام'));
       if (bt.funds.commodity && Math.abs(bt.funds.commodity.netToman) >= 1e6) {
-        cards.push(flowCard('صندوق‌های کالایی (طلا)', bt.funds.commodity.netToman, 'تقاضایِ طلا از مسیرِ بورس'));
+        push(flowCard('صندوق‌های کالایی (طلا)', bt.funds.commodity.netToman, 'تقاضایِ طلا از مسیرِ بورس'));
       }
     }
     if (bt.breadth) {
       var B = bt.breadth;
-      cards.push(card('پهنای بازار', U.fa(Math.round(B.posPct)) + '٪',
+      push(card('پهنای بازار', U.fa(Math.round(B.posPct)) + '٪',
         U.fa(B.pos) + ' مثبت در برابر ' + U.fa(B.neg) + ' منفی' +
         (B.queueBuy != null && B.queueSell != null ? ' · صف خرید ' + U.fa(B.queueBuy) + ' / فروش ' + U.fa(B.queueSell) : ''),
         B.posPct >= 55 ? 'hot' : B.posPct <= 25 ? 'cold' : ''));
     }
     if (bt.trade && bt.trade.valueToman) {
       var per = (bt.perCapita && bt.perCapita.buy) ? 'سرانه خرید ' + U.fa(bt.perCapita.buy) + ' / فروش ' + U.fa(bt.perCapita.sell || 0) : 'حجمِ دست‌به‌دست‌شدنِ امروز';
-      cards.push(card('ارزشِ معاملاتِ خرد', btMoney(bt.trade.valueToman), per, ''));
+      push(card('ارزشِ معاملاتِ خرد', btMoney(bt.trade.valueToman), per, ''));
     }
     if (cards.length < 2) { host.innerHTML = ''; host.style.display = 'none'; if (title) title.style.display = 'none'; return; }
     if (title) {
