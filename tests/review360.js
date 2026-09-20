@@ -283,6 +283,51 @@ function boot(fetchFn, opts) {
     ok('8j --dim contrast ≥ 4.5:1 on card', cr >= 4.5, dimHex + ' → ' + cr.toFixed(2));
   }
 
+  /* ============ ۹) بهداشتِ کوت: دامنه‌ی روز و تغییرِ روزانه از منبعِ دیگر به ارث نمی‌رسد ============ */
+  {
+    const old = Date.now() - 4 * 86400e3;
+    const SNAP = {
+      generated_at: new Date(old).toISOString(), generated_fa: 'قدیمی',
+      quotes: {
+        USD: { p: 230500, chg: 105, chgPct: 0.05, high: 231120, low: 229360, ts: old },
+        NIM: { p: 121000000, chg: 0, chgPct: 0, high: 93000000, low: 119000000, ts: old }, // سقف < کف (داده‌ی معیوب TGJU)
+        USDT: { p: 230251, chg: -1360, chgPct: -0.59, high: 232168, low: 229356, ts: old },
+        BTC_USD: { p: 76101, chg: 168, chgPct: 0.22, high: 76561, low: 75065, ts: old },
+      },
+    };
+    const LIVE = {
+      generated_at: new Date().toISOString(), generated_fa: 'تست',
+      quotes: {
+        USD: { p: 230275, chg: 0, chgPct: 0, high: 230320, low: 226560, ts: Date.now(), src: 'TGJU' },
+        NIM: { p: 121000000, chg: 0, chgPct: 0, high: 93000000, low: 119000000, ts: Date.now(), src: 'TGJU' },
+        USDT: { p: 228670, chgPct: 0.94, ts: Date.now(), src: 'والکس' },          // بدون سقف/کف
+        BTC_USD: { p: 81295, ts: Date.now(), src: 'اجماع جهانی' },                 // بدون تغییر روزانه
+      },
+      fx: { date: '2026-09-18', rates: { EUR: 0.8726, GBP: 0.749, CHF: 0.826, CNY: 6.7, TRY: 48.8 } },
+    };
+    const { window, d, GS, errors } = boot((u) => String(u).includes('snapshot.json') ? jres(SNAP)
+      : String(u).includes('live.json') ? jres(LIVE) : jrej());
+    await GS.data.bootAll(); await wait(300);
+
+    const U = GS.data.quote('USDT');
+    ok('9a دامنه‌ی روزِ کهنه از منبعِ قدیمی به ارث نمی‌رسد', U.high == null && U.low == null, 'hi=' + U.high + ' lo=' + U.low);
+    ok('9b قیمت هیچ‌وقت زیرِ کفِ نمایش‌داده‌شده نیست', !(U.low > 0 && U.p < U.low), 'p=' + U.p + ' lo=' + U.low);
+    const N = GS.data.quote('NIM');
+    ok('9c دامنه‌ی وارونه (سقف < کف) کنار گذاشته می‌شود', N.high == null && N.low == null, 'hi=' + N.high + ' lo=' + N.low);
+    ok('9d میله‌ی دامنه حالت خالی می‌سازد، نه عدد غلط', GS.charts.rangeBar(N).includes('rbar none'));
+    const D = GS.data.quote('USD');
+    ok('9e دامنه‌ی سالم که قیمت را در بر می‌گیرد حفظ می‌شود', D.high === 230320 && D.low === 226560, 'hi=' + D.high + ' lo=' + D.low);
+    const B = GS.data.quote('BTC_USD');
+    ok('9f تغییرِ روزانه از منبعِ دیگر به قیمتِ جدید نسبت داده نمی‌شود', B.chgPct == null, 'chgPct=' + B.chgPct);
+
+    // به‌روزرسانی از «همان» منبع هنوز می‌تواند فیلدهای ناقص را قرض بگیرد (بدون پرشِ عدد)
+    GS.data._ingest('live', { quotes: { USDT: { p: 228900, ts: Date.now(), src: 'والکس' } }, at: Date.now() });
+    const U2 = GS.data.quote('USDT');
+    ok('9g همان منبع: فیلد ناقص از کوت قبلی قرض گرفته می‌شود', U2.p === 228900 && U2.chgPct === 0.94, 'p=' + U2.p + ' chgPct=' + U2.chgPct);
+    ok('9h هیچ خطای پنجره‌ای در این سناریو', errors.length === 0, errors.join('; '));
+    window.close();
+  }
+
   let fail = 0;
   for (const c of checks) {
     console.log((c.pass ? 'PASS' : 'FAIL') + '  ' + c.name + (c.extra ? '  [' + c.extra + ']' : ''));

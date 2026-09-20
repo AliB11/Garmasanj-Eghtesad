@@ -1,0 +1,57 @@
+# گرماسنج — پروبِ امکان‌سنجیِ بورس (دستی / با تغییرِ پروب)
+# چرا؟ اینکه منابعِ بورس از IPِ خارجیِ GitHub Actions در دسترس هستند یا نه،
+# فقط با اجرای واقعی معلوم می‌شود. این جریان فقط می‌خواند و تنها خروجی‌اش
+# یک فایلِ گزارش در reports/ است؛ هیچ فایلِ داده‌ای را تغییر نمی‌دهد.
+name: پروب بورس
+
+on:
+  # اجرای دستی (وقتی روی شاخه‌ی پیش‌فرض باشد) و اجرای خودکار با هر تغییرِ پروب
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths:
+      - 'scripts/probe_bourse.cjs'
+      - '.github/workflows/probe-bourse.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: probe-bourse
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: اجرای پروب
+        # کلیدها فقط از Secrets می‌آیند و در خروجی پنهان می‌شوند
+        env:
+          NAVASAN_KEY: ${{ secrets.NAVASAN_KEY }}
+          BRS_API_KEY: ${{ secrets.BRS_API_KEY }}
+        run: node scripts/probe_bourse.cjs --out=reports/probe-bourse.md
+
+      - name: گزارش را در همین شاخه بنویس (هرگز روی main)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          git config user.name 'garmasanj-bot'
+          git config user.email 'garmasanj-bot@users.noreply.github.com'
+          git add reports/probe-bourse.md
+          if git diff --staged --quiet; then echo "تغییری در گزارش نبود"; exit 0; fi
+          git commit -q -m "chore(probe): گزارش امکان‌سنجی بورس ($(date -u +%FT%TZ)) [skip ci]"
+          for i in 1 2 3; do
+            if git push -q; then exit 0; fi
+            echo "push failed ($i) — rebasing"
+            git pull -q --rebase --autostash || { git rebase --abort || true; git reset -q --hard @{upstream} || git reset -q --hard HEAD; }
+            sleep 5
+          done
+          echo "::warning::push of probe report failed"

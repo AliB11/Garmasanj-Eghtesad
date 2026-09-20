@@ -1,5 +1,7 @@
-/* گرماسنج — Service Worker: کش آفلاین پوسته؛ داده همیشه از شبکه */
-var CACHE = 'garmasanj-shell-v11';
+/* گرماسنج — Service Worker: پوسته و داده هر دو «شبکه اول، کش به‌عنوان پشتیبان».
+   چرا شبکه اول؟ چون با کش-اول، تا وقتی نام کش عوض نشود کاربر کد قدیمی را
+   می‌بیند و هر انتشارِ جدیدِ پوسته پشتِ کش گیر می‌کرد. کش فقط برای آفلاین است. */
+var CACHE = 'garmasanj-shell-v16';
 var SHELL = [
   './',
   './index.html',
@@ -57,15 +59,17 @@ self.addEventListener('fetch', function (e) {
     return;
   }
   e.respondWith(
-    caches.match(e.request).then(function (hit) {
-      var net = fetch(e.request).then(function (res) {
-        if (res && res.ok) {
-          var copy = res.clone();
-          caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
-        }
-        return res;
-      }).catch(function () { return hit; });
-      return hit || net;
+    fetch(e.request).then(function (res) {
+      if (res && res.ok) {
+        var copy = res.clone();
+        caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
+      }
+      return res;
+    }).catch(function () {
+      // آفلاین: پوسته از کش؛ اگر خودِ صفحه هم نبود، ایندکس را بده (مثل اپ تک‌صفحه‌ای)
+      return caches.match(e.request).then(function (hit) {
+        return hit || (e.request.mode === 'navigate' ? caches.match('./index.html') : hit);
+      });
     })
   );
 });

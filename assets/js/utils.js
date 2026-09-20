@@ -147,6 +147,31 @@
     return { open: open, label: open ? 'باز' : 'بسته', next: next };
   };
 
+  /**
+   * وضعیت جلسه‌ی بورس تهران (سهام) از روی GS.config.TSE_SESSION.
+   * ساعتِ بازارِ سهام با بازارِ آزادِ ارز یکی نیست، برای همین جدا است.
+   * خروجی: {open, label, next}
+   */
+  U.tseSession = function () {
+    var n = U.tehranNow();
+    var S = (window.GS && GS.config && GS.config.TSE_SESSION) ? GS.config.TSE_SESSION : null;
+    if (n.h < 0 || !S || !S.days) return { open: false, label: 'نامشخص', next: '' };
+    var win = S.days[n.dow];
+    var open = !!(win && n.h >= win[0] && n.h < win[1]);
+    var DAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه'];
+    var next = '';
+    if (!open) {
+      if (win && n.h < win[0]) next = 'بازگشایی امروز ساعت ' + U.fa(win[0]);
+      else {
+        var d = (n.dow + 1) % 7, tries = 0;
+        while (!S.days[d] && tries < 7) { d = (d + 1) % 7; tries++; }
+        next = 'بازگشایی ' + (d === (n.dow + 1) % 7 ? 'فردا' : DAYS[d]) +
+          ' ساعت ' + U.fa(S.days[d] ? S.days[d][0] : 9);
+      }
+    }
+    return { open: open, label: open ? 'باز' : 'بسته', next: next };
+  };
+
   /* ---------- حافظه محلی امن ---------- */
   U.store = {
     get: function (k, fb) {

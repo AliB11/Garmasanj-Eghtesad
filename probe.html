@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>گرماسنج — خودآزمای بورس (مرورگر)</title>
+<meta name="robots" content="noindex">
+<style>
+:root{--bg:#0B0F14;--card:#131A23;--line:#232E3A;--txt:#E9EEF3;--mut:#9AA5B0;--dim:#7D8994;
+      --gold:#E8A33D;--up:#3ECF8E;--down:#FF6B5E;--font:"Vazirmatn",system-ui,Tahoma,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font);font-size:14px;line-height:1.8;padding:18px}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-size:1.2rem;margin:0 0 6px}
+p.lead{color:var(--mut);margin:0 0 18px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th,td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:600}
+td.u{direction:ltr;text-align:left;font-size:.74rem;color:var(--mut);word-break:break-all}
+td.s{direction:ltr;text-align:left;font-size:.72rem;color:var(--dim);word-break:break-all;max-width:280px}
+.ok{color:var(--up);font-weight:700}.no{color:var(--down);font-weight:700}.warn{color:var(--gold);font-weight:700}
+button{background:var(--gold);color:#181206;border:0;border-radius:10px;padding:9px 16px;font-family:inherit;
+       font-weight:800;font-size:.85rem;cursor:pointer}
+button.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+textarea{width:100%;height:190px;background:#0D1319;color:var(--txt);border:1px solid var(--line);
+         border-radius:10px;padding:10px;font-family:ui-monospace,monospace;font-size:.75rem;direction:ltr}
+small.note{color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>خودآزمای بورس — فقط خواندن، بدون ارسالِ هیچ داده‌ای</h1>
+  <p class="lead">
+    سرورِ انتشارِ گرماسنج (GitHub Actions) بیرون از ایران است و در پروبِ سمت‌سرور نتوانست به TSETMC برسد.
+    این صفحه همان نامزدها را از <b>مرورگرِ خودت</b> امتحان می‌کند: اگر تو داخل ایران باشی،
+    معلوم می‌شود آیا مسیرِ «جریان پول حقیقی/حقوقی» از سمتِ کاربر باز است یا نه
+    (و آیا هدرِ CORS اجازه‌ی خواندن را می‌دهد).
+  </p>
+
+  <div class="panel">
+    <div class="row">
+      <button id="run" type="button">اجرای خودآزما</button>
+      <button id="copy" class="ghost" type="button">کپیِ گزارش</button>
+      <small class="note" id="who">…</small>
+    </div>
+    <table id="tbl"><thead><tr><th>منبع</th><th>وضعیت</th><th>بایت</th><th>ms</th><th>یادداشت</th><th>نمونه</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <b>گزارشِ آماده برای چسباندن در گفت‌وگو/issue</b>
+    <textarea id="out" readonly></textarea>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var PROXIES = [
+    { tag: 'مستقیم', build: function (u) { return u; } },
+    { tag: 'cors.isomorphic-git', build: function (u) { return 'https://cors.isomorphic-git.org/' + u; } },
+    { tag: 'allorigins', build: function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } }
+  ];
+  var TARGETS = [
+    { key: 'tsetmc.clientTypeAll', url: 'https://tsetmc.com/tsev2/data/ClientTypeAll.aspx', why: 'جریان پول حقیقی/حقوقی (مسیر قدیمی)' },
+    { key: 'cdn.clientType', url: 'https://cdn.tsetmc.com/api/ClientType/GetClientTypeAll/1', why: 'جریان پول (مسیر جدید)' },
+    { key: 'cdn.marketOverview', url: 'https://cdn.tsetmc.com/api/MarketData/GetMarketOverview/1', why: 'خلاصه‌ی بازار' },
+    { key: 'tsetmc.marketWatch', url: 'https://www.tsetmc.com/tsev2/data/MarketWatchInit.aspx?h=0&r=0', why: 'دیده‌بان' },
+    { key: 'tgju.ajax', url: 'https://call5.tgju.org/ajax.json', why: 'شاهدِ کنترل (باید کار کند)' }
+  ];
+  var rows = [];
+
+  function clean(s, n) { return String(s == null ? '' : s).replace(/\s+/g, ' ').slice(0, n || 130); }
+
+  function one(target, proxy) {
+    var url = proxy.build(target.url);
+    var t0 = (performance && performance.now) ? performance.now() : Date.now();
+    return fetch(url, { cache: 'no-store' }).then(function (r) {
+      var ct = r.headers.get('content-type') || '';
+      return r.text().then(function (txt) {
+        return {
+          key: target.key, proxy: proxy.tag, why: target.why,
+          ok: r.ok, status: r.status, bytes: txt.length, ct: ct,
+          ms: Math.round(((performance && performance.now) ? performance.now() : Date.now()) - t0),
+          sample: clean(txt, 150)
+        };
+      });
+    }).catch(function (e) {
+      return {
+        key: target.key, proxy: proxy.tag, why: target.why, ok: false, status: 'خطا',
+        bytes: 0, ct: '', ms: Math.round(((performance && performance.now) ? performance.now() : Date.now()) - t0),
+        sample: clean(String((e && e.message) || e), 90)
+      };
+    });
+  }
+
+  function render() {
+    var tb = document.querySelector('#tbl tbody');
+    tb.innerHTML = rows.map(function (r) {
+      var note = [];
+      if (!r.ok) note.push('ناموفق');
+      if (r.ok && /^\s*<(!doctype|html)/i.test(r.sample)) note.push('HTML نه داده');
+      if (r.ok && r.bytes > 0 && !/^\s*<(!doctype|html)/i.test(r.sample)) note.push('داده رسید ✅');
+      if (r.ok && r.bytes < 60) note.push('تقریباً خالی');
+      return '<tr><td>' + r.key + '<br><small class="note">' + (r.proxy || '') + '</small></td>' +
+        '<td class="' + (r.ok ? 'ok' : 'no') + '">' + r.status + '</td>' +
+        '<td>' + r.bytes + '</td><td>' + r.ms + '</td>' +
+        '<td class="' + (note.join(' ').indexOf('✅') >= 0 ? 'ok' : 'warn') + '">' + (note.join(' · ') || '—') + '</td>' +
+        '<td class="s">' + (r.sample || '').replace(/[<>&]/g, '') + '</td></tr>';
+    }).join('');
+    var good = rows.filter(function (r) { return r.ok && r.bytes > 0 && !/^\s*<(!doctype|html)/i.test(r.sample); });
+    var txt = ['# خودآزمای بورس از مرورگر — ' + new Date().toISOString(),
+      'مبدأ: ' + (window.__who || '?'),
+      '',
+      'مسیرهایی که واقعاً داده برگرداندند: ' + (good.length ? good.map(function (r) { return r.key + '@' + r.proxy; }).join(', ') : 'هیچ‌کدام'),
+      ''];
+    rows.forEach(function (r) {
+      txt.push('- ' + r.key + ' | ' + r.proxy + ' | status=' + r.status + ' | bytes=' + r.bytes + ' | ms=' + r.ms +
+        ' | ' + clean(r.sample, 110));
+    });
+    document.getElementById('out').value = txt.join('\n');
+  }
+
+  document.getElementById('run').addEventListener('click', function () {
+    rows = [];
+    render();
+    var btn = this; btn.disabled = true; btn.textContent = 'در حال اجرا…';
+    var jobs = [];
+    TARGETS.forEach(function (t) { PROXIES.forEach(function (p) { jobs.push(one(t, p)); }); });
+    Promise.all(jobs).then(function (rs) { rows = rs; render(); }).then(function () {
+      btn.disabled = false; btn.textContent = 'اجرای دوباره';
+    });
+  });
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var ta = document.getElementById('out');
+    ta.select();
+    try { document.execCommand('copy'); this.textContent = 'کپی شد'; } catch (e) { this.textContent = 'دستی کپی کن'; }
+    var b = this; setTimeout(function () { b.textContent = 'کپیِ گزارش'; }, 2000);
+  });
+
+  // مبدأ (کشورِ IP) — فقط برای تفسیرِ نتیجه
+  fetch('https://ipinfo.io/json').then(function (r) { return r.json(); }).then(function (j) {
+    window.__who = (j.country || '?') + ' / ' + (j.org || '?');
+    document.getElementById('who').textContent = 'مبدأ: ' + window.__who +
+      (j.country === 'IR' ? ' (ایران — این همان سناریوی هدف است)' : ' (بیرونِ ایران)');
+  }).catch(function () {
+    document.getElementById('who').textContent = 'مبدأ نامشخص';
+  });
+})();
+</script>
+</body>
+</html>

@@ -29,13 +29,17 @@
   var LS_HIST = 'garmasanj_hist_v6';
   var LS_MAN = 'garmasanj_manual_v6';
   var LS_NAV = 'garmasanj_navasan_v6';
+  var LS_BRS = 'garmasanj_brsapi_v1';
   var LS_MIRROR = 'garmasanj_tgju_mirror_v1';
   var FAST_TTL = 90000, SLOW_TTL = 25 * 60000;
   var REJECT = {};   // sym -> {p, n} شمارنده‌ی جهش‌های ردشده‌ی پیاپی (خودترمیمی نگهبان)
   var BOOT_CACHE = null; // کوت‌های نشست قبلی برای «از آخرین بازدیدت»
+  var MARKET = null;     // بورس: {p,high,low,ts,day,src,flow} — شاخص از انتشارِ سرور، جریان فقط اگر منبعش در دسترس باشد
 
   CFG.SOURCES.forEach(function (s) { SRC[s.id] = { ok: null, ms: null, at: 0, note: 'هنوز تلاش نشده' }; });
   CFG.ASSETS.forEach(function (a) { QUOTES[a.sym] = { p: null, chg: null, chgPct: null, high: null, low: null, src: null, srcFa: '', ts: 0, live: false, stale: true, agree: 0 }; });
+  // جریانِ پولِ بورس از IP خارجی در دسترس نیست (اندازه‌گیری‌شده) — از همان اول شفاف بگوییم
+  if (SRC.tsetmc) SRC.tsetmc.note = 'TSETMC از IP خارجی پاسخ نمی‌دهد — فقط از مرورگرِ داخل ایران یا منبعِ کلیددار';
 
   function on(ev, fn) { (listeners[ev] = listeners[ev] || []).push(fn); }
   function emit(ev, data) { (listeners[ev] || []).forEach(function (fn) { try { fn(data); } catch (e) {} }); }
@@ -510,6 +514,23 @@
   }
 
   /**
+   * بهداشتِ دامنه‌ی روز: سقف و کف فقط وقتی پذیرفته می‌شوند که قیمت را در بر
+   * بگیرند، وارونه نباشند و دامنه‌ای غیرممکن نسازند.
+   * چرا؟ سقف/کفِ یک منبع (یا اسنپ‌شاتِ چند روز پیش) نباید روی قیمتِ امروزِ
+   * منبعی دیگر بنشیند و عددی مثل «قیمت زیر کف امروز» تولید کند.
+   */
+  var RANGE_MAX_SPAN = 0.35; // دامنه‌ی روزِ بیش از ۳۵٪ قیمت، غیرواقعی است
+  function saneRange(p, high, low) {
+    var h = (high != null && isFinite(high) && high > 0) ? high : null;
+    var l = (low != null && isFinite(low) && low > 0) ? low : null;
+    if (h == null || l == null) return { high: null, low: null };
+    if (h < l) return { high: null, low: null };
+    if (p < l || p > h) return { high: null, low: null };
+    if ((h - l) / p > RANGE_MAX_SPAN) return { high: null, low: null };
+    return { high: h, low: l };
+  }
+
+  /**
    * ثبت کوت با اعتبارسنجی جهش: اگر قیمت زنده‌ی جدید بیش از ۲۵٪ با
    * آخرین قیمت زنده فاصله داشت، رد می‌شود و قبلی می‌ماند.
    */
@@ -535,12 +556,15 @@
     delete REJECT[sym];
     var dir = (cur.p != null) ? Math.sign(q.p - cur.p) : 1;
     var changed = (cur.p !== q.p);
+    // به‌روزرسانی از همان منبع می‌تواند فیلدهای ناقص را از کوت قبلی قرض بگیرد؛
+    // کوتِ تازه از منبعی دیگر باید خودبسنده باشد (تغییرِ دیروز به قیمتِ امروز نسبت داده نشود)
+    var sameSrc = !!(cur.src && q.src && cur.src === q.src);
+    var rng = saneRange(q.p, q.high, q.low);
     QUOTES[sym] = {
       p: q.p,
-      chg: (q.chg != null && isFinite(q.chg)) ? q.chg : cur.chg,
-      chgPct: (q.chgPct != null && isFinite(q.chgPct) && Math.abs(q.chgPct) <= 25) ? q.chgPct : cur.chgPct,
-      high: (q.high != null ? q.high : cur.high),
-      low: (q.low != null ? q.low : cur.low),
+      chg: (q.chg != null && isFinite(q.chg)) ? q.chg : (sameSrc ? cur.chg : null),
+      chgPct: (q.chgPct != null && isFinite(q.chgPct) && Math.abs(q.chgPct) <= 25) ? q.chgPct : (sameSrc ? cur.chgPct : null),
+      high: rng.high, low: rng.low,
       src: q.src || cur.src, srcFa: q.srcFa || cur.srcFa,
       ts: q.ts || Date.now(),
       live: q.live !== false, stale: !!q.stale,
@@ -692,15 +716,17 @@
         var cur = QUOTES[s];
         var olderCache = !!(cur && cur.fromCache && SNAP_TS > (cur.ts || 0) + 60000);
         if (x && x.p > 0 && (cur.p == null || olderCache)) {
+          var sr = saneRange(x.p, x.high, x.low);
           QUOTES[s] = {
             p: x.p, chg: x.chg != null ? x.chg : null, chgPct: x.chgPct != null ? x.chgPct : null,
-            high: x.high != null ? x.high : null, low: x.low != null ? x.low : null,
+            high: sr.high, low: sr.low,
             src: 'snapshot', srcFa: x.derived ? 'اسنپ‌شات (مشتق)' : 'اسنپ‌شات انتشار',
             ts: SNAP_TS, live: false, stale: true, agree: 1
           };
           n++;
         }
       });
+      if (j.market) setMarket(j.market, 'snapshot');
       markSrc('snapshot', true, U.fa(n) + ' کوت اولیه (' + (j.generated_fa || '') + ')', r.ms);
       try { recompute(true); } catch (e) {}
       emit('quotes', { boot: true });
@@ -709,6 +735,302 @@
       markSrc('snapshot', false, 'فایل اسنپ‌شات خوانده نشد');
       return 0;
     });
+  }
+
+  /* ============================================================
+     بورس تهران — شاخص + جریانِ پول (نسل ۷)
+     شاخص از انتشارِ سرور می‌آید (TGJU؛ تنها مسیرِ در دسترس از IP خارجی).
+     جریانِ پول عمداً اینجا ساخته نمی‌شود: TSETMC از بیرون ایران پاسخ نمی‌دهد
+     و تخمین زدنِ آن از روی شاخص، عددسازی است. وقتی منبعی پیدا شد
+     (مرورگرِ کاربرِ داخل ایران یا منبعِ کلیددار)، همین شیء پر می‌شود.
+     ============================================================ */
+  /**
+   * شکل‌دهی و نگهبانیِ «مکملِ بورس‌تریدر».
+   * چرا نگهبان؟ این داده از یک صفحه‌ی HTML استخراج می‌شود؛ اگر ساختارِ صفحه عوض
+   * شود یا عددی با مقیاسِ غلط بیاید، همان بخش دور ریخته می‌شود (سکوت، نه عددِ غلط).
+   */
+  function btShape(x) {
+    if (!x || typeof x !== 'object') return null;
+    function idx(v, lo, hi) {
+      if (!v || !(+v.p > 0) || +v.p < lo || +v.p > hi) return null;
+      return { p: +v.p, chgPct: (v.chgPct != null && isFinite(+v.chgPct) && Math.abs(+v.chgPct) <= 20) ? +v.chgPct : null };
+    }
+    function money(v) {
+      if (!v || !isFinite(+v.netToman)) return null;
+      if (Math.abs(+v.netToman) > 1e17) return null;
+      var val = (v.valueToman != null && isFinite(+v.valueToman) && +v.valueToman > 0) ? +v.valueToman : null;
+      return { netToman: +v.netToman, valueToman: val };
+    }
+    var out = { ts: +x.ts || Date.now(), src: x.src || 'BourseTrader', fresh: x.fresh !== false };
+    out.index = idx(x.index, 1e5, 5e8);
+    out.equal = idx(x.equal, 1e3, 5e8);
+    out.fara = idx(x.fara, 1e2, 5e8);
+    out.cap = (+x.cap > 1e13 && +x.cap < 1e20) ? +x.cap : null;
+    out.funds = x.funds ? {
+      equity: money(x.funds.equity), fixed: money(x.funds.fixed),
+      commodity: money(x.funds.commodity), option: money(x.funds.option)
+    } : null;
+    var b = x.breadth;
+    if (b && +b.pos >= 0 && +b.neg >= 0 && (+b.pos + +b.neg) > 0) {
+      var p = +b.pos, nq = +b.neg;
+      out.breadth = {
+        pos: p, neg: nq,
+        total: (+b.total >= p + nq) ? +b.total : p + nq,
+        posPct: (b.posPct != null && isFinite(+b.posPct) && +b.posPct >= 0 && +b.posPct <= 100) ? +b.posPct : (p / (p + nq)) * 100,
+        queueBuy: (b.queueBuy != null && isFinite(+b.queueBuy)) ? +b.queueBuy : null,
+        queueSell: (b.queueSell != null && isFinite(+b.queueSell)) ? +b.queueSell : null
+      };
+    } else out.breadth = null;
+    var tr = x.trade;
+    out.trade = (tr && ((+tr.valueToman > 0) || (+tr.volume > 0))) ? {
+      valueToman: (+tr.valueToman > 0 && +tr.valueToman < 1e17) ? +tr.valueToman : null,
+      volume: (+tr.volume > 0 && +tr.volume < 1e14) ? +tr.volume : null
+    } : null;
+    var pc = x.perCapita;
+    out.perCapita = (pc && ((+pc.buy > 0) || (+pc.sell > 0))) ? {
+      buy: (+pc.buy > 0 && +pc.buy < 1e8) ? +pc.buy : null,
+      sell: (+pc.sell > 0 && +pc.sell < 1e8) ? +pc.sell : null
+    } : null;
+    // اگر هیچ بخشِ معتبری نماند، کلِ مکمل را نگه نمی‌داریم
+    var any = out.index || out.equal || out.fara || out.cap || out.trade || out.breadth || out.perCapita ||
+      (out.funds && (out.funds.equity || out.funds.fixed || out.funds.commodity || out.funds.option));
+    return any ? out : null;
+  }
+
+  function setMarket(m, origin) {
+    if (!m || !m.index || !(m.index.p > 0)) return false;
+    var ix = m.index;
+    var hl = saneRange(+ix.p, +ix.high, +ix.low);
+    var prev = MARKET;
+    MARKET = {
+      p: +ix.p,
+      high: hl.high,
+      low: hl.low,
+      ts: ix.ts || (m.asOf) || Date.now(),
+      day: ix.day || null,
+      src: ix.src || m.src || 'TGJU',
+      origin: origin || 'live',
+      flow: null
+    };
+    var f = m.flow;
+    if (f && isFinite(+f.netToman)) {
+      MARKET.flow = {
+        netToman: +f.netToman,
+        ratio: (f.ratio != null && isFinite(+f.ratio)) ? +f.ratio : null,
+        n: f.n || null,
+        src: f.src || 'TSETMC',
+        ts: f.ts || m.asOf || Date.now()
+      };
+    }
+    // مکملِ بورس‌تریدر (هم‌وزن/فرابورس/صندوق‌ها/پهنا) — با نگهبانِ شکل و واحد
+    MARKET.bt = btShape(m.bt);
+    if (prev && prev.bt && !MARKET.bt) MARKET.bt = prev.bt;
+    // جریانِ پول ممکن است از کلیدِ شخصیِ کاربر (مرورگر) آمده باشد؛
+    // انتشارِ سرور نباید آن را پاک کند، و اگر هر دو دارند، تازه‌تر برنده است
+    if (prev && prev.flow) {
+      if (!MARKET.flow) MARKET.flow = prev.flow;
+      else if ((prev.flow.ts || 0) > (MARKET.flow.ts || 0)) MARKET.flow = prev.flow;
+    }
+    // اگر انتشارِ جدیدتر از همان جلسه آمد، جایگزین؛ اگر قدیمی‌تر بود، رد شود
+    if (prev && prev.ts && MARKET.ts && MARKET.ts < prev.ts - 3600000) { MARKET = prev; return false; }
+    var dayFa = (MARKET.ts && U.dateFa) ? U.dateFa(MARKET.ts) : (MARKET.day ? U.fa(MARKET.day) : '—');
+    var flowNote = MARKET.flow
+      ? ' · جریانِ پول: ' + U.fa((Math.abs(MARKET.flow.netToman) / 1e12).toFixed(1)) + ' همت ' + (MARKET.flow.netToman < 0 ? 'خروج' : 'ورود')
+      : ' · جریانِ پول در دسترس نیست';
+    markSrc('tse', true, 'شاخص کل ' + U.fmt(Math.round(MARKET.p)) + ' (جلسه ' + dayFa + ')' + flowNote);
+    if (MARKET.flow) markSrc('tsetmc', true, 'جریانِ پولِ حقیقی از ' + MARKET.flow.src);
+    else markIdle('tsetmc', 'TSETMC از IP خارجی پاسخ نمی‌دهد — فقط از مرورگرِ داخل ایران یا منبعِ کلیددار');
+    if (MARKET.bt) {
+      var ageH = (Date.now() - MARKET.bt.ts) / 3600000;
+      var bits = [];
+      if (MARKET.bt.equal) bits.push('هم‌وزن ' + U.fmt(Math.round(MARKET.bt.equal.p)));
+      if (MARKET.bt.funds && MARKET.bt.funds.fixed) bits.push('درآمد ثابت ' + (MARKET.bt.funds.fixed.netToman < 0 ? 'خروج' : 'ورود'));
+      if (MARKET.bt.breadth) bits.push('پهنا ' + U.fa(Math.round(MARKET.bt.breadth.posPct)) + '٪ مثبت');
+      markSrc('btrader', true, (bits.join(' · ') || 'مکملِ بورس') + (ageH >= 6 ? ' (آخرین جلسه)' : ''));
+    } else markIdle('btrader', 'بیرون از ساعتِ بازار است یا صفحه در دسترس نبود — از انتشارِ بعدی');
+    return true;
+  }
+
+  /** سریِ روزانه‌ی شاخص از history.json (TSE یک شبه‌نماد است، نه دارایی) */
+  function tseDaily() { return (HISTORY && HISTORY.daily && HISTORY.daily.TSE) || []; }
+
+  /** بستنِ «آخرین جلسه‌ی متفاوت» — مرجعِ محاسبه‌ی تغییرِ شاخص */
+  function tsePrevClose() {
+    if (!MARKET || !(MARKET.p > 0)) return null;
+    var d = tseDaily();
+    for (var i = d.length - 1; i >= 0; i--) {
+      if (d[i] && d[i][1] > 0 && Math.abs(d[i][1] - MARKET.p) / MARKET.p > 0.0002) {
+        return { day: d[i][0], p: d[i][1], t: dayMs(d[i][0]) };
+      }
+    }
+    return null;
+  }
+
+  /** قدیمی‌ترین نقطه‌ی سری (برای «این هفته») — فقط اگر حداقل minDays روز قدمت دارد */
+  function tseOldest(minDays) {
+    var d = tseDaily();
+    if (!d.length || !(d[0][1] > 0)) return null;
+    var age = (Date.now() - dayMs(d[0][0])) / 86400000;
+    if (age < (minDays || 2)) return null;
+    return { day: d[0][0], p: d[0][1], t: dayMs(d[0][0]), days: Math.round(age) };
+  }
+
+  /**
+   * وضعیتِ بورس برای نمایش و برای حکم.
+   * chgPct از سریِ تاریخچه حساب می‌شود چون TGJU برای شاخص d/dp نمی‌فرستد.
+   */
+  function market() {
+    if (!MARKET || !(MARKET.p > 0)) return null;
+    var pv = tsePrevClose();
+    var old = tseOldest(2);
+    var ses = (U.tseSession) ? U.tseSession() : { open: false, label: 'نامشخص', next: '' };
+    var ageDays = MARKET.ts ? (Date.now() - MARKET.ts) / 86400000 : 99;
+    return {
+      p: MARKET.p,
+      high: MARKET.high,
+      low: MARKET.low,
+      ts: MARKET.ts,
+      day: MARKET.day,
+      src: MARKET.src,
+      origin: MARKET.origin,
+      chgPct: (pv && pv.p > 0) ? (MARKET.p / pv.p - 1) * 100 : null,
+      prevClose: pv ? pv.p : null,
+      prevDay: pv ? pv.day : null,
+      weekPct: (old && old.p > 0) ? (MARKET.p / old.p - 1) * 100 : null,
+      weekDays: old ? old.days : null,
+      session: ses,
+      ageDays: ageDays,
+      stale: ageDays > 4,          // بیش از ۴ روز یعنی حتی یک جلسه هم عقب نیستیم... بلکه خیلی عقبیم
+      flow: MARKET.flow || null,
+      flowRatio: (MARKET.flow && MARKET.flow.ratio != null) ? MARKET.flow.ratio : null,
+      bt: MARKET.bt || null,
+      btAgeH: MARKET.bt ? (Date.now() - MARKET.bt.ts) / 3600000 : null
+    };
+  }
+
+  /* ---------- مسیرِ کلیددارِ جریانِ پول (BrsApi) ---------- */
+  function getBrsKey() { try { return U.store.get(LS_BRS, null) || null; } catch (e) { return null; } }
+  function setBrsKey(k) {
+    U.store.set(LS_BRS, k);
+    brsAt = 0; // اجازه‌ی تلاشِ فوری
+    try { recompute(); } catch (e) {}
+    return true;
+  }
+  function clearBrsKey() {
+    U.store.del(LS_BRS);
+    brsAt = 0;
+    if (MARKET) MARKET.flow = null;
+    markIdle('tsetmc', 'کلید حذف شد — جریانِ پول دیگر دریافت نمی‌شود');
+    try { recompute(); } catch (e) {}
+    emit('quotes', {});
+    return true;
+  }
+  var brsAt = 0;   // آخرین تلاش (مهارِ تعداد درخواست‌ها)
+
+  /** اولین کلیدِ موجود در یک شیء (نامِ فیلدها بین منابع فرق می‌کند) */
+  function pickField(o, names) {
+    if (!o) return null;
+    for (var i = 0; i < names.length; i++) {
+      var v = o[names[i]];
+      if (v != null && v !== '') {
+        var n = U.num(v);
+        if (n != null && isFinite(n)) return n;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * تجمیعِ جریانِ پول از آرایه‌ی نمادها.
+   * خالصِ پولِ حقیقی (تومان) = Σ (حجم خرید حقیقی − حجم فروش حقیقی) × میانگین قیمت
+   * میانگین قیمت = ارزشِ معاملات ÷ حجم (اگر نبود، قیمتِ پایانی).
+   * نسبت = خالص ÷ ارزشِ معاملات — بدون بُعد تا با تورم خراب نشود.
+   */
+  function aggregateFlow(rows, cfg) {
+    if (!Array.isArray(rows) || !rows.length) return null;
+    var F = cfg.fields;
+    // واحد را حدس نمی‌زنیم: قراردادِ منبع در تنظیمات است (TSETMC ریال می‌دهد)
+    var U10 = (cfg.unit === 'toman') ? 1 : 10;
+    var netToman = 0, valueToman = 0, n = 0, known = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (!r || typeof r !== 'object') continue;
+      var br = pickField(r, F.buyRetail), sr = pickField(r, F.sellRetail);
+      if (br == null && sr == null) continue;
+      known++;
+      var vol = (br || 0) - (sr || 0);                 // خالصِ حجمِ حقیقی (تعداد سهم)
+      var vw = pickField(r, F.value), vv = pickField(r, F.volume), px = pickField(r, F.price);
+      var avg = (vw != null && vv != null && vv > 0) ? vw / vv : (px != null && px > 0 ? px : null); // ریال
+      if (avg == null || !(avg > 0)) continue;
+      netToman += vol * (avg / U10);
+      if (vw != null && vw > 0) valueToman += vw / U10;
+      n++;
+    }
+    if (!n || !known) return null;
+    return {
+      netToman: Math.round(netToman),
+      valueToman: valueToman > 0 ? Math.round(valueToman) : null,
+      ratio: valueToman > 0 ? netToman / valueToman : null,
+      n: n,
+      src: 'BrsApi'
+    };
+  }
+
+  /**
+   * واکشیِ جریانِ پول با کلیدِ کاربر — فقط مستقیم (بدون پراکسی) و با مهارِ زمانی.
+   * هرگز از روی شاخص جریان ساخته نمی‌شود؛ اگر ساختار ناشناخته بود، فقط گزارش.
+   */
+  function fetchBrsFlow(force) {
+    var cfg = CFG.BRSAPI;
+    var key = getBrsKey();
+    if (!key) { markIdle('tsetmc', 'نیاز به کلید رایگان BrsApi — از «تنظیمات» اضافه کن'); return Promise.resolve(null); }
+    if (!force && brsAt && Date.now() - brsAt < cfg.minGapMs) return Promise.resolve(null);
+    brsAt = Date.now();
+    var url = cfg.base + '/' + cfg.marketPath + '?key=' + encodeURIComponent(key) + '&type=' + encodeURIComponent(cfg.type);
+    return fetchIranian(url, {
+      timeout: cfg.timeoutMs, noProxy: true,
+      validate: function (j) { return j && (Array.isArray(j) || Array.isArray(j.data) || Array.isArray(j.result)); }
+    }).then(function (r) {
+      if (!r) { markSrc('tsetmc', false, 'بی‌پاسخ یا کلید نامعتبر'); return null; }
+      var j = r.j;
+      var rows = Array.isArray(j) ? j : (Array.isArray(j.data) ? j.data : (Array.isArray(j.result) ? j.result : null));
+      var agg = aggregateFlow(rows, cfg);
+      if (!agg || !agg.n) {
+        // صداقت: ساختار ناشناخته است، پس عدد نمی‌سازیم — کلیدهای واقعی را گزارش می‌دهیم
+        var sample = rows && rows[0] ? Object.keys(rows[0]).slice(0, 14).join(', ') : '(بدون ردیف)';
+        markSrc('tsetmc', false, 'ساختارِ پاسخ ناشناخته — کلیدها: ' + sample);
+        return null;
+      }
+      // نگهبانِ مقیاس: ارزشِ معاملاتِ کلِ بازار باید در یک بازه‌ی معقول باشد
+      // (کمتر از ۱ میلیارد تومان یا بیش از ۵۰۰۰ همت یعنی اشتباهِ واحد/پارس)
+      if (agg.valueToman != null && (agg.valueToman < 1e9 || agg.valueToman > 5e15)) {
+        markSrc('tsetmc', false, 'مقیاسِ ارزشِ معاملات غیرمعقول — رد شد');
+        return null;
+      }
+      if (agg.ratio != null && Math.abs(agg.ratio) > 1) {
+        markSrc('tsetmc', false, 'نسبتِ جریان ناممکن (>۱) — رد شد');
+        return null;
+      }
+      setMarketFlow({ netToman: agg.netToman, ratio: agg.ratio, n: agg.n, src: 'BrsApi', ts: Date.now() });
+      markSrc('tsetmc', true, 'جریانِ پولِ ' + U.fa(agg.n) + ' نماد از BrsApi', r.ms);
+      return agg;
+    }).catch(function () { markSrc('tsetmc', false, 'بی‌پاسخ یا کلید نامعتبر'); return null; });
+  }
+
+  /** ورودِ دستیِ جریانِ پول (برای مسیرِ کلیددار یا مرورگرِ داخل ایران) */
+  function setMarketFlow(f) {
+    if (!MARKET) MARKET = { p: null, ts: Date.now(), src: 'TSETMC', origin: 'client', flow: null, high: null, low: null, day: null };
+    if (!f || !isFinite(+f.netToman)) { MARKET.flow = null; try { recompute(); } catch (e) {} emit('quotes', {}); return false; }
+    MARKET.flow = {
+      netToman: +f.netToman,
+      ratio: (f.ratio != null && isFinite(+f.ratio)) ? +f.ratio : null,
+      n: f.n || null,
+      src: f.src || 'TSETMC',
+      ts: f.ts || Date.now()
+    };
+    try { recompute(); } catch (e) {}
+    emit('quotes', {});
+    return true;
   }
 
   /* ----- انتشار زنده‌ی سرور (هم‌مبدأ؛ از CORS و فیلتر عبور می‌کند) ----- */
@@ -720,7 +1042,7 @@
       var age = '';
       try { age = U.relLabel(Date.parse(r.j.generated_at) || 0); } catch (e) {}
       markSrc('live', true, U.fa(Object.keys(r.j.quotes).length) + ' کوت · ' + age, r.ms);
-      return { quotes: r.j.quotes, fx: r.j.fx || null, at: Date.parse(r.j.generated_at) || 0 };
+      return { quotes: r.j.quotes, fx: r.j.fx || null, market: r.j.market || null, at: Date.parse(r.j.generated_at) || 0 };
     }).catch(function () { markSrc('live', false, 'فایل انتشار خوانده نشد'); return null; });
   }
 
@@ -799,6 +1121,8 @@
         };
       });
     }
+    // بورس: شاخص از همان انتشار (جریانِ پول فقط اگر سرور توانسته باشد بیاورد)
+    if (lvRaw && lvRaw.market) setMarket(lvRaw.market, 'live');
 
     /* ---- دلار (ورود دستی بر همه مقدم است) ---- */
     var man = manualUsd();
@@ -1043,9 +1367,11 @@
     var score = U.clamp(avg * 15 + (breadth - 50) * 1.1 * part, -100, 100);
     var label = score >= 50 ? 'طوفانی' : score >= 20 ? 'داغ' : score >= 5 ? 'مثبت' :
       score > -5 ? 'آرام' : score > -20 ? 'منفی' : score > -50 ? 'سرد' : 'یخ‌زده';
+    var upsP = Math.round(upN / act.length * 100), downsP = Math.round(downN / act.length * 100);
     return {
-      n: act.length, ups: Math.round(upN / act.length * 100), downs: Math.round(downN / act.length * 100),
-      flat: Math.round(flatN / act.length * 100), part: part, breadth: Math.round(breadth),
+      // بی‌تغییر از تفاضل حساب می‌شود تا سه درصدِ نمایشی هیچ‌وقت روی هم ۹۹ یا ۱۰۱ نشود
+      n: act.length, ups: upsP, downs: downsP, flat: Math.max(0, 100 - upsP - downsP),
+      part: part, breadth: Math.round(breadth),
       quiet: part < 0.35, avg: avg, score: Math.round(score),
       best: sorted[0].sym, worst: sorted[sorted.length - 1].sym, label: label
     };
@@ -1131,6 +1457,7 @@
     var t0 = Date.now();
     var run = Promise.all([
       safeCall(fetchNavasan).then(function (d) { if (d != null) ingest('navasan', d); return d; }),
+      safeCall(fetchBrsFlow).then(function (d) { return d; }),
       safeCall(fetchBtcHist).then(function (d) { if (d != null) ingest('btcHist', d); return d; }),
       safeCall(fetchHistory)
     ]);
@@ -1241,6 +1568,15 @@
       var a = asset(s);
       out.rows.push({ sym: s, fa: a ? a.short : s, pct: c.pct, days: c.days });
     });
+    // شاخصِ بورس: سری‌اش روزانه است و کوت ندارد، برای همین جدا حساب می‌شود
+    if (MARKET && MARKET.p > 0) {
+      var mo = tseOldest(2);
+      if (mo && mo.p > 0) {
+        any = true;
+        out.days = Math.max(out.days, mo.days);
+        out.rows.push({ sym: 'TSE', fa: 'شاخص بورس', pct: (MARKET.p / mo.p - 1) * 100, days: mo.days });
+      }
+    }
     if (!any) return null;
     // حباب سکه‌ی هفته‌ی پیش از سری‌های تاریخی
     var e = changeOverAvail('EMAMI', 7, 2), g24 = changeOverAvail('G24', 7, 2), g18 = changeOverAvail('G18', 7, 2);
@@ -1267,6 +1603,9 @@
     derived: derived,
     chain: chain,
     mood: mood,
+    market: market,
+    setMarket: setMarket,
+    setMarketFlow: setMarketFlow,
     tickFast: tickFast,
     tickSlow: tickSlow,
     snapshotLoad: snapshotLoad,
@@ -1279,6 +1618,11 @@
     setNavasanKey: setNavasanKey,
     getNavasanKey: getNavasanKey,
     clearNavasanKey: clearNavasanKey,
+    setBrsKey: setBrsKey,
+    getBrsKey: getBrsKey,
+    clearBrsKey: clearBrsKey,
+    fetchBrsFlow: fetchBrsFlow,
+    aggregateFlow: aggregateFlow,
     clearCache: clearCache,
     liveCount: function () { return CFG.ASSETS.filter(function (a) { return QUOTES[a.sym] && QUOTES[a.sym].live; }).length; },
     okSources: function () { return Object.keys(SRC).filter(function (id) { return SRC[id] && SRC[id].ok && id !== 'snapshot'; }).length; },

@@ -46,19 +46,21 @@ setTimeout(() => {
 
   ok('GS namespace', !!GS);
   ok('assets=20', GS && GS.config && GS.config.ASSETS.length === 20, 'got=' + (GS.config.ASSETS.length));
-  ok('sources=13', GS.config.SOURCES.length === 13, 'got=' + GS.config.SOURCES.length);
+  // ۱۳ منبع قدیم + «شاخص بورس (TGJU)» + «جریان پول بورس» + «بورس‌تریدر» = ۱۶
+  ok('sources=16', GS.config.SOURCES.length === 16, 'got=' + GS.config.SOURCES.length);
   ok('qcards=20', d.querySelectorAll('#assetGrid .qcard').length === 20, 'got=' + d.querySelectorAll('#assetGrid .qcard').length);
   ok('cat tabs=5', d.querySelectorAll('.cat-tab').length === 5);
   ok('ticker items=26 (dup)', d.querySelectorAll('#tickerTrack .tk').length === 26, 'got=' + d.querySelectorAll('#tickerTrack .tk').length);
   ok('mood svg', !!d.querySelector('#moodSvg svg'));
   ok('mood needle', !!d.querySelector('#moodNeedle'));
-  ok('macro cards=4', d.querySelectorAll('#macroStrip .mc').length === 4);
+  // چهار کارت قدیم + کارتِ «شاخص کل بورس»
+  ok('macro cards=5', d.querySelectorAll('#macroStrip .mc').length === 5, 'got=' + d.querySelectorAll('#macroStrip .mc').length);
   ok('sim bars=8', d.querySelectorAll('#simBars .bar-row').length === 8, 'got=' + d.querySelectorAll('#simBars .bar-row').length);
   ok('sim report=3', d.querySelectorAll('#simReport .rp').length === 3);
   ok('donut segments=7', d.querySelectorAll('#mixDonut .seg-c').length === 7);
   ok('mix legend=7', d.querySelectorAll('#mixLegend .lg-row').length === 7);
   ok('radar options=19', d.querySelectorAll('#radarMarket option').length === 19, 'got=' + d.querySelectorAll('#radarMarket option').length);
-  ok('health rows=13', d.querySelectorAll('#healthTable .h-row').length === 13, 'got=' + d.querySelectorAll('#healthTable .h-row').length);
+  ok('health rows=16', d.querySelectorAll('#healthTable .h-row').length === 16, 'got=' + d.querySelectorAll('#healthTable .h-row').length);
   ok('health note', (d.querySelector('#healthNote').textContent || '').length > 20);
   ok('flowBars rendered', (d.querySelector('#flowBars').textContent || '').length > 5);
   ok('regime badge', !!d.querySelector('#regimeBadge b'));

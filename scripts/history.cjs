@@ -37,7 +37,36 @@ function load(file) {
 /** کلید روز به وقت تهران (تاریخ میلادی؛ فقط برای بازه‌بندی) */
 function dayKey(ms) { return new Date(ms + TEHRAN_OFFSET_MS).toISOString().slice(0, 10); }
 
-function addPoint(doc, sym, ms, p) {
+/**
+ * یک نقطه به تاریخچه. hi/lo اختیاری‌اند (برای شاخص که دامنه‌ی جلسه دارد).
+ * نکته: مقادیرِ منفی (مثل خالصِ جریانِ پول) را اینجا نمی‌پذیریم؛ آن‌ها در
+ * doc.market نگه داشته می‌شوند چون addPoint برای «قیمت» ساخته شده.
+ */
+/**
+ * یک نقطه‌ی «شاخصِ بورس» (TSE). چرا جدا از addPoint؟ چون شاخص ماهیتاً
+ * روزانه است: زمانِ نقطه «جلسه» است نه لحظه‌ی انتشار، پس سری خام (recent)
+ * برایش بی‌معناست و فقط خلاصه‌ی روزانه نگه می‌داریم — با به‌روزرسانیِ درجا
+ * در طولِ همان جلسه (تا آخرین مقدارِ روز ثبت شود، نه اولینش).
+ */
+function addMarketPoint(doc, ms, p, hi, lo) {
+  if (!(p > 0) || !isFinite(p) || !(ms > 0)) return false;
+  const k = dayKey(ms);
+  const h0 = (hi > 0 && isFinite(hi)) ? hi : p;
+  const l0 = (lo > 0 && isFinite(lo)) ? lo : p;
+  const d = doc.daily.TSE || (doc.daily.TSE = []);
+  const ld = d[d.length - 1];
+  if (ld && ld[0] === k) {
+    const snap = ld.join('|');
+    ld[1] = p;
+    if (h0 > ld[2]) ld[2] = h0;
+    if (l0 < ld[3]) ld[3] = l0;
+    return ld.join('|') !== snap;
+  }
+  if (!ld || ld[0] < k) { d.push([k, p, h0, l0]); return true; }
+  return false;
+}
+
+function addPoint(doc, sym, ms, p, hi, lo) {
   if (!(p > 0) || !isFinite(p) || !(ms > 0)) return false;
   const sec = Math.round(ms / 1000);
   const r = doc.recent[sym] || (doc.recent[sym] = []);
@@ -46,13 +75,15 @@ function addPoint(doc, sym, ms, p) {
   r.push([sec, p]);
   const d = doc.daily[sym] || (doc.daily[sym] = []);
   const k = dayKey(ms);
+  const h0 = (hi > 0 && isFinite(hi)) ? hi : p;
+  const l0 = (lo > 0 && isFinite(lo)) ? lo : p;
   const ld = d[d.length - 1];
   if (ld && ld[0] === k) {
     ld[1] = p;
-    if (p > ld[2]) ld[2] = p;
-    if (p < ld[3]) ld[3] = p;
+    if (h0 > ld[2]) ld[2] = h0;
+    if (l0 < ld[3]) ld[3] = l0;
   } else if (!ld || ld[0] < k) {
-    d.push([k, p, p, p]);
+    d.push([k, p, h0, l0]);
   }
   return true;
 }
@@ -72,6 +103,12 @@ function appendLive(doc, live) {
   for (const s of Object.keys(live.quotes)) {
     const q = live.quotes[s];
     if (q && q.p > 0 && addPoint(doc, s, ms, +q.p)) added++;
+  }
+  /* بورس: شاخص کل (TSE یک شبه‌نماد است، نه داراییِ گرماسنج) */
+  const mk = live.market && live.market.index;
+  if (mk && mk.p > 0) {
+    const mms = (mk.ts && mk.ts > 0) ? mk.ts : ms;
+    if (addMarketPoint(doc, mms, +mk.p, mk.high, mk.low)) added++;
   }
   if (added) {
     const prev = Date.parse(doc.generated_at) || 0;
@@ -131,4 +168,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { load, save, appendLive, addPoint, backfillFromGit, prune, dayKey, stats, empty, HIST, KEEP_RECENT_DAYS, KEEP_DAILY_DAYS };
+module.exports = { load, save, appendLive, addPoint, addMarketPoint, backfillFromGit, prune, dayKey, stats, empty, HIST, KEEP_RECENT_DAYS, KEEP_DAILY_DAYS };

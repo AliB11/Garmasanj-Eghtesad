@@ -71,7 +71,57 @@ t('bitpin rejects far-from-anchor', () => {
   assert.strictEqual(P.parseBitpin(j, 'USDT_IRT', 230500, 8e4, 2e6), null);
 });
 
-// --- consensus / kraken ---
+// --- بهداشتِ دامنه‌ی روز (سقف/کف باید قیمت را در بر بگیرند) ---
+t('day range kept when it brackets price', () => {
+  const q = P.tgjuRow('USD', { p: '2,305,000', dp: 0.05, dt: 'high', h: '2,311,200', l: '2,293,600', ts: '2026-09-16 19:59:59' });
+  assert.strictEqual(q.high, 231120);
+  assert.strictEqual(q.low, 229360);
+});
+t('day range dropped when high < low (TGJU coin glitch)', () => {
+  // نیم‌سکه در یک انتشار واقعی: سقف ۹۳۰٬۰۰۰٬۰۰۰ ریال کمتر از کف ۱٬۱۹۰٬۰۰۰٬۰۰۰ و کمتر از خودِ قیمت
+  const q = P.tgjuRow('NIM', { p: '1,210,000,000', dp: 0, dt: 'high', h: '930,000,000', l: '1,190,000,000', ts: '2026-09-20 00:48:06' });
+  assert.ok(q, 'price itself is valid');
+  assert.strictEqual(q.high, null);
+  assert.strictEqual(q.low, null);
+});
+t('day range dropped when it does not contain price', () => {
+  const q = P.tgjuRow('USD', { p: '2,305,000', dp: 0, dt: 'high', h: '2,300,000', l: '2,290,000', ts: '2026-09-16 19:59:59' });
+  assert.strictEqual(q.high, null);
+  assert.strictEqual(q.low, null);
+});
+t('day range dropped when absurdly wide', () => {
+  const q = P.tgjuRow('USD', { p: '2,305,000', dp: 0, dt: 'high', h: '2,900,000', l: '1,000,000', ts: '2026-09-16 19:59:59' });
+  assert.strictEqual(q.high, null);
+  assert.strictEqual(q.low, null);
+});
+t('saneDayRange is exported and symmetric', () => {
+  assert.deepStrictEqual(P.saneDayRange(100, 110, 90), { high: 110, low: 90 });  // دامنه‌ی ۲۰٪: سالم
+  assert.deepStrictEqual(P.saneDayRange(100, 120, 80), { high: null, low: null }); // دامنه‌ی ۴۰٪: رد
+  assert.deepStrictEqual(P.saneDayRange(100, 80, 120), { high: null, low: null }); // وارونه
+  assert.deepStrictEqual(P.saneDayRange(100, null, 80), { high: null, low: null }); // ناقص
+});
+
+// --- پنجره‌ی تطبیقی: با جابه‌جاییِ سطح قیمت‌ها انتشار متوقف نشود ---
+t('static window still authoritative', () => {
+  assert.ok(P.inRange('USD', 230275), 'inside static window');
+  assert.ok(!P.inRange('USD', 100), 'garbage below');
+  assert.ok(!P.inRange('USD', 1e12), 'garbage above (no anchor)');
+});
+t('adaptive window follows price drift', () => {
+  const anchor = 5.5e6; // دلارِ ۵٫۵ میلیون تومان: بیرون از پنجره‌ی استاتیکِ فعلی
+  assert.ok(P.inRange('USD', 5.9e6, anchor), 'moderate drift accepted');
+  assert.ok(!P.inRange('USD', 5.9e6, 0), 'but rejected without anchor');
+  assert.ok(!P.inRange('USD', 5.9e7, anchor), '10x jump rejected (unit error)');
+  assert.ok(!P.inRange('USD', 1e3, anchor), 'far below rejected');
+});
+t('adaptive window never exceeds hard envelope', () => {
+  // لنگرِ مسموم نباید هر عددی را مجاز کند: سقف سخت ۱۰ برابر پنجره‌ی استاتیک است
+  assert.ok(P.inRange('USD', 5e6, 5e7), 'exactly at the hard cap (10x static)');
+  assert.ok(!P.inRange('USD', 6e7, 5e7), 'above hard cap rejected');
+  assert.ok(!P.inRange('USD', 4e3, 5e7), 'below hard floor rejected');
+});
+
+// --- consistency / kraken ---
 t('consensus picks highest-weight in cluster', () => {
   const c = P.consensus([
     { p: 75970, chgPct: 0.12, w: 9 }, { p: 76023.6, chgPct: 0.58, w: 9 },
@@ -112,6 +162,92 @@ t('snapshot.json btc scale fixed', () => {
   const fs = require('fs'), path = require('path');
   const doc = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'data', 'snapshot.json'), 'utf8'));
   assert.ok(doc.quotes.BTC_TM.p > 1e10, 'got=' + doc.quotes.BTC_TM.p);
+});
+
+
+// --- مسیرهای کلیددارِ سمت‌سرور (اختیاری؛ فقط با Secrets) ---
+t('redact: کلید در پیام‌ها پنهان می‌شود', () => {
+  assert.strictEqual(
+    P.redact('https://x.y/api?key=SECRET123&type=1'),
+    'https://x.y/api?key=***&type=1'
+  );
+  assert.strictEqual(
+    P.redact('https://x.y/latest/?api_key=abc&d=1'),
+    'https://x.y/latest/?api_key=***&d=1'
+  );
+  assert.strictEqual(P.redact('https://x.y/plain'), 'https://x.y/plain');
+});
+
+t('بدون کلید در محیط، مسیرهای کلیددار خاموش‌اند', () => {
+  // ماژول در این فرایند بدون NAVASAN_KEY/BRS_API_KEY بارگذاری شده
+  assert.strictEqual(P.envKey('NAVASAN_KEY'), null);
+  assert.strictEqual(P.envKey('BRS_API_KEY'), null);
+});
+
+t('parseNavasan: ریال→تومان و بازه‌ی معتبر', () => {
+  const q = P.parseNavasan({
+    usd_sell: { value: '2,306,000', change: '1500' },
+    geram18: { value: '238,900,000', change: '1200000' },
+    sekke: { value: '2,376,000,000', change: '0' },
+    ons: { value: '4385.20', change: '12.4' },
+  });
+  assert.strictEqual(q.USD.p, 230600);
+  assert.strictEqual(q.G18.p, 23890000);
+  assert.strictEqual(q.EMAMI.p, 237600000);
+  assert.strictEqual(q.OUNCE_USD.p, 4385.2);
+  assert.ok(Math.abs(q.USD.chgPct - 0.065) < 0.01, 'chgPct=' + q.USD.chgPct);
+});
+
+t('parseNavasan: مقادیرِ خارج از بازه رد می‌شوند', () => {
+  assert.strictEqual(P.parseNavasan(null), null);
+  assert.strictEqual(P.parseNavasan({ usd_sell: { value: '12' } }), null, 'دلار ۱۲ تومانی');
+  // فقط اونسِ غیرمعقول بود ⇒ بعد از حذف، هیچ کوتِ معتبری نمی‌ماند ⇒ null
+  assert.strictEqual(P.parseNavasan({ ons: { value: '999999' } }), null, 'اونسِ غیرمعقول');
+  assert.strictEqual(P.parseNavasan({ foo: { value: '1' } }), null);
+});
+
+t('aggregateFlow: خالصِ پولِ حقیقی (ریال→تومان، بدون حدسِ واحد)', () => {
+  const rows = [
+    { l18: 'فملی', pl: 45200, tvol: 10000000, tval: 452000000000, Buy_I_Volume: 6000000, Sell_I_Volume: 8000000 },
+    { l18: 'وبملت', pl: 31000, tvol: 20000000, tval: 620000000000, Buy_I_Volume: 9000000, Sell_I_Volume: 11000000 },
+  ];
+  const a = P.aggregateFlow(rows);
+  assert.strictEqual(a.netToman, Math.round(-2e6 * 4520 + -2e6 * 3100));
+  assert.strictEqual(a.valueToman, Math.round(45.2e9 + 62e9));
+  assert.ok(Math.abs(a.ratio - (-15.24e9 / 107.2e9)) < 1e-9);
+  assert.strictEqual(a.n, 2);
+});
+
+t('aggregateFlow: ساختارِ ناشناخته عدد نمی‌سازد', () => {
+  assert.strictEqual(P.aggregateFlow([{ alpha: 1, beta: 2 }]), null);
+  assert.strictEqual(P.aggregateFlow([]), null);
+  assert.strictEqual(P.aggregateFlow(null), null);
+});
+
+t('parseBrsMarket: پاسخِ سالم پذیرفته می‌شود', () => {
+  const pr = P.parseBrsMarket({
+    data: [
+      { l18: 'فملی', pl: 45200, tvol: 10000000, tval: 452000000000, Buy_I_Volume: 6e6, Sell_I_Volume: 8e6 },
+      { l18: 'وبملت', pl: 31000, tvol: 20000000, tval: 620000000000, Buy_I_Volume: 9e6, Sell_I_Volume: 11e6 },
+    ],
+  });
+  assert.strictEqual(pr.ok, true);
+  assert.strictEqual(pr.agg.n, 2);
+});
+
+t('parseBrsMarket: نگهبان‌های مقیاس و ساختار', () => {
+  const tiny = P.parseBrsMarket({ data: [{ l18: 'x', pl: 10, tvol: 100, tval: 1000, Buy_I_Volume: 60, Sell_I_Volume: 40 }] });
+  assert.strictEqual(tiny.ok, false);
+  assert.ok(tiny.why.indexOf('مقیاس') >= 0, tiny.why);
+
+  const weird = P.parseBrsMarket({ data: [{ alpha: 1, beta: 2 }] });
+  assert.strictEqual(weird.ok, false);
+  assert.ok(weird.why.indexOf('ناشناخته') >= 0, weird.why);
+  assert.ok(weird.keys && weird.keys.indexOf('alpha') >= 0, 'کلیدهای واقعی گزارش شوند');
+
+  const err = P.parseBrsMarket({ ErrorMessage: 'Invalid API Key' });
+  assert.strictEqual(err.ok, false);
+  assert.ok(err.why.indexOf('Invalid') >= 0, err.why);
 });
 
 console.log('publish.js: ' + n + ' tests, exit=' + (process.exitCode || 0));

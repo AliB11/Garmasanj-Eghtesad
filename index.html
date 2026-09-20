@@ -169,6 +169,10 @@
       <p class="sec-sub">هر کارت، قیمت زنده، تغییر امروز، نمودار نشست، دامنه‌ی روز و شناسنامه‌ی منبع را یکجا نشان می‌دهد. بج «زنده» یعنی تازه از منبع رسیده؛ «آخرین جلسه» یعنی بازار تهران بسته است و این آخرین قیمت جلسه‌ی قبل است؛ «کش» و «اسنپ‌شات» یعنی آخرین مقدار معتبر — همیشه صادقانه برچسب می‌خورد.</p>
     </div>
     <div class="macro-strip rv" id="macroStrip" aria-live="polite"></div>
+    <!-- ردیفِ مکملِ بورس: هم‌وزن، فرابورس، جریانِ پول و تحرکاتِ صندوق‌ها.
+         فقط وقتی این داده واقعاً از انتشارِ سرور رسیده باشد پر می‌شود. -->
+    <p class="micro rv" id="bourseTitle" hidden></p>
+    <div class="macro-strip rv" id="bourseStrip" aria-live="polite" hidden></div>
     <div class="markets-bar rv">
       <div class="cat-tabs" role="tablist" aria-label="دسته‌بندی دارایی‌ها">
         <button class="cat-tab on" data-cat="all" role="tab" type="button" aria-selected="true">همه</button>
@@ -404,7 +408,7 @@
   <div class="m-card" role="dialog" aria-modal="true" aria-label="تنظیمات منابع داده">
     <button class="m-x" data-st-close aria-label="بستن"><svg class="ic s16"><use href="#i-x"/></svg></button>
     <h3>تنظیمات منابع داده</h3>
-    <p class="dg-sub">سه راه برای قوی‌تر شدن داده‌ها در شبکه‌ی شما:</p>
+    <p class="dg-sub">چهار راه برای قوی‌تر شدن داده‌ها در شبکه‌ی شما:</p>
     <label for="navKey">۱. کلید رایگان ناواسان (مسیر پشتیبان دلار، طلا و سکه)</label>
     <input class="field" id="navKey" type="text" placeholder="کلید API ناواسان" autocomplete="off" dir="ltr">
     <div class="set-row">
@@ -419,7 +423,15 @@
       <button class="btn btn-ghost sm" id="manClear">حذف</button>
     </div>
     <p class="m-hint">اگر هیچ منبعی در شبکه‌ی شما پاسخ نمی‌دهد، دلار را دستی وارد کنید تا محاسبات فعال شود. قیمت دستی همیشه با برچسب «ورود دستی» مشخص است.</p>
-    <label>۳. پاک‌سازی کش محلی</label>
+    <label for="brsKey">۳. کلید رایگان BrsApi — جریانِ ورود و خروجِ پولِ بورس</label>
+    <input class="field" id="brsKey" type="text" placeholder="کلید API BrsApi" autocomplete="off" dir="ltr">
+    <div class="set-row">
+      <button class="btn btn-primary sm" id="brsSave">ذخیره کلید</button>
+      <button class="btn btn-ghost sm" id="brsTest">تست</button>
+      <button class="btn btn-ghost sm" id="brsClear">حذف</button>
+    </div>
+    <p class="m-hint">کلیدِ رایگان را از <b dir="ltr">brsapi.ir</b> بگیرید؛ فقط در مرورگرِ خودتان ذخیره می‌شود و مستقیماً (بدون واسطه) ارسال می‌گردد. این مسیر فقط برای کاربرِ صاحبِ کلید فعال است، چون بازنشرِ آن به‌عنوانِ سرویسِ عمومی ممنوع است.</p>
+    <label>۴. پاک‌سازی کش محلی</label>
     <div class="set-row">
       <button class="btn btn-ghost sm" id="cacheClear">پاک کردن کش قیمت‌ها</button>
     </div>

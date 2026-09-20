@@ -42,6 +42,63 @@
     note: 'خارج از این ساعات، قیمت‌های TGJU مربوط به آخرین جلسه‌اند و با برچسب «آخرین جلسه» نمایش داده می‌شوند.'
   };
 
+  /**
+   * ساعات جلسه‌ی بورس تهران (به‌وقت تهران، ۰=شنبه … ۶=جمعه).
+   * بازارِ سهام شنبه تا چهارشنبه است و زودتر از بازارِ آزادِ ارز می‌بندد؛
+   * بیرونِ این ساعات، عددِ شاخص مربوط به «آخرین جلسه» است.
+   * این ساعات را باید هر سال با اطلاعیه‌ی رسمیِ بورس تطبیق داد — برای همین
+   * فقط یک نقطه‌ی تنظیمات است و در کد پخش نشده.
+   */
+  var TSE_SESSION = {
+    days: { 0: [9, 12.5], 1: [9, 12.5], 2: [9, 12.5], 3: [9, 12.5], 4: [9, 12.5] },
+    note: 'جلسه‌ی بورس شنبه تا چهارشنبه است؛ پنجشنبه و جمعه تعطیل. بیرون از این ساعات، شاخص مربوط به آخرین جلسه است.'
+  };
+
+  /**
+   * مسیرِ کلیددارِ جریانِ پول (BrsApi) — فاز ۳.
+   *
+   * چرا سمتِ کلاینت؟ دو دلیلِ اندازه‌گیری‌شده/مستند:
+   *  ۱) TSETMC از IP خارجی پاسخ نمی‌دهد، پس ناشر نمی‌تواند این داده را بگیرد؛
+   *  ۲) قوانینِ BrsApi بازنشرِ داده به‌صورتِ «سرویس برای دیگران» را منع کرده؛
+   *     با کلیدِ شخصیِ کاربر و فراخوانیِ مستقیم از مرورگر، مصرف‌کننده همان
+   *     صاحبِ کلید است (همان الگوی ناواسان).
+   *
+   * هشدارِ صداقت: مسیرِ دقیقِ اندپوینت و نامِ فیلدها باید با مستنداتِ رسمیِ
+   * BrsApi تطبیق داده شود (صفحه‌ی مستندات برای IP دیتاسنتر پشتِ reCAPTCHA است
+   * و از اینجا قابل تأیید نبود). برای همین نام‌ها در یک جا آمده‌اند و در صورت
+   * ناشناخته بودنِ ساختار، هیچ عددی ساخته نمی‌شود — فقط گزارش می‌شود.
+   */
+  var BRSAPI = {
+    base: 'https://BrsApi.ir/Api/Tsetmc',
+    marketPath: 'MarketWatch.php',   // type=1: سهام بورس و فرابورس + ETF + حق‌تقدم
+    type: 1,
+    minGapMs: 30 * 60000,            // هر نیم‌ساعت بیش از یک بار نه (سقفِ رایگان ۱۵۰۰/روز)
+    unit: 'rial',                    // TSETMC/BrsApi ریال می‌دهند؛ خروجی‌ی ما تومان است
+    timeoutMs: 14000,
+    // مفهوم → نام‌های محتملِ فیلد (قراردادِ TSETMC: I = حقیقی، N = حقوقی)
+    fields: {
+      buyRetail: ['Buy_I_Volume', 'BuyIVolume', 'buy_i_volume', 'BuyCountIVolume'],
+      buyLegal: ['Buy_N_Volume', 'BuyNVolume', 'buy_n_volume'],
+      sellRetail: ['Sell_I_Volume', 'SellIVolume', 'sell_i_volume'],
+      sellLegal: ['Sell_N_Volume', 'SellNVolume', 'sell_n_volume'],
+      price: ['pl', 'pc', 'PClosing', 'PDrCotVal', 'close', 'Close', 'last'],
+      value: ['tval', 'QTotCap', 'value', 'Value', 'TradeValue'],
+      volume: ['tvol', 'QTotTran5J', 'volume', 'Volume']
+    },
+    getKeyUrl: function () { return 'https://brsapi.ir/tsetmc-exchange-free-bourse-api-key-request/'; }
+  };
+
+  /**
+   * آستانه‌های «جریانِ پولِ حقیقیِ بورس» — عاملِ نهمِ حکم.
+   * نسبتِ جریان = خالصِ پولِ حقیقی ÷ ارزشِ معاملات (بدون بُعد تا با تورم خراب نشود).
+   * strong: به‌تنهایی امتیاز می‌گیرد؛ mild: فقط اگر جهتِ شاخص هم با آن هم‌خوان باشد.
+   */
+  var MARKETFLOW = {
+    strong: 0.10,
+    mild: 0.04,
+    note: 'سقفِ اثرِ این عامل روی حکم ۱± است: سیگنالِ تأییدکننده/چرخشی است، نه پیشران.'
+  };
+
   /** آینه‌های TGJU — هر ۵ آینه موازی مسابقه می‌دهند، اولین پاسخ معتبر می‌برد */
   var TGJU_MIRRORS = [
     'https://call5.tgju.org',
@@ -80,7 +137,8 @@
     { sym: 'ROB', fa: 'ربع سکه', short: 'ربع', cat: 'coin', unit: 'تومان', icon: 'i-coin', kind: 'toman', tgju: ['rob', 'retail_rob'] },
     { sym: 'GERAMI', fa: 'سکه گرمی', short: 'گرمی', cat: 'coin', unit: 'تومان', icon: 'i-coin', kind: 'toman', tgju: ['gerami', 'retail_gerami'] },
     // رمزارز
-    { sym: 'USDT', fa: 'تتر', short: 'تتر', cat: 'crypto', unit: 'تومان', sub: 'صرافی‌های ایران', icon: 'i-usdt', kind: 'toman', tgju: ['crypto-tether-irr', 'crypto-usd-coin-irr'] },
+    // فقط کلید تترِ واقعی: crypto-usd-coin مربوط به USDC است، نه تتر
+    { sym: 'USDT', fa: 'تتر', short: 'تتر', cat: 'crypto', unit: 'تومان', sub: 'صرافی‌های ایران', icon: 'i-usdt', kind: 'toman', tgju: ['crypto-tether-irr'] },
     { sym: 'BTC_USD', fa: 'بیت‌کوین (دلاری)', short: 'بیت‌کوین $', cat: 'crypto', unit: 'دلار', icon: 'i-btc', kind: 'usd', dec: 0, tgju: [] },
     { sym: 'BTC_TM', fa: 'بیت‌کوین (تومانی)', short: 'بیت‌کوین', cat: 'crypto', unit: 'تومان', sub: 'معادل تومانی', icon: 'i-btc', kind: 'toman', tgju: ['crypto-bitcoin-irr', 'btc-irr'] }
   ];
@@ -120,6 +178,13 @@
     { id: 'frankfurter', name: 'Frankfurter', scope: 'برابری‌های جهانی ارز', phase: 'fast' },
     { id: 'erapi', name: 'ExchangeRate-API', scope: 'برابری‌های جهانی (پشتیبان)', phase: 'fast' },
     { id: 'navasan', name: 'ناواسان', scope: 'دلار، طلا، سکه (نیاز به کلید رایگان)', phase: 'slow' },
+    { id: 'tse', name: 'شاخص بورس (TGJU)', scope: 'شاخص کلِ بورس تهران — آخرین جلسه', phase: 'fast' },
+    // مکملِ بورس: صفحه‌ی عمومیِ bourse-trader.ir (بدون کلید) — فقط از انتشارِ سرور
+    // می‌آید چون مرورگرِ کاربر به آن دسترسیِ مستقیم ندارد (CORS/شبکه).
+    { id: 'btrader', name: 'بورس‌تریدر', scope: 'شاخص هم‌وزن و فرابورس، جریانِ پولِ خرد، تحرکاتِ صندوق‌ها — از انتشارِ سرور', phase: 'fast' },
+    // جریانِ پولِ حقیقی/حقوقی: TSETMC از IP خارجی پاسخ نمی‌دهد (اندازه‌گیری شده)،
+    // برای همین این ردیف یا از مرورگرِ کاربرِ داخل ایران پر می‌شود یا از منبعِ کلیددار.
+    { id: 'tsetmc', name: 'جریان پول بورس', scope: 'حقیقی/حقوقی — از مرورگرِ داخل ایران یا منبعِ کلیددار', phase: 'slow' },
     { id: 'snapshot', name: 'اسنپ‌شات', scope: 'بوت‌استرپ اولیه + کش مرورگر', phase: 'boot' }
   ];
 
@@ -135,6 +200,9 @@
     FRESH: FRESH,
     JUMP: JUMP,
     SESSION: SESSION,
+    TSE_SESSION: TSE_SESSION,
+    MARKETFLOW: MARKETFLOW,
+    BRSAPI: BRSAPI,
     TGJU_MIRRORS: TGJU_MIRRORS,
     ASSETS: ASSETS,
     CATS: CATS,
