@@ -169,8 +169,50 @@
       <p class="sec-sub">هر کارت، قیمت زنده، تغییر امروز، نمودار نشست، دامنه‌ی روز و شناسنامه‌ی منبع را یکجا نشان می‌دهد. بج «زنده» یعنی تازه از منبع رسیده؛ «آخرین جلسه» یعنی بازار تهران بسته است و این آخرین قیمت جلسه‌ی قبل است؛ «کش» و «اسنپ‌شات» یعنی آخرین مقدار معتبر — همیشه صادقانه برچسب می‌خورد.</p>
     </div>
     <div class="macro-strip rv" id="macroStrip" aria-live="polite"></div>
-    <!-- ردیفِ مکملِ بورس: هم‌وزن، فرابورس، جریانِ پول و تحرکاتِ صندوق‌ها.
-         فقط وقتی این داده واقعاً از انتشارِ سرور رسیده باشد پر می‌شود. -->
+    <!-- بورس تهران — ترمینال حرفه‌ای (رادار + دونات + جریان صندوق‌ها) -->
+    <section class="bourse-pro rv" id="boursePro" hidden aria-live="polite">
+      <div class="bourse-pro-head">
+        <div class="bp-head-main">
+          <span class="bp-kicker"><i class="live-dot"></i>بورس تهران — ترمینال حرفه‌ای</span>
+          <h3 id="bourseProTitle">نبض بازار سرمایه</h3>
+          <p class="micro" id="bourseProMeta">در انتظار انتشار سرور…</p>
+        </div>
+        <div class="bp-head-side">
+          <span class="bp-badge" id="bourseProBadge">—</span>
+          <span class="micro" id="bourseProAge">—</span>
+        </div>
+      </div>
+      <div class="bourse-pro-grid">
+        <div class="bp-indices" id="bourseIndices"></div>
+        <div class="bp-radar-panel">
+          <div class="bp-panel-title"><b>رادار سلامت بازار</b><small>۶ بُعد کلیدی · ۰ تا ۱۰۰</small><button class="f-help" data-formula="bourseRadar" title="فرمول رادار">؟</button></div>
+          <div id="bourseRadarChart"></div>
+          <div id="bourseRadarLegend" class="bp-radar-legend"></div>
+        </div>
+        <div class="bp-breadth-panel">
+          <div class="bp-panel-title"><b>پهنای بازار</b><small>مثبت vs منفی</small></div>
+          <div id="bourseBreadthDonut" class="bp-donut-wrap"></div>
+          <div id="bourseBreadthStats" class="bp-stats"></div>
+          <div id="bourseQueueChart" style="margin-top:12px"></div>
+        </div>
+        <div class="bp-flow-panel">
+          <div class="bp-panel-title"><b>جریان پول حقیقی</b><small>خرد + صندوق‌ها · همت</small></div>
+          <div id="bourseMainFlow" class="bp-main-flow"></div>
+          <div id="bourseFundsFlow"></div>
+        </div>
+        <div class="bp-trade-panel">
+          <div class="bp-panel-title"><b>ارزش و حجم معاملات خرد</b><small>معیار نقدشوندگی</small></div>
+          <div id="bourseTradeStats"></div>
+          <div id="boursePerCapita" style="margin-top:14px"></div>
+          <div id="bourseCap" class="bp-cap"></div>
+        </div>
+      </div>
+      <div class="bp-foot">
+        <span class="micro">منبع: <b>bourse-trader.ir</b> (صفحه‌ی عمومی، بدون کلید) + <b>TGJU</b> شاخص کل · از انتشار سرور · <span id="bourseProSource">—</span></span>
+        <span class="micro" id="bourseProExplain">—</span>
+      </div>
+    </section>
+    <!-- نگهداری برای سازگاری با تست‌های قدیمی -->
     <p class="micro rv" id="bourseTitle" hidden></p>
     <div class="macro-strip rv" id="bourseStrip" aria-live="polite" hidden></div>
     <div class="markets-bar rv">

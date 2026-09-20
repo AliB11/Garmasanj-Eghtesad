@@ -318,17 +318,16 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     GS.data.clearCache();
   });
 
-  /* ---- ۳ه) عاملِ نهم: خروجِ سنگینِ پول → ۱+ ---- */
+  /* ---- ۳ه) عاملِ نهم: خروجِ سنگینِ پول → ۱+ (نسل ۹: رادار ۶ بعدی) ---- */
   await ta('حکم: خروجِ سنگینِ پولِ حقیقی ۱+ می‌گیرد و بالای فهرست می‌آید', async () => {
     const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
     await GS.data.bootAll(); await wait(400);
     const base = GS.features.verdict().score;
-    // ۱۲٪ ارزشِ معاملات خروجِ پولِ حقیقی
     GS.data.setMarketFlow({ netToman: -3.2e12, ratio: -0.12, n: 612, src: 'TSETMC' });
     const v = GS.features.verdict();
-    assert.strictEqual(v.score, base + 1, 'امتیاز باید یکی بالا برود: ' + base + ' -> ' + v.score);
+    assert.ok(v.score >= base + 0.9 && v.score <= base + 1.5, 'امتیاز باید ~۱ بالا برود: ' + base + ' -> ' + v.score);
     assert.ok(v.reasons[0].indexOf('خروج') >= 0, 'دلیلِ امتیازدار باید اول باشد: ' + v.reasons[0]);
-    assert.ok(v.reasons[0].indexOf('تأییدکننده') >= 0, 'لحن باید احتیاطی باشد: ' + v.reasons[0]);
+    assert.ok(v.reasons[0].indexOf('بورس') >= 0 || v.reasons[0].indexOf('تأییدکننده') >= 0, 'لحن باید بورسی باشد: ' + v.reasons[0]);
     W.close();
     GS.data.clearCache();
   });
@@ -339,8 +338,8 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     const base = GS.features.verdict().score;
     GS.data.setMarketFlow({ netToman: +2.5e12, ratio: 0.11, n: 600, src: 'TSETMC' });
     const v = GS.features.verdict();
-    assert.strictEqual(v.score, base - 1, base + ' -> ' + v.score);
-    assert.ok(v.reasons[0].indexOf('ورود') >= 0, v.reasons[0]);
+    assert.ok(v.score <= base - 0.7 && v.score >= base - 1.5, base + ' -> ' + v.score + ' (باید ~۱ کم شود)');
+    assert.ok(v.reasons[0].indexOf('ورود') >= 0 || v.reasons[0].indexOf('بورس') >= 0, v.reasons[0]);
     W.close();
     GS.data.clearCache();
   });

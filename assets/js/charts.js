@@ -160,5 +160,152 @@
       base100 + paths + axis + '</svg>';
   }
 
-  GS.charts = { spark: spark, assetSpark: assetSpark, rangeBar: rangeBar, dirColor: dirColor, lineChart: lineChart, compareChart: compareChart };
+  /* ============================================================
+     رادار چارت حرفه‌ای — برای نبض بورس و سلامت بازار
+     dims: [{label, value:0..100, color, hint}]
+     opts: {size, levels, labelRadius}
+     ============================================================ */
+  function radarChart(dims, opts) {
+    opts = opts || {};
+    var size = opts.size || 300;
+    var cx = size / 2, cy = size / 2;
+    var maxR = (size / 2) - (opts.labelRadius || 52);
+    var levels = opts.levels || 4;
+    dims = (dims || []).filter(function (d) { return d && isFinite(d.value); });
+    if (dims.length < 3) return '<div class=\"lc-empty\">برای رادار حداقل ۳ بُعد لازم است</div>';
+    var n = dims.length;
+    function pt(angleDeg, r) {
+      var rad = (angleDeg - 90) * Math.PI / 180;
+      return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+    }
+    // شبکه‌ی چندضلعی
+    var grid = '';
+    for (var lv = 1; lv <= levels; lv++) {
+      var rr = maxR * lv / levels;
+      var pts = [];
+      for (var i = 0; i < n; i++) {
+        var p = pt(i * 360 / n, rr);
+        pts.push(p[0].toFixed(1) + ',' + p[1].toFixed(1));
+      }
+      grid += '<polygon points=\"' + pts.join(' ') + '\" fill=\"none\" stroke=\"var(--line)\" stroke-width=\"' + (lv === levels ? '1.2' : '0.7') + '\" opacity=\"' + (lv === levels ? '0.9' : '0.45') + '\" stroke-dasharray=\"' + (lv % 2 ? '3 3' : 'none') + '\"/>';
+    }
+    // محورها
+    var axes = '';
+    for (var j = 0; j < n; j++) {
+      var p = pt(j * 360 / n, maxR);
+      axes += '<line x1=\"' + cx + '\" y1=\"' + cy + '\" x2=\"' + p[0].toFixed(1) + '\" y2=\"' + p[1].toFixed(1) + '\" stroke=\"var(--line)\" stroke-width=\"0.7\" opacity=\"0.5\"/>';
+    }
+    // داده
+    var dataPts = [];
+    var dots = '';
+    for (var k = 0; k < n; k++) {
+      var v = U.clamp(dims[k].value, 0, 100);
+      var r = maxR * v / 100;
+      var pp = pt(k * 360 / n, r);
+      dataPts.push(pp[0].toFixed(1) + ',' + pp[1].toFixed(1));
+      var col = dims[k].color || (v >= 60 ? '#3ECF8E' : v <= 35 ? '#FF6B5E' : '#E8A33D');
+      dots += '<circle cx=\"' + pp[0].toFixed(1) + '\" cy=\"' + pp[1].toFixed(1) + '\" r=\"4.5\" fill=\"' + col + '\" stroke=\"var(--card)\" stroke-width=\"2\" class=\"radar-dot\"/>';
+      // مقدار روی نقطه
+      if (opts.showValues) {
+        var vp = pt(k * 360 / n, r + 14);
+        dots += '<text x=\"' + vp[0].toFixed(1) + '\" y=\"' + vp[1].toFixed(1) + '\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"700\" fill=\"' + col + '\" font-family=\"Vazirmatn\">' + Math.round(v) + '</text>';
+      }
+    }
+    var fill = '<polygon points=\"' + dataPts.join(' ') + '\" fill=\"url(#radarGrad)\" opacity=\"0.22\"/>';
+    var stroke = '<polygon points=\"' + dataPts.join(' ') + '\" fill=\"none\" stroke=\"#E8A33D\" stroke-width=\"2.2\" stroke-linejoin=\"round\" stroke-linecap=\"round\" opacity=\"0.95\"/>';
+    // برچسب‌ها
+    var labels = '';
+    for (var l = 0; l < n; l++) {
+      var lp = pt(l * 360 / n, maxR + 28);
+      var anchor = 'middle';
+      var ang = l * 360 / n;
+      if (ang > 30 && ang < 150) anchor = 'start';
+      else if (ang > 210 && ang < 330) anchor = 'end';
+      labels += '<text x=\"' + lp[0].toFixed(1) + '\" y=\"' + lp[1].toFixed(1) + '\" text-anchor=\"' + anchor + '\" font-size=\"11\" font-weight=\"700\" fill=\"var(--txt)\" font-family=\"Vazirmatn\">' + U.esc(dims[l].label) + '</text>';
+    }
+    var grad = '<defs><radialGradient id=\"radarGrad\" cx=\"50%\" cy=\"50%\" r=\"70%\"><stop offset=\"0%\" stop-color=\"#E8A33D\" stop-opacity=\"0.5\"/><stop offset=\"100%\" stop-color=\"#E8A33D\" stop-opacity=\"0.05\"/></radialGradient></defs>';
+    return '<svg class=\"radar-chart\" viewBox=\"0 0 ' + size + ' ' + size + '\" role=\"img\" aria-label=\"' + U.esc(opts.label || 'نمودار رادار بورس') + '\" style=\"direction:ltr;width:100%;height:auto\">' +
+      grad + grid + axes + fill + stroke + dots + labels + '</svg>';
+  }
+
+  /* دونات پهنا — مثبت vs منفی */
+  function breadthDonut(breadth, opts) {
+    opts = opts || {};
+    var size = opts.size || 160;
+    var cx = size / 2, cy = size / 2, r = (size / 2) - 12, thick = opts.thick || 18;
+    if (!breadth || !(breadth.pos >= 0) || !(breadth.neg >= 0)) return '<div class=\"lc-empty\">داده‌ی پهنا نیست</div>';
+    var total = breadth.pos + breadth.neg;
+    if (total <= 0) return '<div class=\"lc-empty\">پهنا صفر</div>';
+    var posPct = breadth.pos / total;
+    var circ = 2 * Math.PI * r;
+    var posLen = circ * posPct;
+    var negLen = circ - posLen;
+    var rot = -90;
+    var posColor = posPct >= 0.55 ? '#3ECF8E' : posPct <= 0.25 ? '#FF6B5E' : '#E8A33D';
+    var center = '<text x=\"' + cx + '\" y=\"' + (cy - 2) + '\" text-anchor=\"middle\" font-size=\"20\" font-weight=\"900\" fill=\"var(--txt)\" font-family=\"Vazirmatn\">' + Math.round(posPct * 100) + '٪</text>' +
+      '<text x=\"' + cx + '\" y=\"' + (cy + 14) + '\" text-anchor=\"middle\" font-size=\"10\" fill=\"var(--mut)\" font-family=\"Vazirmatn\">مثبت</text>';
+    return '<svg class=\"donut-chart\" viewBox=\"0 0 ' + size + ' ' + size + '\" style=\"width:100%;height:auto;max-width:' + size + 'px\">' +
+      '<circle cx=\"' + cx + '\" cy=\"' + cy + '\" r=\"' + r + '\" fill=\"none\" stroke=\"var(--track)\" stroke-width=\"' + thick + '\"/>' +
+      '<circle cx=\"' + cx + '\" cy=\"' + cy + '\" r=\"' + r + '\" fill=\"none\" stroke=\"#FF6B5E\" stroke-width=\"' + thick + '\" stroke-dasharray=\"' + negLen.toFixed(1) + ' ' + posLen.toFixed(1) + '\" transform=\"rotate(' + (rot + posPct * 360) + ' ' + cx + ' ' + cy + ')\" stroke-linecap=\"round\" opacity=\"0.9\"/>' +
+      '<circle cx=\"' + cx + '\" cy=\"' + cy + '\" r=\"' + r + '\" fill=\"none\" stroke=\"' + posColor + '\" stroke-width=\"' + thick + '\" stroke-dasharray=\"' + posLen.toFixed(1) + ' ' + negLen.toFixed(1) + '\" transform=\"rotate(' + rot + ' ' + cx + ' ' + cy + ')\" stroke-linecap=\"round\"/>' +
+      center + '</svg>';
+  }
+
+  /* میله‌ی جریان صندوق‌ها */
+  function fundsFlowChart(funds, opts) {
+    opts = opts || {};
+    if (!funds) return '<div class=\"lc-empty\">تحرک صندوق‌ها نیست</div>';
+    var items = [];
+    var labels = { fixed: 'درآمد ثابت', equity: 'سهامی', commodity: 'کالایی/طلا', option: 'آپشن' };
+    var colors = { fixed: '#4E8F8B', equity: '#E8A33D', commodity: '#E3A93C', option: '#7E97A3' };
+    Object.keys(labels).forEach(function (k) {
+      if (funds[k] && isFinite(funds[k].netToman)) items.push({ key: k, label: labels[k], net: funds[k].netToman, color: colors[k] });
+    });
+    if (!items.length) return '<div class=\"lc-empty\">صندوقی با جریان معنادار نیست</div>';
+    var maxAbs = Math.max.apply(null, items.map(function (x) { return Math.abs(x.net); }).concat([1e9]));
+    var rows = items.map(function (it) {
+      var pct = U.clamp(Math.abs(it.net) / maxAbs * 100, 4, 100);
+      var out = it.net < 0;
+      var dir = out ? 'out' : 'in';
+      var w = pct.toFixed(1) + '%';
+      var txt = (out ? 'خروج ' : 'ورود ') + (Math.abs(it.net) >= 1e12 ? U.fa((Math.abs(it.net) / 1e12).toFixed(2)) + ' همت' : Math.abs(it.net) >= 1e9 ? U.fa(Math.round(Math.abs(it.net) / 1e9)) + ' میلیارد' : U.fmt(Math.round(it.net)));
+      return '<div class=\"fund-row ' + dir + '\"><span class=\"fund-label\" style=\"--c:' + it.color + '\"><i></i>' + U.esc(it.label) + '</span>' +
+        '<div class=\"fund-track\"><i class=\"fund-fill ' + dir + '\" style=\"width:' + w + ';background:' + it.color + '\"></i></div>' +
+        '<span class=\"fund-val ' + dir + '\">' + txt + '</span></div>';
+    }).join('');
+    return '<div class=\"funds-chart\">' + rows + '</div>';
+  }
+
+  /* گیج سرانه خرید/فروش */
+  function perCapitaGauge(pc, opts) {
+    opts = opts || {};
+    if (!pc || !(pc.buy > 0 || pc.sell > 0)) return '<div class=\"lc-empty\">سرانه نیست</div>';
+    var buy = pc.buy || 0, sell = pc.sell || 0;
+    var total = buy + sell;
+    var buyPct = total > 0 ? buy / total * 100 : 50;
+    var ratio = sell > 0 ? buy / sell : 0;
+    var tone = ratio >= 1.3 ? 'hot' : ratio <= 0.75 ? 'cold' : 'neutral';
+    var label = ratio >= 1.3 ? 'قدرت خریداران' : ratio <= 0.75 ? 'فشار فروش' : 'متعادل';
+    return '<div class=\"pc-gauge ' + tone + '\">' +
+      '<div class=\"pc-head\"><span>سرانه خرید حقیقی</span><b>' + U.fa(buy.toFixed(1)) + ' م</b></div>' +
+      '<div class=\"pc-track\"><i class=\"pc-buy\" style=\"width:' + buyPct.toFixed(1) + '%\"></i><i class=\"pc-sell\" style=\"width:' + (100 - buyPct).toFixed(1) + '%\"></i></div>' +
+      '<div class=\"pc-foot\"><span>فروش ' + U.fa(sell.toFixed(1)) + ' م</span><em class=\"pc-badge ' + tone + '\">' + label + ' (' + (ratio ? U.fa(ratio.toFixed(2)) + '×' : '—') + ')</em></div>' +
+      '</div>';
+  }
+
+  /* نمودار صف‌ها — خرید vs فروش */
+  function queueChart(breadth, opts) {
+    if (!breadth || (breadth.queueBuy == null && breadth.queueSell == null)) return '<div class=\"lc-empty\">صف‌ها نیست</div>';
+    var buy = breadth.queueBuy || 0, sell = breadth.queueSell || 0;
+    var total = buy + sell;
+    if (total <= 0) return '<div class=\"lc-empty\">صفی نیست</div>';
+    var buyPct = buy / total * 100;
+    return '<div class=\"queue-chart\">' +
+      '<div class=\"queue-row\"><span class=\"q-label buy\">صف خرید</span><div class=\"queue-track\"><i class=\"queue-fill buy\" style=\"width:' + buyPct.toFixed(1) + '%\"></i></div><b>' + U.fa(buy) + '</b></div>' +
+      '<div class=\"queue-row\"><span class=\"q-label sell\">صف فروش</span><div class=\"queue-track\"><i class=\"queue-fill sell\" style=\"width:' + (100 - buyPct).toFixed(1) + '%\"></i></div><b>' + U.fa(sell) + '</b></div>' +
+      '<div class=\"queue-foot\">نسبت صف: ' + U.fa(buy) + ' خرید در برابر ' + U.fa(sell) + ' فروش · ' + (buyPct >= 55 ? 'تمایل به خرید' : buyPct <= 35 ? 'فشار فروش در صف' : 'متعادل') + '</div>' +
+      '</div>';
+  }
+
+  GS.charts = { spark: spark, assetSpark: assetSpark, rangeBar: rangeBar, dirColor: dirColor, lineChart: lineChart, compareChart: compareChart, radarChart: radarChart, breadthDonut: breadthDonut, fundsFlowChart: fundsFlowChart, perCapitaGauge: perCapitaGauge, queueChart: queueChart };
 })();
