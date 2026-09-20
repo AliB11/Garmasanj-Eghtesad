@@ -573,6 +573,86 @@
       (mk.chgPct != null ? ' <small class="' + tone + '">' + U.pct(mk.chgPct, 1) + '</small>' : ''), hint, tone);
   }
 
+  /* ---------------- ردیفِ بورس: فراتر از شاخصِ کل ---------------- */
+  /**
+   * مکملِ بورس‌تریدر (از انتشارِ سرور؛ بدون کلید): شاخصِ هم‌وزن و فرابورس،
+   * جریانِ پولِ خرد، تحرکاتِ صندوق‌ها، پهنا و ارزشِ معاملات.
+   * فقط چیزی نشان داده می‌شود که واقعاً رسیده باشد — کارتِ خالی ساخته نمی‌شود.
+   */
+  function btMoney(v) {
+    var a = Math.abs(+v);
+    if (!isFinite(a)) return '—';
+    if (a >= 1e12) return U.fa(String(+(a / 1e12).toFixed(2))) + ' همت';
+    if (a >= 1e9) return U.fa(Math.round(a / 1e9)) + ' میلیارد';
+    if (a >= 1e6) return U.fa(Math.round(a / 1e6)) + ' میلیون';
+    return U.fmt(Math.round(a)) + ' تومان';
+  }
+
+  /** کارتِ جریان: «خروج ۱.۸ همت» با رنگِ جهت و توضیحِ کوتاه */
+  function flowCard(label, net, hint, extra) {
+    if (net == null || !isFinite(+net)) return '';
+    var out = +net < 0;
+    var zero = Math.abs(+net) < 1e6;
+    return '<div class="mc"><small>' + label + '</small><b class="' + (zero ? '' : (out ? 'cold' : 'hot')) + '">' +
+      (zero ? 'بدون جریان' : (out ? 'خروج ' : 'ورود ') + btMoney(net)) + '</b><span>' + (hint || '') + '</span></div>';
+  }
+
+  function renderBourse() {
+    var host = U.$('#bourseStrip'), title = U.$('#bourseTitle');
+    if (!host) return;
+    var mk = null;
+    try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+    var bt = (mk && mk.bt) ? mk.bt : null;
+    if (!bt) { host.innerHTML = ''; host.style.display = 'none'; if (title) title.style.display = 'none'; return; }
+
+    function card(label, val, hint, tone) {
+      return '<div class="mc"><small>' + label + '</small><b class="' + (tone || '') + '">' + val + '</b><span>' + hint + '</span></div>';
+    }
+    function idxCard(label, v, hint) {
+      if (!v) return '';
+      var tone = v.chgPct == null ? '' : (v.chgPct > 0.3 ? 'hot' : v.chgPct < -0.3 ? 'cold' : '');
+      return card(label, U.fmt(Math.round(v.p)) + (v.chgPct != null ? ' <small class="' + tone + '">' + U.pct(v.chgPct, 1) + '</small>' : ''), hint || '', tone);
+    }
+    var cards = [];
+    cards.push(idxCard('شاخص هم‌وزن', bt.equal, 'وزنِ برابر برای همه‌ی نمادها — تصویرِ بدنه‌ی بازار'));
+    cards.push(idxCard('شاخص کل فرابورس', bt.fara, 'شرکت‌های کوچک‌تر و بازارِ دوم'));
+
+    if (mk.flow) {
+      var ratioTxt = (mk.flowRatio != null) ? U.fa(Math.round(Math.abs(mk.flowRatio) * 100)) + '٪ ارزشِ معاملات خرد' : '';
+      cards.push(flowCard('جریانِ پولِ خرد', mk.flow.netToman, ratioTxt || 'از بورس‌تریدر'));
+    }
+    if (bt.funds) {
+      if (bt.funds.fixed) cards.push(flowCard('صندوق‌های درآمد ثابت', bt.funds.fixed.netToman, 'پناهگاهِ کم‌ریسکِ بورس'));
+      if (bt.funds.equity) cards.push(flowCard('صندوق‌های سهامی', bt.funds.equity.netToman, 'پولِ تازه در سهام'));
+      if (bt.funds.commodity && Math.abs(bt.funds.commodity.netToman) >= 1e6) {
+        cards.push(flowCard('صندوق‌های کالایی (طلا)', bt.funds.commodity.netToman, 'تقاضایِ طلا از مسیرِ بورس'));
+      }
+    }
+    if (bt.breadth) {
+      var B = bt.breadth;
+      cards.push(card('پهنای بازار', U.fa(Math.round(B.posPct)) + '٪',
+        U.fa(B.pos) + ' مثبت در برابر ' + U.fa(B.neg) + ' منفی' +
+        (B.queueBuy != null && B.queueSell != null ? ' · صف خرید ' + U.fa(B.queueBuy) + ' / فروش ' + U.fa(B.queueSell) : ''),
+        B.posPct >= 55 ? 'hot' : B.posPct <= 25 ? 'cold' : ''));
+    }
+    if (bt.trade && bt.trade.valueToman) {
+      var per = (bt.perCapita && bt.perCapita.buy) ? 'سرانه خرید ' + U.fa(bt.perCapita.buy) + ' / فروش ' + U.fa(bt.perCapita.sell || 0) : 'حجمِ دست‌به‌دست‌شدنِ امروز';
+      cards.push(card('ارزشِ معاملاتِ خرد', btMoney(bt.trade.valueToman), per, ''));
+    }
+    if (cards.length < 2) { host.innerHTML = ''; host.style.display = 'none'; if (title) title.style.display = 'none'; return; }
+    if (title) {
+      var ageMin = Math.round((Date.now() - bt.ts) / 60000);
+      var ageTxt = ageMin < 2 ? 'همین الان'
+        : ageMin < 90 ? U.fa(ageMin) + ' دقیقه پیش'
+        : ageMin < 36 * 60 ? U.fa(Math.round(ageMin / 60)) + ' ساعت پیش'
+        : 'آخرین جلسه';
+      title.style.display = '';
+      title.textContent = 'بورس تهران — فراتر از شاخصِ کل · منبع: bourse-trader.ir (از انتشارِ سرور) · ' + ageTxt;
+    }
+    host.innerHTML = cards.join('');
+    host.style.display = '';
+  }
+
   /* ---------------- نوار ماکرو ---------------- */
   function renderMacro() {
     var host = U.$('#macroStrip');
@@ -595,6 +675,7 @@
       m.n ? (m.ups >= 60 ? 'hot' : m.ups < 40 ? 'cold' : '') : ''));
     cards.push(bourseCard());
     host.innerHTML = cards.join('');
+    renderBourse();
   }
 
   /* ---------------- مودال‌ها ---------------- */

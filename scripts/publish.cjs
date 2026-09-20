@@ -849,7 +849,11 @@ async function main() {
   // تطبیقِ دو منبعِ شاخص: اگر هر دو آمدند و بیش از ۱٪ اختلاف داشتند، می‌گوییم
   if (marketOut && btDoc && btDoc.index && btDoc.index.p > 0) {
     const d = Math.abs(btDoc.index.p - marketOut.index.p) / marketOut.index.p;
-    if (d > 0.01) log('btrader', true, 'تطبیقِ شاخص با TGJU: ' + (d * 100).toFixed(1) + '٪ اختلاف (احتمالاً یکی زنده است و دیگری آخرین جلسه)');
+    if (d > 0.01) {
+      const pn = (SRC.btrader && SRC.btrader.note) ? SRC.btrader.note + '؛ ' : '';
+      log('btrader', true, pn + 'تطبیقِ شاخص با TGJU: ' + (d * 100).toFixed(1) +
+        '٪ اختلاف (یکی زنده است و دیگری آخرین جلسه)');
+    }
   }
   // اگر TGJU نیامد، شاخصِ بورس‌تریدر جایگزین می‌شود (با برچسبِ منبعِ خودش)
   if (!marketOut && btDoc && btDoc.index && btDoc.index.p > 0) {

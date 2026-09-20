@@ -266,6 +266,8 @@ label{display:block;font-size:.85rem;color:var(--mut);margin:14px 0 6px;font-wei
 
 /* ---------------- ماکرو + بازارها ---------------- */
 .macro-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+/* ردیف‌هایی که داده نرسیده پنهان می‌مانند (ویژگیِ hidden با display:grid کار نمی‌کند) */
+.macro-strip[hidden],.micro[hidden]{display:none!important}
 .mc{background:var(--card);border:1px solid var(--line);border-radius:var(--rad-s);padding:13px 16px}
 .mc small{display:block;font-size:.72rem;color:var(--dim)}
 .mc b{font-size:1.25rem;font-weight:900}

@@ -674,6 +674,25 @@
       } else {
         bourseCtx = idxTxt + '؛ جریانِ پولِ حقیقیِ بورس در دسترس نیست (منبعش از بیرون ایران پاسخ نمی‌دهد) — فقط زمینه.';
       }
+      /* تحرکاتِ صندوق‌ها و پهنا (مکملِ بورس‌تریدر): فقط زمینه و تأیید —
+         وزنی جداگانه نمی‌گیرند چون آستانه‌ی «چه مقداری بزرگ است» برای‌شان
+         اندازه‌گیری نشده؛ عدد را می‌گوییم، از روی آن حکم نمی‌سازیم. */
+      var bt = mk.bt;
+      if (bt) {
+        var btBits = [];
+        if (bt.funds && bt.funds.fixed) {
+          btBits.push('درآمد ثابت: ' + (bt.funds.fixed.netToman < 0 ? 'خروج ' : 'ورود ') + fMoney(Math.abs(bt.funds.fixed.netToman)));
+        }
+        if (bt.funds && bt.funds.commodity && Math.abs(bt.funds.commodity.netToman) >= 1e9) {
+          btBits.push('صندوق‌های طلا: ' + (bt.funds.commodity.netToman < 0 ? 'خروج ' : 'ورود ') + fMoney(Math.abs(bt.funds.commodity.netToman)));
+        }
+        if (bt.breadth) btBits.push('پهنا ' + U.fa(Math.round(bt.breadth.posPct)) + '٪ مثبت');
+        if (btBits.length) {
+          var btNote = 'صندوق‌ها و پهنا — ' + btBits.join('، ');
+          if (bourseScored) bourseScored += ' · ' + btNote;
+          else bourseCtx = (bourseCtx ? bourseCtx + ' ' : idxTxt + '. ') + btNote + '.';
+        }
+      }
     }
 
     // تصمیم
@@ -695,6 +714,16 @@
     else if (bourseCtx) reasons.push(bourseCtx);
     // ۶ سطر: پنج عاملِ اصلی + زمینه‌ی بورس (اگر جریانِ پول داشت، همان اول می‌آمد)
     return { mood: m, score: score, conf: conf, reasons: reasons.slice(0, 6), warns: warns.slice(0, 3), action: A, top: top, low: low, coverage: coverage, liveN: liveN, session: ses, weekly: wk, market: mk };
+  }
+
+  /** نمایشِ کوتاهِ مبالغِ ریالی-تومانیِ بورس (همت/میلیارد) — فقط برای متنِ حکم */
+  function fMoney(v) {
+    var a = Math.abs(+v);
+    if (!isFinite(a)) return '—';
+    if (a >= 1e12) return U.fa(String(+(a / 1e12).toFixed(2))) + ' همت';
+    if (a >= 1e9) return U.fa(Math.round(a / 1e9)) + ' میلیارد';
+    if (a >= 1e6) return U.fa(Math.round(a / 1e6)) + ' میلیون';
+    return U.fmt(Math.round(a)) + ' تومان';
   }
 
   var TONE_C = { hot: '#FF4E2E', warm: '#E8833A', neutral: '#9AA4AD', cold: '#3E8E9E', ice: '#7FB3D5' };

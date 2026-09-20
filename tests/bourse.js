@@ -145,6 +145,105 @@ function boot(fetchFn, opts) {
   return { dom, window, d: window.document, GS: window.GS, errors };
 }
 
+/* ============================================================
+   ۲ونیم) بورس‌تریدر: پارسرِ HTML و نگهبان‌هایش
+   منبعِ شواهد: reports/probe-bourse.md (خروجیِ پارسر روی صفحه‌ی زنده،
+   که با مقدارِ چاپ‌شده در خودِ صفحه تطبیق داده شد).
+   ============================================================ */
+const BT_HTML = fs.readFileSync(path.join(__dirname, 'fixtures', 'bourse-trader.html'), 'utf8');
+
+t('btNum: T/B/M/K و ارقامِ فارسی و پرانتزِ درصد', () => {
+  assert.strictEqual(P.btNum('25,489T'), 25489e12);
+  assert.strictEqual(P.btNum('-1.8T'), -1.8e12);
+  assert.strictEqual(P.btNum('-745.6B'), -745.6e9);
+  assert.strictEqual(P.btNum('56.9M'), 56.9e6);
+  assert.strictEqual(P.btNum('-654.6K'), -654600);
+  assert.strictEqual(P.btNum('56,577.0'), 56577);
+  assert.strictEqual(P.btNum('0'), 0);
+  assert.strictEqual(P.btNum('\u06F7,\u06F2\u06F9\u06F8,\u06F5\u06F0\u06F0'), 7298500, 'ارقام فارسی');
+  assert.strictEqual(P.btNum('110.6B $'), 110.6e9);
+  assert.strictEqual(P.btNum(''), null);
+  assert.strictEqual(P.btNum('نامشخص'), null);
+});
+
+t('btCount: «(14%) 126» و «919»', () => {
+  assert.deepStrictEqual(P.btCount('(14%) 126'), { pct: 14, n: 126 });
+  assert.deepStrictEqual(P.btCount('919'), { pct: null, n: 919 });
+  assert.strictEqual(P.btCount('-'), null);
+});
+
+t('parseBourseTrader: خروجیِ کامل روی شکلِ واقعیِ صفحه', () => {
+  const r = P.parseBourseTrader(BT_HTML);
+  assert.strictEqual(r.ok, true, JSON.stringify(r).slice(0, 200));
+  assert.strictEqual(r.index.p, 7298500);
+  assert.strictEqual(r.index.chg, -150339);
+  assert.strictEqual(r.index.chgPct, -2.0183);
+  assert.strictEqual(r.equal.p, 1950840);
+  assert.strictEqual(r.fara.p, 56577);
+  assert.strictEqual(r.cap, 25489e12);
+  assert.strictEqual(r.flow.netToman, -1.8e12, 'خروجِ ۱.۸ همت پولِ حقیقی از خرد');
+  assert.ok(Math.abs(r.flow.ratio + 0.2337) < 0.001, 'ratio=' + r.flow.ratio);
+  assert.strictEqual(r.trade.valueToman, 7.7e12);
+  assert.strictEqual(r.trade.volume, 13.1e9);
+  assert.strictEqual(r.funds.fixed.netToman, -745.6e9, 'صندوق‌های درآمد ثابت');
+  assert.strictEqual(r.funds.equity.netToman, -425e9, 'صندوق‌های سهامی');
+  assert.deepStrictEqual(r.funds.commodity, { netToman: 0, valueToman: null }, 'کالایی معامله نداشت');
+  assert.strictEqual(r.breadth.pos, 126);
+  assert.strictEqual(r.breadth.neg, 793);
+  assert.strictEqual(r.breadth.total, 919);
+  assert.ok(Math.abs(r.breadth.posPct - 13.71) < 0.05, 'posPct=' + r.breadth.posPct);
+  assert.strictEqual(r.breadth.queueBuy, 64);
+  assert.strictEqual(r.breadth.queueSell, 509);
+  assert.strictEqual(r.perCapita.buy, 51.8);
+  assert.strictEqual(r.perCapita.sell, 135.6);
+  assert.deepStrictEqual(r.missing, []);
+});
+
+t('parseBourseTrader: آشغال پذیرفته نمی‌شود', () => {
+  assert.strictEqual(P.parseBourseTrader('').ok, false);
+  assert.strictEqual(P.parseBourseTrader('<html>هیچ</html>').ok, false);
+  assert.strictEqual(P.parseBourseTrader('<html><body>شاخص کل</body></html>').ok, false, 'بدون جدول');
+});
+
+t('parseBourseTrader: نسبتِ غیرممکنِ جریان رد می‌شود (عددِ غلط از عددِ نیست بهتر است)', () => {
+  // خالصِ ۹ همت با ارزشِ معاملاتِ ۱ همت ناممکن است — ساختار عوض شده یا مقیاس غلط
+  const bad = BT_HTML.replace("<td class='text-danger payeshKhord'>-1.8T</td>", "<td class='text-danger payeshKhord'>-9T</td>");
+  const r = P.parseBourseTrader(bad);
+  assert.strictEqual(r.flow, null, 'جریان باید رد شود');
+  assert.ok(r.missing.indexOf('جریانِ خرد نامعقول') >= 0, JSON.stringify(r.missing));
+  // اما بقیه‌ی بخش‌ها که سالم‌اند حذف نمی‌شوند
+  assert.strictEqual(r.index.p, 7298500);
+  assert.strictEqual(r.breadth.pos, 126);
+});
+
+t('parseBourseTrader: شاخصِ خارج از بازه رد می‌شود، بقیه می‌ماند', () => {
+  const bad = BT_HTML.replace('7,298,500', '12');
+  const r = P.parseBourseTrader(bad);
+  assert.strictEqual(r.index, null, 'شاخص ۱۲ واحدی آشغال است');
+  assert.strictEqual(r.ok, true, 'بقیه‌ی بخش‌ها معتبرند');
+  assert.strictEqual(r.equal.p, 1950840);
+});
+
+t('parseBourseTrader: صندوقی که خالصش از کلِ معاملاتش بیشتر باشد رد می‌شود', () => {
+  const bad = BT_HTML.replace("<td class='text-danger'>-745.6B</td>", "<td class='text-danger'>-99T</td>");
+  const r = P.parseBourseTrader(bad);
+  assert.strictEqual(r.funds.fixed, null, 'نگهبانِ صندوق');
+  assert.strictEqual(r.funds.equity.netToman, -425e9, 'صندوقِ سهامی سالم است');
+});
+
+t('tseSessionOpen: فقط شنبه تا چهارشنبه در ساعتِ بازار', () => {
+  // ۲۰۲۶-۰۹-۲۰ یکشنبه (۰۹:۰۰ و ۱۲:۰۰ تهران) و ۲۰۲۶-۰۹-۲۵ جمعه
+  const tehran = (y, mo, d, h, mi) => Date.UTC(y, mo - 1, d, h - 3, mi - 30);
+  assert.strictEqual(P.tseSessionOpen(tehran(2026, 9, 20, 9, 0)), true, 'یکشنبه ۹ صبح');
+  assert.strictEqual(P.tseSessionOpen(tehran(2026, 9, 20, 12, 0)), true, 'یکشنبه ظهر');
+  assert.strictEqual(P.tseSessionOpen(tehran(2026, 9, 19, 10, 0)), true, 'شنبه');
+  assert.strictEqual(P.tseSessionOpen(tehran(2026, 9, 23, 10, 0)), true, 'سه‌شنبه');
+  assert.strictEqual(P.tseSessionOpen(tehran(2026, 9, 24, 10, 0)), false, 'پنجشنبه تعطیل');
+  assert.strictEqual(P.tseSessionOpen(tehran(2026, 9, 25, 10, 0)), false, 'جمعه تعطیل');
+  assert.strictEqual(P.tseSessionOpen(tehran(2026, 9, 20, 17, 0)), false, 'بعد از بسته‌شدن');
+  assert.strictEqual(P.tseSessionOpen(tehran(2026, 9, 20, 6, 0)), false, 'قبل از بازگشایی');
+});
+
 const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.now() - 3600000, day: '2026-09-19', src: 'TGJU' }, day: '2026-09-19', src: 'TGJU' };
 
 (async () => {
@@ -299,10 +398,11 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     await GS.data.bootAll(); await wait(300);
     GS.features.renderHealth();
     const rows = d.querySelectorAll('#healthTable .h-row');
-    assert.strictEqual(rows.length, 15);
+    assert.strictEqual(rows.length, 16, '۱۵ منبع + بورس‌تریدر');
     const txt = Array.prototype.map.call(rows, (r) => r.textContent).join(' | ');
     assert.ok(txt.indexOf('شاخص بورس') >= 0, txt.slice(0, 200));
     assert.ok(txt.indexOf('جریان پول بورس') >= 0);
+    assert.ok(txt.indexOf('بورس‌تریدر') >= 0, 'ردیفِ منبعِ مکمل باید باشد');
     W.close();
     GS.data.clearCache();
   });
@@ -446,6 +546,62 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     // انتشارِ قدیمی‌تر بعدی نباید آن را عوض کند
     GS.data._ingest('live', { quotes: withFlow.quotes, market: withFlow.market, at: Date.now() });
     assert.strictEqual(GS.data.market().flow.netToman, -5e12, 'انتشارِ قدیمی نباید جریانِ تازه را بپوشاند');
+    W.close(); GS.data.clearCache();
+  });
+
+  /* ---- ۳ط) مکملِ بورس‌تریدر روی کلاینت ---- */
+  const MK_BT = Object.assign({}, MK_SESSION, {
+    flow: { netToman: -1.8e12, ratio: -0.2337, src: 'BourseTrader', ts: Date.now() - 600000 },
+    bt: {
+      ts: Date.now() - 600000, src: 'BourseTrader', fresh: true,
+      index: { p: 7298500, chgPct: -2.0183 },
+      equal: { p: 1950840, chgPct: -1.8083 },
+      fara: { p: 56577, chgPct: -1.7196 },
+      cap: 25489e12,
+      trade: { valueToman: 7.7e12, volume: 13.1e9 },
+      funds: { equity: { netToman: -425e9, valueToman: 1e12 }, fixed: { netToman: -745.6e9, valueToman: 3.1e12 }, commodity: { netToman: 0, valueToman: null }, option: { netToman: -654600, valueToman: 213.6e9 } },
+      breadth: { pos: 126, neg: 793, total: 919, posPct: 13.71, queueBuy: 64, queueSell: 509 },
+      perCapita: { buy: 51.8, sell: 135.6 }
+    }
+  });
+
+  await ta('مکملِ بورس‌تریدر: کارت‌های هم‌وزن/فرابورس/صندوق‌ها/پهنا رندر می‌شوند', async () => {
+    const { GS, d, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_BT)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    const mk = GS.data.market();
+    assert.ok(mk.bt, 'مکمل باید به مدل راه یافته باشد');
+    assert.strictEqual(mk.bt.equal.p, 1950840);
+    assert.strictEqual(mk.bt.funds.fixed.netToman, -745.6e9);
+    GS.ui.renderMacro();
+    const cards = d.querySelectorAll('#bourseStrip .mc');
+    assert.ok(cards.length >= 6, 'حداقل ۶ کارتِ مکمل: ' + cards.length);
+    const txt = Array.prototype.map.call(cards, (c) => c.textContent).join(' | ');
+    assert.ok(txt.indexOf('شاخص هم‌وزن') >= 0, txt);
+    assert.ok(txt.indexOf('شاخص کل فرابورس') >= 0, txt);
+    assert.ok(txt.indexOf('صندوق‌های درآمد ثابت') >= 0, txt);
+    assert.ok(txt.indexOf('خروج') >= 0, txt);
+    assert.ok(txt.indexOf('پهنای بازار') >= 0, txt);
+    assert.ok(txt.indexOf('ارزشِ معاملاتِ خرد') >= 0, txt);
+    assert.strictEqual(d.querySelector('#bourseStrip').style.display, '', 'ردیف باید دیده شود');
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('مکملِ بورس‌تریدر: اگر نیامده باشد هیچ کارتی ساخته نمی‌شود', async () => {
+    const { GS, d, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    assert.strictEqual(GS.data.market().bt, null);
+    GS.ui.renderMacro();
+    assert.strictEqual(d.querySelectorAll('#bourseStrip .mc').length, 0, 'کارتِ خالی ممنوع');
+    assert.strictEqual(d.querySelector('#bourseStrip').style.display, 'none', 'ردیف باید پنهان بماند');
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('مکملِ بورس‌تریدر: مکملِ نامعتبر (مقیاسِ غلط) دور ریخته می‌شود', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    const bad = liveDoc(Object.assign({}, MK_SESSION, { bt: { ts: Date.now(), src: 'BourseTrader', index: { p: 12 }, equal: { p: -5 }, funds: { fixed: { netToman: 9e30 } }, breadth: { pos: -3, neg: -4 } } }));
+    GS.data._ingest('live', { quotes: bad.quotes, market: bad.market, at: Date.now() });
+    assert.strictEqual(GS.data.market().bt, null, 'هیچ بخشِ معتبری نمانده بود');
     W.close(); GS.data.clearCache();
   });
 

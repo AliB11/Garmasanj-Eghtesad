@@ -744,6 +744,59 @@
      و تخمین زدنِ آن از روی شاخص، عددسازی است. وقتی منبعی پیدا شد
      (مرورگرِ کاربرِ داخل ایران یا منبعِ کلیددار)، همین شیء پر می‌شود.
      ============================================================ */
+  /**
+   * شکل‌دهی و نگهبانیِ «مکملِ بورس‌تریدر».
+   * چرا نگهبان؟ این داده از یک صفحه‌ی HTML استخراج می‌شود؛ اگر ساختارِ صفحه عوض
+   * شود یا عددی با مقیاسِ غلط بیاید، همان بخش دور ریخته می‌شود (سکوت، نه عددِ غلط).
+   */
+  function btShape(x) {
+    if (!x || typeof x !== 'object') return null;
+    function idx(v, lo, hi) {
+      if (!v || !(+v.p > 0) || +v.p < lo || +v.p > hi) return null;
+      return { p: +v.p, chgPct: (v.chgPct != null && isFinite(+v.chgPct) && Math.abs(+v.chgPct) <= 20) ? +v.chgPct : null };
+    }
+    function money(v) {
+      if (!v || !isFinite(+v.netToman)) return null;
+      if (Math.abs(+v.netToman) > 1e17) return null;
+      var val = (v.valueToman != null && isFinite(+v.valueToman) && +v.valueToman > 0) ? +v.valueToman : null;
+      return { netToman: +v.netToman, valueToman: val };
+    }
+    var out = { ts: +x.ts || Date.now(), src: x.src || 'BourseTrader', fresh: x.fresh !== false };
+    out.index = idx(x.index, 1e5, 5e8);
+    out.equal = idx(x.equal, 1e3, 5e8);
+    out.fara = idx(x.fara, 1e2, 5e8);
+    out.cap = (+x.cap > 1e13 && +x.cap < 1e20) ? +x.cap : null;
+    out.funds = x.funds ? {
+      equity: money(x.funds.equity), fixed: money(x.funds.fixed),
+      commodity: money(x.funds.commodity), option: money(x.funds.option)
+    } : null;
+    var b = x.breadth;
+    if (b && +b.pos >= 0 && +b.neg >= 0 && (+b.pos + +b.neg) > 0) {
+      var p = +b.pos, nq = +b.neg;
+      out.breadth = {
+        pos: p, neg: nq,
+        total: (+b.total >= p + nq) ? +b.total : p + nq,
+        posPct: (b.posPct != null && isFinite(+b.posPct) && +b.posPct >= 0 && +b.posPct <= 100) ? +b.posPct : (p / (p + nq)) * 100,
+        queueBuy: (b.queueBuy != null && isFinite(+b.queueBuy)) ? +b.queueBuy : null,
+        queueSell: (b.queueSell != null && isFinite(+b.queueSell)) ? +b.queueSell : null
+      };
+    } else out.breadth = null;
+    var tr = x.trade;
+    out.trade = (tr && ((+tr.valueToman > 0) || (+tr.volume > 0))) ? {
+      valueToman: (+tr.valueToman > 0 && +tr.valueToman < 1e17) ? +tr.valueToman : null,
+      volume: (+tr.volume > 0 && +tr.volume < 1e14) ? +tr.volume : null
+    } : null;
+    var pc = x.perCapita;
+    out.perCapita = (pc && ((+pc.buy > 0) || (+pc.sell > 0))) ? {
+      buy: (+pc.buy > 0 && +pc.buy < 1e8) ? +pc.buy : null,
+      sell: (+pc.sell > 0 && +pc.sell < 1e8) ? +pc.sell : null
+    } : null;
+    // اگر هیچ بخشِ معتبری نماند، کلِ مکمل را نگه نمی‌داریم
+    var any = out.index || out.equal || out.fara || out.cap || out.trade || out.breadth || out.perCapita ||
+      (out.funds && (out.funds.equity || out.funds.fixed || out.funds.commodity || out.funds.option));
+    return any ? out : null;
+  }
+
   function setMarket(m, origin) {
     if (!m || !m.index || !(m.index.p > 0)) return false;
     var ix = m.index;
@@ -769,6 +822,9 @@
         ts: f.ts || m.asOf || Date.now()
       };
     }
+    // مکملِ بورس‌تریدر (هم‌وزن/فرابورس/صندوق‌ها/پهنا) — با نگهبانِ شکل و واحد
+    MARKET.bt = btShape(m.bt);
+    if (prev && prev.bt && !MARKET.bt) MARKET.bt = prev.bt;
     // جریانِ پول ممکن است از کلیدِ شخصیِ کاربر (مرورگر) آمده باشد؛
     // انتشارِ سرور نباید آن را پاک کند، و اگر هر دو دارند، تازه‌تر برنده است
     if (prev && prev.flow) {
@@ -784,6 +840,14 @@
     markSrc('tse', true, 'شاخص کل ' + U.fmt(Math.round(MARKET.p)) + ' (جلسه ' + dayFa + ')' + flowNote);
     if (MARKET.flow) markSrc('tsetmc', true, 'جریانِ پولِ حقیقی از ' + MARKET.flow.src);
     else markIdle('tsetmc', 'TSETMC از IP خارجی پاسخ نمی‌دهد — فقط از مرورگرِ داخل ایران یا منبعِ کلیددار');
+    if (MARKET.bt) {
+      var ageH = (Date.now() - MARKET.bt.ts) / 3600000;
+      var bits = [];
+      if (MARKET.bt.equal) bits.push('هم‌وزن ' + U.fmt(Math.round(MARKET.bt.equal.p)));
+      if (MARKET.bt.funds && MARKET.bt.funds.fixed) bits.push('درآمد ثابت ' + (MARKET.bt.funds.fixed.netToman < 0 ? 'خروج' : 'ورود'));
+      if (MARKET.bt.breadth) bits.push('پهنا ' + U.fa(Math.round(MARKET.bt.breadth.posPct)) + '٪ مثبت');
+      markSrc('btrader', true, (bits.join(' · ') || 'مکملِ بورس') + (ageH >= 6 ? ' (آخرین جلسه)' : ''));
+    } else markIdle('btrader', 'بیرون از ساعتِ بازار است یا صفحه در دسترس نبود — از انتشارِ بعدی');
     return true;
   }
 
@@ -838,7 +902,9 @@
       ageDays: ageDays,
       stale: ageDays > 4,          // بیش از ۴ روز یعنی حتی یک جلسه هم عقب نیستیم... بلکه خیلی عقبیم
       flow: MARKET.flow || null,
-      flowRatio: (MARKET.flow && MARKET.flow.ratio != null) ? MARKET.flow.ratio : null
+      flowRatio: (MARKET.flow && MARKET.flow.ratio != null) ? MARKET.flow.ratio : null,
+      bt: MARKET.bt || null,
+      btAgeH: MARKET.bt ? (Date.now() - MARKET.bt.ts) / 3600000 : null
     };
   }
 
