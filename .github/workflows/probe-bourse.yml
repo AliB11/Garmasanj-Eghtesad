@@ -1,0 +1,27 @@
+# گرماسنج — پروبِ امکان‌سنجیِ بورس (فقط اجرای دستی)
+# چرا؟ اینکه منابعِ بورس از IPِ خارجیِ GitHub Actions در دسترس هستند یا نه،
+# فقط با اجرای واقعی معلوم می‌شود. این جریان فقط می‌خواند و هیچ فایلِ
+# داده‌ای (live.json / history.json) را تغییر نمی‌دهد.
+name: پروب بورس
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: اجرای پروب
+        run: node scripts/probe_bourse.cjs
