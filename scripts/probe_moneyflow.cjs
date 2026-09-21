@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const UA = 'garmasanj-probe/1.0 (+https://github.com/AliB11/Garmasanj-Eghtesad)';
 const TIMEOUT = 20000;
@@ -85,6 +86,48 @@ function findApiUrls(html, cap) {
   return [...out];
 }
 
+/**
+ * چرا یک نشانی از رانر جواب نمی‌دهد؟ «fetch failed» پنج علتِ مختلف دارد
+ * (DNS، TCP، TLS، WAF، HTTP) و فقط curl تفاوت‌شان را می‌گوید.
+ */
+function curlDiag(url, extraArgs) {
+  const args = (extraArgs || '').trim();
+  try {
+    const out = execSync(
+      'curl -sS -v --max-time 18 -o /dev/null ' + args + ' ' + JSON.stringify(url) + ' 2>&1',
+      { encoding: 'utf8', maxBuffer: 8e6, stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+    const keep = out.split('\n').filter((l) =>
+      /Trying|Connected|subject:|issuer:|SSL|TLS|HTTP\/|error|refused|timed out|resolve|Could not|alert|handshake|Location:|< HTTP/i.test(l)
+    ).map((l) => l.replace(/\s+/g, ' ').trim());
+    return keep.slice(0, 14).join(' ⏎ ') || '(خروجیِ مفیدی نبود)';
+  } catch (e) {
+    return 'curl خطا داد: ' + clean(String((e && e.stdout) || e.message), 300);
+  }
+}
+
+/** نمودارهای توکارِ صفحه: هر نمودارِ Highchartsِ سمت‌سرور یک سریِ درون‌جلسه‌ای است */
+function findCharts(html, cap) {
+  const out = [];
+  const re = /<div class="pre_chart[^"]*" id="([A-Za-z0-9_\-]+)"/g;
+  let m;
+  while ((m = re.exec(html)) && out.length < (cap || 30)) {
+    const chunk = html.slice(m.index, m.index + 7000);
+    const title = (chunk.match(/title\s*:\s*\{\s*text\s*:\s*['"]([^'"]{2,140})['"]/) || [])[1] || null;
+    const sub = (chunk.match(/subtitle\s*:\s*\{\s*text\s*:\s*['"]([^'"]{0,140})['"]/) || [])[1] || null;
+    const cats = (chunk.match(/categories\s*:\s*\[([^\]]{0,900})\]/) || [])[1] || null;
+    const series = [];
+    const sre = /name\s*:\s*["']([^"']{1,60})["']\s*,\s*data\s*:\s*\[([^\]]{0,3000})\]/g;
+    let sm;
+    while ((sm = sre.exec(chunk)) && series.length < 6) {
+      const data = sm[2].split(',').map((s) => s.trim()).filter(Boolean);
+      series.push({ name: sm[1], n: data.length, first: data[0], last: data[data.length - 1], sample: data.slice(0, 8).join(',') });
+    }
+    out.push({ id: m[1], title: title, sub: sub, cats: cats ? clean(cats, 260) : null, series: series });
+  }
+  return out;
+}
+
 /** بلوک‌های داده‌یِ توکار (JSONِ سمت‌سرور) */
 function findInlineJson(html) {
   const out = [];
@@ -130,6 +173,37 @@ function findInlineJson(html) {
     say(`| \`${c.tag}\` | ${r.ok ? '✅ ' + r.status : '❌ ' + r.status} | ${r.bytes} | ${r.ms} | \`${md(r.type, 40)}\` | ${md(r.note || c.want, 70)} |`);
   }
   say('');
+
+  /* ---------- ۱٫۱) اگر تابلوخوانی جواب نداد، چرا؟ ---------- */
+  if (!got['tk.home'] || !got['tk.home'].ok) {
+    say('## ۱٫۱) کالبدشکافیِ شکستِ تابلوخوانی (curl)');
+    say('');
+    say('`fetch failed` پنج علتِ ممکن دارد: DNS، TCP، TLS، WAF و HTTP. فقط curl فرق‌شان را می‌گوید.');
+    say('');
+    try {
+      say('- DNS: `' + md(execSync('getent hosts tablokhani.com || echo "بدون پاسخ"', { encoding: 'utf8' }), 160) + '`');
+    } catch (e) { say('- DNS: نامشخص'); }
+    const diags = [
+      ['پیش‌فرض (https)', 'https://tablokhani.com/', ''],
+      ['روی www', 'https://www.tablokhani.com/', ''],
+      ['روی http (پورت ۸۰)', 'http://tablokhani.com/', ''],
+      ['با هدرهای مرورگر', 'https://tablokhani.com/',
+        "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36' -H 'Accept: text/html,application/xhtml+xml' -H 'Accept-Language: fa-IR,fa;q=0.9'"],
+      ['با HTTP/1.1', 'https://tablokhani.com/', '--http1.1'],
+      ['زیردامنه‌ی api', 'https://api.tablokhani.com/', ''],
+    ];
+    for (const d of diags) {
+      say('- **' + d[0] + '** → `' + d[1] + '`');
+      say('  ```');
+      say('  ' + md(curlDiag(d[1], d[2]), 900));
+      say('  ```');
+    }
+    say('');
+    say('> اگر فقط «resolve/TCP/TLS» شکست خورده باشد، مشکلِ شبکه است؛');
+    say('> اگر `403/503` با WAF برگشته باشد، مسیرِ سمت‌سرور بسته است و این منبع');
+    say('> فقط از مرورگرِ کاربر (مثلِ TSETMC) یا با واسطه‌ای دیگر در دسترس است.');
+    say('');
+  }
 
   /* ---------- ۲) تابلوخوانی: ساختارِ خام ---------- */
   say('## ۲) تابلوخوانی — ساختارِ خامِ صفحه‌ی اصلی');
@@ -255,6 +329,20 @@ function findInlineJson(html) {
       });
       say('');
       say('- جلسه‌ی تهران باز است؟ ' + (P.tseSessionOpen(Date.now()) ? 'بله' : 'خیر'));
+      say('');
+      say('### ۵٫۳) نمودارهای توکار (سری‌های درون‌جلسه‌ای)');
+      say('');
+      const charts = findCharts(bt.text, 30);
+      say('- تعداد نمودار: ' + charts.length);
+      charts.forEach((c) => {
+        say('- **`' + c.id + '`** — ' + (c.title ? '`' + md(c.title, 90) + '`' : '(بی‌عنوان)') +
+          (c.sub ? ' · زیرعنوان: `' + md(c.sub, 80) + '`' : ''));
+        if (c.cats) say('  - محورِ زمان: `' + md(c.cats, 220) + '`');
+        (c.series || []).forEach((s) => {
+          say('  - سری «' + md(s.name, 40) + '»: ' + s.n + ' نقطه · اول: `' + md(s.first, 18) +
+            '` · آخر: `' + md(s.last, 18) + '` · نمونه: `' + md(s.sample, 150) + '`');
+        });
+      });
     }
   }
   say('');

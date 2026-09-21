@@ -4,19 +4,35 @@
 # assets/data/history.json کامیت می‌شود.
 #
 # نکته‌ی صادقانه: زمان‌بندی cron گیت‌هاب «تلاش حداکثری» است و در عمل
-# */15 حدود ۵ تا ۸ بار در روز اجرا می‌شود. برای جبران، هر اجرا چند دور
-# (ROUNDS) با فاصله‌ی INTERVAL_MIN دقیقه منتشر می‌کند.
+# یک cronِ */15 حدود ۵ تا ۸ بار در روز اجرا می‌شود — برای همین اینجا
+# سه لایه داریم تا «هر یک ساعت» واقعاً رعایت شود:
+#   ۱) ضربانِ ساعتی (cron روی دقیقه‌ی ۵ و ۳۵) — اگر یک ضربان پرید، دیگری هست
+#   ۲) حلقه‌ی درون‌کار: هر اجرا چند دور (ROUNDS) با فاصله‌ی INTERVAL_MIN
+#      منتشر می‌کند، پس یک اجرا تا ROUNDS×INTERVAL_MIN دقیقه جلوتر را هم می‌پوشاند
+#   ۳) نگهبانِ ساعتی (hourly.yml) که با یک کارِ بلندمدت، ساعت‌به‌ساعت منتشر
+#      می‌کند و جبران می‌کند اگر کلّ یک ساعت cron اجرا نشد
+# لایه‌ی چهارم (اختیاری): repository_dispatch — یک کرونِ بیرونی رایگان
+# (مثل cron-job.org) می‌تواند هر ساعت این جریان را صدا بزند؛
+# راهنما در docs/UPDATE_SCHEDULE_FA.md
 name: انتشار زنده قیمت‌ها
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/15 * * * *'   # تلاشِ پرتکرار (بهترین‌تلاشی)
+    - cron: '5 * * * *'      # ضربانِ ساعتی
+    - cron: '35 * * * *'     # ضربانِ ساعتیِ دوم (میان‌ساعت)
   workflow_dispatch:
     inputs:
       rounds:
         description: 'تعداد دورهای انتشار در این اجرا'
-        default: '3'
+        default: '2'
         required: false
+      interval:
+        description: 'فاصله‌ی بین دورها (دقیقه)'
+        default: '45'
+        required: false
+  repository_dispatch:
+    types: [publish]
 
 permissions:
   contents: write
@@ -26,8 +42,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ROUNDS: ${{ github.event.inputs.rounds || '3' }}
-  INTERVAL_MIN: '15'
+  ROUNDS: ${{ github.event.inputs.rounds || '2' }}
+  INTERVAL_MIN: ${{ github.event.inputs.interval || '45' }}
+  # اگر انتشارِ روی دیسک از این حد تازه‌تر باشد، این اجرا کاری نمی‌کند
+  # (جلوی انتشارِ دوبارهِ بی‌فایده وقتی دو جریان هم‌زمان بیدار می‌شوند).
+  MIN_GAP_MIN: ${{ github.event.inputs.min_gap || '20' }}
   # مسیرهای کلیددار (اختیاری): اگر این Secrets تنظیم شوند، ناشر از آن‌ها هم
   # استفاده می‌کند؛ اگر نباشند، این مسیرها کاملاً خاموش می‌مانند.
   # کلیدها هرگز وارد کد، لاگ یا فایلِ داده نمی‌شوند.
@@ -37,7 +56,8 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # دو دورِ ۴۵ دقیقه‌ای = ۴۵ دقیقه + حاشیه برای واکشی و کامیت
+    timeout-minutes: 115
     steps:
       - name: دریافت کد
         uses: actions/checkout@v4
@@ -75,9 +95,20 @@ jobs:
             return 0
           }
 
+          # قبل از هر دور، شاخه را با بالادست هماهنگ کن: اگر جریانِ دیگری
+          # (مثلاً نگهبانِ ساعتی) در همین فاصله منتشر کرده باشد، تغییراتش
+          # از دست نمی‌رود و تاریخچه روی همان کامیتِ قبلی ادامه پیدا می‌کند.
+          sync_repo() {
+            git pull -q --rebase --autostash || {
+              git rebase --abort || true
+              git reset -q --hard @{upstream} || git reset -q --hard HEAD
+            }
+          }
+
           for r in $(seq 1 "$ROUNDS"); do
             echo "── round $r/$ROUNDS  $(date -u +%FT%TZ)"
-            node scripts/publish.cjs || echo "::warning::publish round $r failed"
+            if [ "$r" -gt 1 ]; then sync_repo; fi
+            node scripts/publish.cjs --min-gap="$MIN_GAP_MIN" || echo "::warning::publish round $r failed"
             commit_and_push
             if [ "$r" -lt "$ROUNDS" ]; then sleep $(( INTERVAL_MIN * 60 )); fi
           done

@@ -680,7 +680,32 @@ async function fetchTGJU(log) {
   return win ? win.current : null;
 }
 
+/**
+ * مهارِ «دورِ بی‌فایده»: اگر انتشارِ روی دیسک از MIN_GAP_MIN دقیقه تازه‌تر باشد،
+ * این اجرا هیچ کاری نمی‌کند (بدون واکشی، بدون کامیت).
+ * چرا؟ چند جریان (ضربانِ ساعتی + نگهبانِ ساعتی) ممکن است هم‌زمان بیدار شوند؛
+ * انتشارِ دوبارهِ پشتِ‌هم فقط ترافیکِ بی‌دلیل روی منابعِ عمومی است.
+ *   node scripts/publish.cjs --min-gap=20
+ */
+function freshEnough(minutes) {
+  const m = Math.max(0, +minutes || 0);
+  if (!m) return 0;
+  try {
+    const j = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+    const age = (Date.now() - Date.parse(j && j.generated_at)) / 60000;
+    return (isFinite(age) && age >= 0 && age < m) ? age : 0;
+  } catch (e) { return 0; }
+}
+
 async function main() {
+  const argGap = (process.argv.slice(2).find((a) => a.startsWith('--min-gap=')) || '').split('=')[1];
+  const skipAge = freshEnough(argGap);
+  if (skipAge) {
+    console.log('PUBLISH SKIP: انتشارِ روی دیسک ' + skipAge.toFixed(1) + ' دقیقه پیش بوده' +
+      ' (حداقل فاصله: ' + argGap + ' دقیقه) — منبعی واکشی نشد.');
+    return;
+  }
+
   const SRC = {};
   const log = (id, ok, note, ms) => { SRC[id] = { ok: !!ok, ms: ms || null, note: note || '' }; };
   const now = Date.now();
