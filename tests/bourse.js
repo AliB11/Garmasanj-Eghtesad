@@ -397,11 +397,12 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     await GS.data.bootAll(); await wait(300);
     GS.features.renderHealth();
     const rows = d.querySelectorAll('#healthTable .h-row');
-    assert.strictEqual(rows.length, 16, '۱۵ منبع + بورس‌تریدر');
+    assert.strictEqual(rows.length, 17, '۱۵ منبع + بورس‌تریدر + تابلوخوانی');
     const txt = Array.prototype.map.call(rows, (r) => r.textContent).join(' | ');
     assert.ok(txt.indexOf('شاخص بورس') >= 0, txt.slice(0, 200));
     assert.ok(txt.indexOf('جریان پول بورس') >= 0);
     assert.ok(txt.indexOf('بورس‌تریدر') >= 0, 'ردیفِ منبعِ مکمل باید باشد');
+    assert.ok(txt.indexOf('تابلوخوانی') >= 0, 'ردیفِ تابلوخوانی باید باشد');
     W.close();
     GS.data.clearCache();
   });
@@ -601,6 +602,242 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     const bad = liveDoc(Object.assign({}, MK_SESSION, { bt: { ts: Date.now(), src: 'BourseTrader', index: { p: 12 }, equal: { p: -5 }, funds: { fixed: { netToman: 9e30 } }, breadth: { pos: -3, neg: -4 } } }));
     GS.data._ingest('live', { quotes: bad.quotes, market: bad.market, at: Date.now() });
     assert.strictEqual(GS.data.market().bt, null, 'هیچ بخشِ معتبری نمانده بود');
+    W.close(); GS.data.clearCache();
+  });
+
+
+  /* ============================================================
+     ۵) روندِ پول — عمیق‌تر شدنِ «ورود و خروجِ پول»
+     ============================================================ */
+
+  /* تاریخچه‌ی مصنوعی برای زمینه‌ی «این هفته» (بدون وابستگی به فایلِ واقعیِ مخزن) */
+  const HIST_DOC = (() => {
+    const now = Date.now(), OFF = 3.5 * 3600e3, daily = {};
+    const base = { USD: 230000, G18: 23800000, EMAMI: 237000000 };
+    const step = { USD: 100, G18: 10000, EMAMI: 500000 };
+    Object.keys(base).forEach((s) => {
+      const arr = [];
+      for (let i = 13; i >= 0; i--) {
+        const t = now - i * 86400e3;
+        const day = new Date(t + OFF).toISOString().slice(0, 10);
+        const p = base[s] - i * step[s];
+        arr.push([day, p, Math.round(p * 1.01), Math.round(p * 0.99)]);
+      }
+      daily[s] = arr;
+    });
+    return { version: 1, generated_at: new Date().toISOString(), recent: {}, daily: daily };
+  })();
+
+  /* ---- ۵الف) ارزشِ صف‌ها (پولِ پشتِ صف) با نگهبان ---- */
+  await ta('پولِ پشتِ صف: پذیرش و نگهبانِ سهمِ ناممکن', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    const okDoc = liveDoc(Object.assign({}, MK_SESSION, { bt: { ts: Date.now(), src: 'BourseTrader', queue: { buyToman: 5.5e12, sellToman: 21.7e12, netToman: -16.2e12, buyShare: 5.5 / 27.2 } } }));
+    GS.data._ingest('live', { quotes: okDoc.quotes, market: okDoc.market, at: Date.now() });
+    let mk = GS.data.market();
+    assert.ok(mk.bt && mk.bt.queue, 'بخشِ صف‌ها باید به مدل راه یابد');
+    assert.strictEqual(mk.bt.queue.buyToman, 5.5e12);
+    assert.strictEqual(mk.bt.queue.netToman, -16.2e12);
+    assert.ok(Math.abs(mk.bt.queue.buyShare - 5.5 / 27.2) < 1e-9);
+
+    // سهمِ ناممکن (بزرگ‌تر از ۱) باید دور ریخته و دوباره حساب شود
+    const badDoc = liveDoc(Object.assign({}, MK_SESSION, { bt: { ts: Date.now(), src: 'BourseTrader', queue: { buyToman: 1e12, sellToman: 2e12, netToman: -1e12, buyShare: 4.5 } } }));
+    GS.data._ingest('live', { quotes: badDoc.quotes, market: badDoc.market, at: Date.now() });
+    mk = GS.data.market();
+    assert.ok(mk.bt.queue, 'صف‌ها هنوز معتبرند');
+    assert.ok(Math.abs(mk.bt.queue.buyShare - 1 / 3) < 1e-9, 'سهمِ ناممکن باید اصلاح شود: ' + mk.bt.queue.buyShare);
+
+    // ارزشِ غیرمعقول فقط همان مقدار را حذف می‌کند، نه کلِ بخش را
+    // (فلسفه‌ی پروژه: یک بخشِ خراب بقیه را حذف نمی‌کند)
+    const junk = liveDoc(Object.assign({}, MK_SESSION, { bt: { ts: Date.now(), src: 'BourseTrader', queue: { buyToman: 9e30, sellToman: 2e12 } } }));
+    GS.data._ingest('live', { quotes: junk.quotes, market: junk.market, at: Date.now() });
+    const jm = GS.data.market();
+    assert.ok(jm.bt && jm.bt.queue, 'بخشِ سالم باید بماند');
+    assert.strictEqual(jm.bt.queue.buyToman, null, 'مقدارِ نامعقول باید حذف شود');
+    assert.strictEqual(jm.bt.queue.sellToman, 2e12, 'مقدارِ سالم باید بماند');
+    W.close(); GS.data.clearCache();
+  });
+
+  /* ---- ۵ب) سریِ درون‌جلسه‌ای → روند و شیب ---- */
+  await ta('روندِ پول: شیبِ جلسه، شتاب و برگشت درست حساب می‌شوند', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    const now = Date.now();
+    const OFF = 3.5 * 3600e3;
+    // نقاط را داخلِ روزِ جاریِ تهران می‌سازیم تا تست در نیمه‌شبِ تهران هم سبز بماند
+    const dayStart = Math.floor((now + OFF) / 86400e3) * 86400e3 - OFF;
+    const el = Math.max(now - dayStart, 60000);
+    const t1 = dayStart + Math.round(el * 0.1), t2 = dayStart + Math.round(el * 0.5), t3 = dayStart + Math.round(el * 0.9);
+    const doc = liveDoc(Object.assign({}, MK_SESSION, {
+      flow: { netToman: -3e12, ratio: -0.2, src: 'BourseTrader', ts: t3, day: new Date(t3 + OFF).toISOString().slice(0, 10), fresh: true },
+      flowSeries: [[t1, 1e12], [t2, -1e12], [t3, -3e12]]
+    }));
+    GS.data._ingest('live', { quotes: doc.quotes, market: doc.market, at: Date.now() });
+    const mk = GS.data.market();
+    assert.ok(mk.flowSeries && mk.flowSeries.length === 3, 'سری باید منتقل شود: ' + JSON.stringify(mk.flowSeries));
+    assert.ok(mk.flowTrend, 'روند باید حساب شود');
+    assert.strictEqual(mk.flowTrend.points, 3);
+    assert.strictEqual(mk.flowTrend.from, 1e12);
+    assert.strictEqual(mk.flowTrend.to, -3e12);
+    assert.ok(mk.flowTrend.perHour < 0, 'شیب باید منفی باشد: ' + mk.flowTrend.perHour);
+    assert.strictEqual(mk.flowTrend.accelerating, true, 'خروج و شیبِ منفی = شتاب‌دار');
+    assert.strictEqual(mk.flowTrend.reversing, true, 'از ورود به خروج برگشته');
+    // یک نقطه روند نمی‌سازد
+    const one = liveDoc(Object.assign({}, MK_SESSION, { flowSeries: [[t3, -3e12]] }));
+    GS.data._ingest('live', { quotes: one.quotes, market: one.market, at: Date.now() });
+    assert.strictEqual(GS.data.market().flowSeries, null, 'با یک نقطه روندی وجود ندارد');
+    W.close(); GS.data.clearCache();
+  });
+
+  /* ---- ۵ج) نمودارهایِ روند ---- */
+  await ta('نمودارهای روندِ پول: رندر می‌شوند و با نبودِ داده پیام می‌دهند', async () => {
+    const { GS, d, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_BT)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    const C = GS.charts;
+    assert.ok(C.moneyFlowChart && C.queueMoneyChart && C.flowSessionsChart, 'توابع باید صادر شده باشند');
+    // بدون داده: پیام، نه نمودارِ خالی
+    assert.ok(C.moneyFlowChart(null).indexOf('lc-empty') >= 0);
+    assert.ok(C.moneyFlowChart([[1, 1]]).indexOf('lc-empty') >= 0, 'یک نقطه کافی نیست');
+    assert.ok(C.queueMoneyChart(null).indexOf('lc-empty') >= 0);
+    assert.ok(C.flowSessionsChart(null).indexOf('lc-empty') >= 0);
+    // با داده: نمودار
+    const now = Date.now();
+    const svg = C.moneyFlowChart([[now - 3600e3, 1e12], [now - 1800e3, -1e12], [now, -3e12]]);
+    assert.ok(svg.indexOf('<svg') >= 0 && svg.indexOf('همت') >= 0, svg.slice(0, 120));
+    const qm = C.queueMoneyChart({ buyToman: 5.5e12, sellToman: 21.7e12, netToman: -16.2e12, buyShare: 0.2, buy: 64, sell: 509 });
+    assert.ok(qm.indexOf('صف خرید') >= 0 && qm.indexOf('صف فروش') >= 0, qm.slice(0, 200));
+    assert.ok(qm.indexOf('همت') >= 0 && qm.indexOf('خالصِ پولِ پشتِ صف') >= 0, qm.slice(0, 300));
+    const fs = C.flowSessionsChart({ rows: [{ day: '2026-09-20', netToman: -2e12 }, { day: '2026-09-21', netToman: -3e12 }], n: 2, sum: -5e12, pos: 0, neg: 2, streak: 'out' });
+    assert.ok(fs.indexOf('خروجِ پیاپی') >= 0, fs.slice(0, 200));
+    W.close(); GS.data.clearCache();
+  });
+
+  /* ---- ۵د) تابلوخوانی: پارسرِ سمتِ کلاینت (منبعِ فقط‌داخل‌ایران) ---- */
+  const TK_HTML = fs.readFileSync(path.join(__dirname, 'fixtures', 'tablokhani.html'), 'utf8');
+
+  await ta('تابلوخوانی: شاخص‌ها و ارزشِ صف‌ها با واحدِ «میلیارد تومان»', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    const r = GS.data.parseTablokhani(TK_HTML);
+    assert.strictEqual(r.ok, true, JSON.stringify(r).slice(0, 300));
+    assert.ok(r.index && Math.round(r.index.p) === 7280430, 'شاخص کل: ' + JSON.stringify(r.index));
+    assert.ok(r.index.chgPct < 0, '▼ باید منفی خوانده شود: ' + r.index.chgPct);
+    assert.ok(r.fara && r.fara.chgPct > 0, '▲ باید مثبت خوانده شود: ' + JSON.stringify(r.fara));
+    // واحد از عنوانِ خودِ صفحه: میلیارد تومان
+    assert.strictEqual(r.queue.buyToman, 48964.1e9);
+    assert.strictEqual(r.queue.sellToman, 20387.6e9);
+    assert.strictEqual(r.queue.buy, 221);
+    assert.strictEqual(r.queue.sell, 180);
+    assert.ok(r.symbols && r.symbols.length >= 2, 'نمادها برای پیوندِ عمیق: ' + JSON.stringify(r.symbols));
+    assert.ok(r.symbols.indexOf('ذوب') >= 0, JSON.stringify(r.symbols));
+    assert.ok(r.symbols.indexOf('آتیه ملت') >= 0, JSON.stringify(r.symbols));
+    assert.ok(r.symbols.length <= 8, 'سقفِ تعدادِ نمادها: ' + r.symbols.length);
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('تابلوخوانی: پاسخِ بی‌ربط و اعدادِ نامعقول رد می‌شوند', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    assert.strictEqual(GS.data.parseTablokhani('').ok, false, 'خالی');
+    assert.strictEqual(GS.data.parseTablokhani('<html><body>hi</body></html>').ok, false, 'کوتاه');
+    assert.strictEqual(GS.data.parseTablokhani('<html><body>' + 'x'.repeat(9000) + '</body></html>').ok, false, 'بی‌ربط');
+    // شاخصِ خارج از بازه (مثلاً ۱۲ واحد) رد می‌شود
+    const junk = TK_HTML.replace('۷,۲۸۰,۴۲۹.۵۵', '۱۲');
+    const r = GS.data.parseTablokhani(junk);
+    assert.ok(!r.index, 'شاخصِ نامعقول باید رد شود: ' + JSON.stringify(r.index));
+    assert.strictEqual(r.ok, true, 'بقیه‌ی بخش‌ها باید سالم بمانند');
+    W.close(); GS.data.clearCache();
+  });
+
+  /* ---- ۵ه) رگرسیون: «این هفته» قربانیِ عاملِ بورس نمی‌شود ---- */
+  await ta('حکم: زمینه‌ی «این هفته» با آمدنِ رادارِ بورس حذف نمی‌شود', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_BT)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : String(u).includes('history.json') ? jres(HIST_DOC) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    await GS.data.fetchHistory(); await wait(100);
+    const v = GS.features.verdict();
+    assert.ok(v.weekly, 'زمینه‌ی هفتگی باید وصل باشد');
+    const weeklyLine = v.reasons.filter((x) => /^(این هفته|در .+روز گذشته)/.test(x))[0];
+    assert.ok(weeklyLine, 'سطرِ این هفته باید همیشه باشد: ' + v.reasons.join(' | '));
+    // و سطرِ بورس هم (وقتی امتیاز آورده) هست
+    const bourseLine = v.reasons.filter((x) => x.indexOf('بورس:') === 0)[0];
+    assert.ok(bourseLine || v.reasons.some((x) => x.indexOf('شاخص کلِ بورس') >= 0), 'زمینه یا امتیازِ بورس باید باشد: ' + v.reasons.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
+  /* ---- ۵و) پنلِ «روندِ پول» در صفحه‌ی بورس رندر می‌شود ---- */
+  await ta('پنلِ روندِ پول: سه نمودار + پیوندهایِ تابلوخوانی در صفحه می‌آیند', async () => {
+    const { GS, d, window: W, errors } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    const now = Date.now(), OFF = 3.5 * 3600e3;
+    const dayStart = Math.floor((now + OFF) / 86400e3) * 86400e3 - OFF;
+    const el = Math.max(now - dayStart, 60000);
+    const t1 = dayStart + Math.round(el * 0.1), t2 = dayStart + Math.round(el * 0.5), t3 = dayStart + Math.round(el * 0.9);
+    const day = new Date(t3 + OFF).toISOString().slice(0, 10);
+    const btWithQueue = Object.assign({}, MK_BT.bt, { queue: { buyToman: 5.1e12, sellToman: 2.1e12, netToman: 3.0e12, buyShare: 0.708 } });
+    const market = Object.assign({}, MK_BT, {
+      bt: btWithQueue,
+      index: { p: 7280289, high: 7345567, low: 7279864, ts: t3, day: day, src: 'TGJU' },
+      day: day, asOf: t3,
+      flow: { netToman: -3.2e12, ratio: -0.12, n: 900, src: 'BourseTrader', ts: t3, day: day, fresh: true },
+      flowSeries: [[t1, 1e12], [t2, -1e12], [t3, -3.2e12]]
+    });
+    GS.data._ingest('live', { quotes: liveDoc(MK_BT).quotes, market: market, at: now });
+    GS.data._setHistory({ version: 1, generated_at: new Date().toISOString(), recent: {}, daily: { TSEFLOW: [['2026-09-20', -2e12], ['2026-09-21', -3.2e12]] } });
+    GS.ui.renderBoursePro();
+    const sec = d.querySelector('#boursePro');
+    assert.strictEqual(sec.hidden, false, 'بخش باید دیده شود');
+    const trend = d.querySelector('#bourseMoneyTrend');
+    assert.ok(trend && /همت/.test(trend.textContent), 'نمودارِ روند باید مبلغ نشان دهد: ' + (trend && trend.textContent));
+    assert.ok(trend.querySelector('svg'), 'نمودارِ روند باید SVG داشته باشد');
+    const qm = d.querySelector('#bourseQueueMoney');
+    assert.ok(qm && qm.textContent.indexOf('صف خرید') >= 0 && qm.textContent.indexOf('خالص') >= 0, 'پولِ پشتِ صف: ' + (qm && qm.textContent));
+    const fs = d.querySelector('#bourseFlowSessions');
+    assert.ok(fs && fs.textContent.indexOf('خروجِ پیاپی') >= 0, 'چند جلسه‌ی اخیر: ' + (fs && fs.textContent));
+    const links = d.querySelector('#bourseTkLinks');
+    assert.ok(links && links.querySelectorAll('a.tk-link').length >= 3, 'پیوندهایِ تابلوخوانی');
+    // پیوندها باید در تبِ جدید و بدون ارجاعِ مبدأ باز شوند
+    const a0 = links.querySelector('a.tk-link');
+    assert.strictEqual(a0.getAttribute('target'), '_blank');
+    assert.ok((a0.getAttribute('rel') || '').indexOf('noopener') >= 0);
+    assert.strictEqual(errors.length, 0, 'خطای پنجره: ' + errors.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
+  /* ---- ۵ز) منحنیِ درون‌جلسه‌ای (از نمودارِ خودِ منبع) ---- */
+  await ta('منحنیِ درون‌جلسه‌ای: پذیرش، نگهبان و نمودار', async () => {
+    const { GS, d, window: W, errors } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    const mk0 = { ts: Date.now(), src: 'BourseTrader' };
+    const good = liveDoc(Object.assign({}, MK_SESSION, { bt: Object.assign({}, mk0, { flowCurve: { v: [-107, -400, -900, -1400, -1800], raw: 210, unit: 'milliard_toman' }, queueCurve: { buy: [128, 160, 190, 210, 225], sell: [129, 140, 160, 170, 174] } }) }));
+    GS.data._ingest('live', { quotes: good.quotes, market: good.market, at: Date.now() });
+    let mk = GS.data.market();
+    assert.ok(mk.bt.flowCurve, 'منحنی باید به مدل راه یابد');
+    assert.strictEqual(mk.bt.flowCurve.n, 5);
+    assert.strictEqual(mk.bt.flowCurve.last, -1800);
+    assert.strictEqual(mk.bt.flowCurve.min, -1800);
+    assert.strictEqual(mk.bt.flowCurve.max, -107);
+    assert.ok(mk.bt.queueCurve && mk.bt.queueCurve.buy.length === 5, 'منحنیِ صف‌ها');
+
+    // نمودار: منحنی به نقاطِ انتشار ترجیح دارد
+    GS.ui.renderBoursePro();
+    const host = d.querySelector('#bourseMoneyTrend');
+    assert.ok(host.querySelector('svg'), 'نمودار باید رسم شود');
+    assert.ok(host.textContent.indexOf('شروع جلسه') >= 0, 'برچسبِ شروع: ' + host.textContent);
+    assert.ok(host.textContent.indexOf('همت') >= 0, 'مبلغ باید دیده شود: ' + host.textContent);
+
+    // نگهبان: مقدارِ غیرممکن پذیرفته نمی‌شود — و داده‌ی معتبرِ قبلی هم پاک نمی‌شود
+    // (فلسفه‌ی پروژه: یک بخشِ خراب، بخشِ سالمِ قبلی را حذف نمی‌کند)
+    const bad = liveDoc(Object.assign({}, MK_SESSION, { bt: Object.assign({}, mk0, { flowCurve: { v: [1, 2, 9e9, 4, 5], raw: 5 } }) }));
+    GS.data._ingest('live', { quotes: bad.quotes, market: bad.market, at: Date.now() });
+    const afterBad = GS.data.market().bt;
+    assert.ok(afterBad && afterBad.flowCurve, 'داده‌ی معتبرِ قبلی باید بماند');
+    assert.strictEqual(afterBad.flowCurve.last, -1800, 'منحنیِ بد نباید جایگزین شود');
+
+    // نگهبان: کمتر از ۵ نقطه منحنی نمی‌سازد
+    const few = liveDoc(Object.assign({}, MK_SESSION, { bt: Object.assign({}, mk0, { flowCurve: { v: [1, 2, 3], raw: 3 } }) }));
+    GS.data._ingest('live', { quotes: few.quotes, market: few.market, at: Date.now() });
+    assert.strictEqual(GS.data.market().bt.flowCurve.last, -1800, 'سه نقطه کافی نیست و جایگزین نشده');
+    assert.strictEqual(errors.length, 0, 'خطای پنجره: ' + errors.join(' | '));
     W.close(); GS.data.clearCache();
   });
 

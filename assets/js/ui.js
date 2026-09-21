@@ -712,6 +712,82 @@
     }
     if (pcHost) pcHost.innerHTML = GS.charts.perCapitaGauge(bt.perCapita);
     if (capHost && bt.cap) capHost.innerHTML = '<div class="bp-cap-card"><small>ارزش بازار کل</small><b>' + U.fa((bt.cap / 1e15).toFixed(1)) + ' هزار همت</b></div>';
+
+    /* ---- ردیفِ «روندِ پول»: جریان در طولِ جلسه + پولِ پشتِ صف + چند جلسه ---- */
+    var tk = mk.tk || null;
+    var trendHost = U.$('#bourseMoneyTrend');
+    if (trendHost) {
+      // اولویت: منحنیِ پیوسته‌یِ خودِ تابلو (اگر هست)، وگرنه نقاطِ انتشارهای ما
+      var curve = (bt && bt.flowCurve) ? bt.flowCurve : null;
+      trendHost.innerHTML = curve
+        ? GS.charts.flowCurveChart(curve)
+        : GS.charts.moneyFlowChart(mk.flowSeries);
+    }
+
+    var qmHost = U.$('#bourseQueueMoney');
+    if (qmHost) {
+      // اولویت: برداشتِ زنده‌ی مرورگر از تابلوخوانی (داخلِ ایران)، بعد انتشارِ سرور
+      var qSrc = (tk && tk.queue) ? tk.queue : (bt.queue || null);
+      var qTrend = (tk && tk.trend) ? tk.trend : null;
+      qmHost.innerHTML = GS.charts.queueMoneyChart(qSrc, qTrend);
+      var srcEl2 = U.$('#bourseProSource');
+      if (srcEl2 && tk && tk.queue && tk.queue.buyToman != null) {
+        srcEl2.textContent = 'پولِ پشتِ صف از تابلوخوانی (مرورگرِ تو) · بقیه از انتشارِ سرور';
+      }
+    }
+
+    var sHost = U.$('#bourseFlowSessions');
+    if (sHost) sHost.innerHTML = GS.charts.flowSessionsChart(mk.flowSessions);
+
+    var lHost = U.$('#bourseTkLinks');
+    if (lHost) lHost.innerHTML = tkLinks(tk);
+  }
+
+  /**
+   * پیوندهایِ تابلوخوانی — چرا پیوند و نه عدد؟ چون اندازه‌گیری نشان داد این سایت
+   * بیرون از ایران پاسخِ HTTP نمی‌دهد؛ پس برایِ کاربرِ خارج از ایران، مفیدترین
+   * کاری که می‌توانیم بکنیم این است که او را دقیقاً به همان صفحه برسانیم.
+   */
+  /** وضعیتِ تابلوخوانی در پنجره‌ی تنظیمات (چرا بی‌پاسخ است؟ صادقانه بگوییم) */
+  function renderTkStatus() {
+    var el = U.$('#tkStatus');
+    if (!el) return;
+    var st = (D().src && D().src.tablokhani) || null;
+    var tk = null;
+    try { tk = D().tablokhani ? D().tablokhani() : null; } catch (e) { tk = null; }
+    var bits = [];
+    if (st && st.ok === true) {
+      bits.push('آخرین تلاش موفق — ' + U.esc(st.note || ''));
+    } else if (st && st.ok === false) {
+      bits.push('بی‌پاسخ: ' + U.esc(st.note || ''));
+    } else {
+      bits.push('هنوز تلاش نشده (هر یک ساعت یک‌بار، خودکار)');
+    }
+    if (tk && tk.series && tk.series.length) {
+      bits.push('سریِ امروز: ' + U.fa(tk.series.length) + ' برداشت');
+      if (tk.trend) bits.push('روند: ' + (tk.trend.rising ? '▲ رو‌به‌رشد' : '▼ رو‌به‌کاهش') + ' ' + GS.charts.signedMoney(tk.trend.delta));
+    } else {
+      bits.push('سریِ امروز: نداریم (داخلِ ایران و با اجازه‌ی CORS پر می‌شود)');
+    }
+    el.innerHTML = 'وضعیت: ' + bits.join(' · ');
+  }
+
+  function tkLinks(tk) {
+    var base = 'https://tablokhani.com/';
+    var links = [
+      { href: base, label: 'تابلوی بازار' },
+      { href: base + 'stock-screener/hot-money', label: 'پول داغ' },
+      { href: base + 'stock-screener/market-game', label: 'بازیِ بازار' }
+    ];
+    if (tk && tk.symbols && tk.symbols.length) {
+      tk.symbols.slice(0, 5).forEach(function (s) {
+        links.push({ href: base + encodeURIComponent(s), label: s });
+      });
+    }
+    return '<div class="tk-links"><span class="tk-hint">تابلوخوانی (پولِ هوشمند و صف‌ها) — فقط از داخلِ ایران باز می‌شود:</span>' +
+      links.map(function (l) {
+        return '<a class="tk-link" href="' + l.href + '" target="_blank" rel="noopener noreferrer">' + U.esc(l.label) + ' ↗</a>';
+      }).join('') + '</div>';
   }
 
   function flowCard(label, net, hint) {
@@ -1159,7 +1235,36 @@
           ['سرانه خرید/فروش', bt.perCapita ? U.fa(bt.perCapita.buy) + '/' + U.fa(bt.perCapita.sell) + ' = ' + U.fa((bt.perCapita.buy / (bt.perCapita.sell || 1)).toFixed(2)) + '×' : '—'],
           ['صف خرید/فروش', bt.breadth ? U.fa(bt.breadth.queueBuy || 0) + '/' + U.fa(bt.breadth.queueSell || 0) : '—']
         ] : [],
-        n: 'هر بُعد ۰=ضعیف، ۱۰۰=قوی. میانگین ۶ بُعد = سلامت کل بورس. داده از bourse-trader.ir (بدون کلید، صفحه عمومی) + شاخص TGJU.' }
+        n: 'هر بُعد ۰=ضعیف، ۱۰۰=قوی. میانگین ۶ بُعد = سلامت کل بورس. داده از bourse-trader.ir (بدون کلید، صفحه عمومی) + شاخص TGJU.' },
+      moneyTrend: { t: 'روندِ پول در جلسه', f: 'خالصِ پولِ حقیقی (تومان) = خریدِ حقیقی − فروشِ حقیقی\nهر انتشارِ سرور یک نقطه می‌افزاید؛ فقط نقاطِ همان جلسه نگه داشته می‌شوند.\nشیب (همت/ساعت) = (آخرین − اولین) ÷ ساعت‌های سپری‌شدهٔ جلسه\nشتاب‌دار = جهتِ حرکت، جهتِ خالص را تقویت می‌کند',
+        rows: (function () {
+          var out = [];
+          var tk2 = mk && mk.flowTrend;
+          out.push(['تعدادِ برداشت', tk2 ? U.fa(tk2.points) + ' نقطه در ' + U.fa(tk2.spanMin) + ' دقیقه' : '—']);
+          out.push(['اول جلسه', tk2 ? btMoneySigned(tk2.from) : '—']);
+          out.push(['اکنون', tk2 ? btMoneySigned(tk2.to) : (mk && mk.flow ? btMoneySigned(mk.flow.netToman) : '—')]);
+          out.push(['تغییر از اول جلسه', tk2 ? btMoneySigned(tk2.delta) + ' (' + (tk2.perHour >= 0 ? '+' : '−') + U.fa(Math.abs(tk2.perHour)) + ' همت/ساعت)' : '—']);
+          out.push(['وضعیت', !tk2 ? 'دو برداشت لازم است' : tk2.accelerating ? 'شتاب‌دار در جهتِ خالص' : tk2.reversing ? 'برگشتی (خلافِ جهتِ اولیه)' : 'ثبات']);
+          if (mk && mk.flowSessions && mk.flowSessions.n) {
+            out.push(['چند جلسه‌ی اخیر', U.fa(mk.flowSessions.n) + ' جلسه · مجموع ' + btMoneySigned(mk.flowSessions.sum) +
+              (mk.flowSessions.streak ? (mk.flowSessions.streak === 'out' ? ' · خروجِ پیاپی' : ' · ورودِ پیاپی') : '')]);
+          }
+          return out;
+        })(),
+        n: 'چرا مهم است؟ یک عددِ لحظه‌ای نمی‌گوید پول «در حالِ رفتن» است یا «رفته»؛ شیبِ جلسه این را می‌گوید. دو منبع دارد: منحنیِ پیوسته‌یِ خودِ تابلو (وضوحِ بالا، بدون برچسبِ ساعت) و نقاطِ زمان‌دارِ انتشارهای سرور (مبنایِ محاسبه‌یِ همت/ساعت).' },
+      queueMoney: { t: 'پولِ پشتِ صف', f: 'ارزشِ صفِ خرید/فروش = مجموعِ ارزشِ سفارش‌هایِ صف‌شده (تومان)\nخالص = ارزشِ صفِ خرید − ارزشِ صفِ فروش\nسهمِ صفِ خرید = خرید ÷ (خرید + فروش)\nروندِ امروز = خالصِ آخرین برداشت − خالصِ اولین برداشت',
+        rows: (function () {
+          var q2 = (mk && mk.tk && mk.tk.queue) ? mk.tk.queue : (bt ? bt.queue : null);
+          if (!q2) return [['داده', 'در دسترس نیست']];
+          return [
+            ['ارزش صف خرید', q2.buyToman != null ? btMoneySigned(q2.buyToman) : '—'],
+            ['ارزش صف فروش', q2.sellToman != null ? btMoneySigned(q2.sellToman) : '—'],
+            ['خالص', q2.netToman != null ? btMoneySigned(q2.netToman) : '—'],
+            ['سهمِ صفِ خرید', q2.buyShare != null ? U.fa(Math.round(q2.buyShare * 100)) + '٪' : '—'],
+            ['تعدادِ صف', (q2.buy != null || q2.sell != null) ? U.fa(q2.buy || 0) + ' خرید / ' + U.fa(q2.sell || 0) + ' فروش' : '—']
+          ];
+        })(),
+        n: 'تعدادِ صف می‌گوید چند نماد صف است؛ ارزشِ صف می‌گوید چقدر پول پشت آن ایستاده — برای سنجشِ فشارِ تقاضا دقیق‌تر است. منبع: تابلوخوانی از مرورگرِ داخلِ ایران (هر یک ساعت)، در غیر این صورت از انتشارِ سرور.' }
     };
     var x = F[key];
     if (!x) return null;
@@ -1307,6 +1412,7 @@
     summaryText: summaryText, shareSummary: shareSummary,
     refreshAllFeeds: refreshAllFeeds,
     renderPulse: renderPulse, renderMacro: renderMacro, renderBoursePro: renderBoursePro,
+    renderTkStatus: renderTkStatus,
     openModal: openModal, closeModal: closeModal, buildDiag: buildDiag,
     openAssetModal: openAssetModal,
     initReveal: initReveal, initCounters: initCounters,

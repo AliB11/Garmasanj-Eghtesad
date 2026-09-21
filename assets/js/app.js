@@ -21,6 +21,7 @@
     GS.features.renderHealth();
     GS.features.renderSim();
     GS.features.checkRadars();
+    try { GS.ui.renderTkStatus(); } catch (e) {}
   }
 
   function initStatic() {
@@ -215,6 +216,31 @@
       renderAll();
       GS.ui.toast('info', 'کلید حذف شد', 'جریانِ پولِ بورس دیگر دریافت نمی‌شود.');
     });
+    /* تابلوخوانی: منبعِ فقط‌داخل‌ایران — تلاشِ دستی و پاک‌سازیِ سریِ محلی */
+    var tkRetry = U.$('#tkRetry');
+    if (tkRetry) tkRetry.addEventListener('click', function () {
+      tkRetry.disabled = true;
+      GS.ui.toast('info', 'در حال تلاش', 'تابلوخوانی فقط از داخلِ ایران پاسخ می‌دهد…');
+      GS.data.fetchTablokhani(true).then(function (d) {
+        tkRetry.disabled = false;
+        renderAll();
+        if (d && d.queue && d.queue.buyToman != null) {
+          GS.ui.toast('ok', 'تابلوخوانی خوانده شد',
+            'ارزشِ صف خرید ' + U.fa((d.queue.buyToman / 1e12).toFixed(1)) + ' همت در برابر ' +
+            U.fa(((d.queue.sellToman || 0) / 1e12).toFixed(1)) + ' همتِ صف فروش.');
+        } else {
+          GS.ui.toast('warn', 'تابلوخوانی بی‌پاسخ',
+            'این منبع فقط از داخلِ ایران پاسخ می‌دهد و ممکن است CORS هم اجازه ندهد؛ جزئیات در «سلامت داده». پیوندهایِ تابلوخوانی در بخشِ بورس همچنان کار می‌کنند.');
+        }
+      });
+    });
+    var tkClear = U.$('#tkClear');
+    if (tkClear) tkClear.addEventListener('click', function () {
+      GS.data.clearTablokhani();
+      renderAll();
+      GS.ui.toast('info', 'سری پاک شد', 'سریِ «پولِ پشتِ صفِ امروز» حذف شد؛ از برداشتِ بعدی دوباره ساخته می‌شود.');
+    });
+
     var manSave = U.$('#manSave');
     if (manSave) manSave.addEventListener('click', function () {
       var v = +U.toEn(U.$('#manUsd').value || '');

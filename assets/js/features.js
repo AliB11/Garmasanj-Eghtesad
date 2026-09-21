@@ -544,7 +544,7 @@
     tgju: 'TGJU', nobitex: 'نوبیتکس', wallex: 'والکس', bitpin: 'بیت‌پین',
     coingecko: 'CoinGecko', kraken: 'Kraken', binance: 'Binance Vision', coinbase: 'Coinbase',
     frankfurter: 'Frankfurter', erapi: 'ExchangeRate-API', navasan: 'ناواسان', snapshot: 'اسنپ‌شات',
-    tse: 'شاخص بورس', tsetmc: 'جریان پول بورس', btrader: 'بورس‌تریدر'
+    tse: 'شاخص بورس', tsetmc: 'جریان پول بورس', btrader: 'بورس‌تریدر', tablokhani: 'تابلوخوانی'
   };
 
   function renderHealth() {
@@ -729,7 +729,40 @@
           else if (tv <= 3e12) bourseBits.push('ارزش خرد ' + fMoney(tv) + ' — کم‌حجم');
         }
       }
+      /* ۱۰) شیبِ جلسه: یک عددِ لحظه‌ای نمی‌گوید پول «در حالِ رفتن» است یا «رفته».
+            این همان چیزی است که با سریِ درون‌جلسه‌ای اندازه می‌گیریم. */
+      var tr = mk.flowTrend;
+      if (tr && tr.points >= 2 && !mk.stale) {
+        var slopeAbs = Math.abs(tr.perHour);
+        if (slopeAbs >= 5e11) {              // ۰٫۵ همت در ساعت و بیشتر
+          var slopeTxt = U.fa((slopeAbs / 1e12).toFixed(1)) + ' همت در ساعت';
+          if (tr.perHour < 0) { bourseScore += 0.5; bourseBits.push('خروجِ شتاب‌دار: ' + slopeTxt); }
+          else { bourseScore -= 0.4; bourseBits.push('ورودِ شتاب‌دار: ' + slopeTxt); }
+        } else if (tr.reversing) {
+          bourseBits.push('جریان در طولِ جلسه برگشت (' + fMoney(Math.abs(tr.from)) + ' → ' + fMoney(Math.abs(tr.to)) + ')');
+        } else {
+          bourseBits.push('جریان در جلسه کم‌نوسان (' + U.fa(tr.points) + ' برداشت)');
+        }
+      }
+      /* ۱۱) پولِ پشتِ صف: تعدادِ صف نمی‌گوید چقدر پول پشتش ایستاده؛ ارزش می‌گوید. */
+      var btq = (mk.tk && mk.tk.queue) ? mk.tk.queue : (bt && bt.queue ? bt.queue : null);
+      if (btq && btq.buyShare != null) {
+        var shareTxt = U.fa(Math.round(btq.buyShare * 100)) + '٪';
+        if (btq.buyShare >= 0.7) { bourseScore += 0.5; bourseBits.push('پولِ پشتِ صفِ خرید ' + shareTxt + ' — فشارِ تقاضا'); }
+        else if (btq.buyShare <= 0.3) { bourseScore -= 0.5; bourseBits.push('سنگینیِ پولِ پشتِ صفِ فروش ' + shareTxt + ' — فشارِ عرضه'); }
+        else bourseBits.push('توازنِ پولِ پشتِ صف‌ها: ' + shareTxt + ' خرید');
+      }
+      /* ۱۲) پیاپی‌بودن: یک جلسه اتفاق است، چند جلسه رفتار. */
+      var fs = mk.flowSessions;
+      if (fs && fs.streak && fs.n >= 2) {
+        var streakTxt = U.fa(fs.n) + ' جلسه · ' + fMoney(Math.abs(fs.sum));
+        if (fs.streak === 'out') { bourseScore += 0.4; bourseBits.push('خروجِ پیاپی در ' + streakTxt); }
+        else { bourseScore -= 0.3; bourseBits.push('ورودِ پیاپی در ' + streakTxt); }
+      }
+
       // اعمال امتیاز بورس به امتیاز کل — سقف ±۲٫۵
+      // (سقف عمداً ثابت ماند: بورس «تأییدکننده» است نه پیشران؛ هرچه عاملِ
+      //  بیشتری هم‌زمان بجنبد، فقط تا همین سقف اثر می‌گذارد.)
       bourseScore = U.clamp(bourseScore, -2.5, 2.5);
       score += bourseScore;
       if (bourseBits.length) {
@@ -756,10 +789,22 @@
     if (liveN < 3) { warns.unshift('داده‌ی زنده‌ی کافی نرسیده — این حکم موقت است؛ وضعیت منابع را در «سلامت داده» ببین.'); conf = Math.min(conf, 45); }
     else if (!ses.open && m.quiet) { warns.push('بازار تهران بسته است' + (ses.next ? ' (' + ses.next + ')' : '') + ' — حکم بر پایه‌ی آخرین جلسه و بازارهای ۲۴ساعته است؛ اقدام را به بازگشایی موکول کن.'); conf = Math.min(conf, 70); }
     else if (coverage < 0.4) { warns.push('پوشش داده‌ی تازه پایین است — حکم را با احتیاط اجرا کن.'); conf = Math.min(conf, 60); }
-    if (bourseScored) reasons.unshift(bourseScored);
-    else if (bourseCtx) reasons.push(bourseCtx);
-    // ۶ سطر: پنج عاملِ اصلی + زمینه‌ی بورس (اگر جریانِ پول داشت، همان اول می‌آمد)
-    return { mood: m, score: score, conf: conf, reasons: reasons.slice(0, 6), warns: warns.slice(0, 3), action: A, top: top, low: low, coverage: coverage, liveN: liveN, session: ses, weekly: wk, market: mk };
+    /* چیدمانِ «چرا؟» — چرا اینقدر مهم است؟ چون سطرِ «این هفته» همیشه آخرین
+       سطرِ ساخته‌شده بود و با آمدنِ هر عاملِ تازه (مثلِ رادارِ بورس) از انتهای
+       فهرست بیرون می‌افتاد؛ یعنی دقیقاً همان زمینه‌ای که تصمیم را زمان‌مند
+       می‌کند حذف می‌شد. حالا «این هفته» یک جای تضمینی دارد:
+         بورسِ امتیازدار (اگر بود) + ۵ عاملِ اصلی + زمینه‌ی این هفته
+       و در غیابِ بورسِ امتیازدار: ۵ عامل + این هفته (+ زمینه‌ی بورس در انتها). */
+    var core = reasons.slice();
+    var weeklyLine = null;
+    for (var wi = core.length - 1; wi >= 0; wi--) {
+      if (/^(این هفته|در .+روز گذشته)/.test(core[wi])) { weeklyLine = core[wi]; core.splice(wi, 1); break; }
+    }
+    var keep = core.slice(0, weeklyLine ? 5 : 6);
+    if (weeklyLine) keep.push(weeklyLine);
+    if (bourseScored) keep.unshift(bourseScored);
+    else if (bourseCtx) keep.push(bourseCtx);
+    return { mood: m, score: score, conf: conf, reasons: keep, warns: warns.slice(0, 3), action: A, top: top, low: low, coverage: coverage, liveN: liveN, session: ses, weekly: wk, market: mk };
   }
 
   /** نمایشِ کوتاهِ مبالغِ ریالی-تومانیِ بورس (همت/میلیارد) — فقط برای متنِ حکم */

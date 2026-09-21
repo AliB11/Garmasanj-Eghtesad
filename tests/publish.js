@@ -250,4 +250,204 @@ t('parseBrsMarket: نگهبان‌های مقیاس و ساختار', () => {
   assert.ok(err.why.indexOf('Invalid') >= 0, err.why);
 });
 
+
+/* ============================================================
+   روندِ پول — پارسرهایی که «ورود و خروجِ پول» را عمیق‌تر می‌کنند
+   منبعِ شواهد: reports/probe-moneyflow.md (پروب روی رانر) و
+   tests/fixtures/bourse-trader.html (برش‌های واقعیِ صفحه)
+   ============================================================ */
+const BT_HTML = require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'bourse-trader.html'), 'utf8');
+
+t('parseBourseTrader: ارزشِ صف‌های خرید/فروش (پولِ پشتِ صف)', () => {
+  const r = P.parseBourseTrader(BT_HTML);
+  assert.strictEqual(r.ok, true);
+  assert.ok(r.queue, 'بخشِ صف‌ها باید استخراج شود');
+  // فیکسچر (اعدادِ واقعیِ صفحه): ارزش صف خرید 5.5T و صف فروش 21.7T تومان
+  assert.strictEqual(r.queue.buyToman, 5.5e12);
+  assert.strictEqual(r.queue.sellToman, 21.7e12);
+  assert.strictEqual(r.queue.netToman, -16.2e12);
+  assert.ok(Math.abs(r.queue.buyShare - 5.5 / 27.2) < 1e-9, 'سهمِ صفِ خرید');
+});
+
+t('parseBourseTrader: ارزشِ صفِ نامعقول رد می‌شود (سکوت نه عددِ غلط)', () => {
+  const bad = BT_HTML.replace('5.5T', '900000T');   // ‎9e17 تومان = غیرممکن
+  const r = P.parseBourseTrader(bad);
+  assert.ok(!r.queue || r.queue.buyToman == null, JSON.stringify(r.queue));
+  // بقیه‌ی بخش‌ها باید سالم بمانند (یک بخشِ خراب بقیه را حذف نمی‌کند)
+  assert.strictEqual(r.ok, true);
+  assert.ok(r.flow && r.flow.netToman === -1.8e12);
+});
+
+t('parseBourseTrader: بدون ردیفِ صف، کلیدِ queue ساخته نمی‌شود', () => {
+  const none = BT_HTML
+    .replace(/<tr class='dir_left bl-colu'> <td class='text-right'>ارزش صف خرید[\s\S]*?<\/tr>/, '')
+    .replace(/<tr class='dir_left text-danger'> <td class='text-right'>ارزش صف فروش[\s\S]*?<\/tr>/, '');
+  const r = P.parseBourseTrader(none);
+  assert.ok(!r.queue, JSON.stringify(r.queue));
+});
+
+t('flowSeries: نقاطِ همان جلسه نگه داشته می‌شوند و مرتب می‌مانند', () => {
+  const now = Date.now();
+  const a = P.flowSeries([], now - 3 * 3600e3, 1e12);
+  const b = P.flowSeries(a, now - 2 * 3600e3, -2e12);
+  const c = P.flowSeries(b, now, -3.5e12);
+  assert.strictEqual(c.length, 3);
+  assert.deepStrictEqual(c.map((p) => p[1]), [1e12, -2e12, -3.5e12]);
+  assert.ok(c[0][0] < c[1][0] && c[1][0] < c[2][0], 'ترتیبِ زمانی');
+});
+
+t('flowSeries: ادغامِ زیرِ ۵ دقیقه، حذفِ نقطه‌یِ عقب‌گرد، سقفِ ۲۴', () => {
+  const now = Date.now();
+  const base = P.flowSeries([], now - 3600e3, 1e12);
+  // کمتر از ۵ دقیقه: آخرین نقطه به‌روزرسانی می‌شود نه اینکه نقطه‌ای اضافه شود
+  const merged = P.flowSeries(base, now - 3600e3 + 60000, 1.4e12);
+  assert.strictEqual(merged.length, 1);
+  assert.strictEqual(merged[0][1], 1.4e12);
+  // نقطه‌ی عقب‌گرد نادیده گرفته می‌شود
+  const back = P.flowSeries(base, now - 7200e3, 9e12);
+  assert.strictEqual(back.length, 1, 'زمان باید رو‌به‌جلو باشد');
+  // سقفِ تعداد
+  const many = Array.from({ length: 40 }, (_, i) => [now - (40 - i) * 600000, i * 1e12]);
+  assert.strictEqual(P.flowSeries(many, now, 1e12).length, 24);
+});
+
+t('flowSeries: جلسه‌ی دیگر = سریِ تازه (عددِ دیروز لباسِ امروز نمی‌پوشد)', () => {
+  const now = Date.now();
+  const today = P.flowSeries([], now, 1e12);
+  const tomorrow = P.flowSeries(today, now + 26 * 3600e3, 7e12);
+  assert.strictEqual(tomorrow.length, 1, 'فقط نقطه‌ی جلسه‌ی جدید می‌ماند');
+  assert.strictEqual(tomorrow[0][1], 7e12);
+});
+
+t('flowSeries: ورودیِ بی‌ربط خروجیِ بی‌ربط نمی‌سازد', () => {
+  assert.deepStrictEqual(P.flowSeries('x', NaN, NaN), []);
+  assert.deepStrictEqual(P.flowSeries(null, 0, 1e12), []);
+  assert.deepStrictEqual(P.flowSeries([[1, 2]], Date.now(), 'آشغال'), []);
+});
+
+t('history: جریانِ پولِ جلسه (منفی هم مجاز است) + به‌روزرسانیِ درجا', () => {
+  const Hh = require('../scripts/history.cjs');
+  const d = Hh.empty();
+  const base = { generated_at: '2026-09-21T06:00:00Z', quotes: { USD: { p: 230000 } }, market: { index: { p: 7280289, ts: Date.parse('2026-09-21T06:00:00Z'), day: '2026-09-21' } } };
+  Hh.appendLive(d, Object.assign({}, base, { market: Object.assign({}, base.market, { flow: { netToman: -3.2e12, ts: Date.parse('2026-09-21T06:00:00Z'), src: 'BourseTrader' } }) }));
+  assert.deepStrictEqual(d.daily.TSEFLOW, [['2026-09-21', -3.2e12]]);
+  // در همان جلسه، مقدارِ آخر جایگزین می‌شود (جریان انباشتی است)
+  Hh.appendLive(d, Object.assign({}, base, { generated_at: '2026-09-21T08:00:00Z', market: Object.assign({}, base.market, { flow: { netToman: -4.8e12, ts: Date.parse('2026-09-21T08:00:00Z'), src: 'BourseTrader' } }) }));
+  assert.deepStrictEqual(d.daily.TSEFLOW, [['2026-09-21', -4.8e12]]);
+  // جلسه‌ی بعد ردیفِ خودش را می‌گیرد
+  Hh.appendLive(d, Object.assign({}, base, { generated_at: '2026-09-22T08:00:00Z', market: Object.assign({}, base.market, { index: { p: 7300000, ts: Date.parse('2026-09-22T08:00:00Z'), day: '2026-09-22' }, flow: { netToman: 1.1e12, ts: Date.parse('2026-09-22T08:00:00Z') } }) }));
+  assert.deepStrictEqual(d.daily.TSEFLOW, [['2026-09-21', -4.8e12], ['2026-09-22', 1.1e12]]);
+});
+
+t('pickMarketFlow: عددِ تازه مقدم است (بورس‌تریدر در ساعتِ بازار)', () => {
+  const r = P.pickMarketFlow({ fresh: { netToman: -3.2e12, ratio: -0.12, n: 900, src: 'BourseTrader' }, prev: { netToman: 1e12, ts: Date.now() }, ixDay: P.tehranDay(Date.now()), now: Date.now() });
+  assert.strictEqual(r.how, 'fresh');
+  assert.strictEqual(r.flow.netToman, -3.2e12);
+  assert.strictEqual(r.flow.src, 'BourseTrader');
+  assert.strictEqual(r.flow.fresh, true);
+  assert.strictEqual(r.flow.day, P.tehranDay(Date.now()));
+});
+
+t('pickMarketFlow: «حفظِ جلسه» — عددِ امروز بعد از بسته‌شدنِ بازار نمی‌پرد', () => {
+  // سناریوی واقعیِ ایراد: ساعت ۱۲:۳۰ بازار بسته می‌شود؛ انتشارِ عصر نباید
+  // جریانی را که صبح اندازه‌گیری شده دور بریزد.
+  const morning = Date.now() - 5 * 3600e3;
+  const ixDay = P.tehranDay(morning);
+  const r = P.pickMarketFlow({ fresh: null, brs: null, prev: { netToman: -3.2e12, ratio: -0.12, n: 900, src: 'BourseTrader', ts: morning, day: ixDay }, ixDay: ixDay, now: Date.now() });
+  assert.strictEqual(r.how, 'kept', JSON.stringify(r));
+  assert.ok(r.flow, 'جریان باید حفظ شود');
+  assert.strictEqual(r.flow.netToman, -3.2e12);
+  assert.strictEqual(r.flow.fresh, false, 'برچسبِ «تازه نیست» باید باشد');
+  assert.strictEqual(r.flow.ts, morning, 'زمانِ اندازه‌گیریِ اصلی حفظ می‌شود');
+});
+
+t('pickMarketFlow: جلسه‌یِ دیروز را منتشر نمی‌کند (عددِ کهنه لباسِ امروز نمی‌پوشد)', () => {
+  const yesterday = Date.now() - 26 * 3600e3;
+  const r = P.pickMarketFlow({ fresh: null, brs: null, prev: { netToman: -9e12, ts: yesterday, src: 'BourseTrader' }, ixDay: P.tehranDay(Date.now()), now: Date.now() });
+  assert.strictEqual(r.flow, null, 'جریانِ جلسه‌ی قبل باید سکوت کند');
+  assert.strictEqual(r.how, 'silent');
+  assert.ok(r.why.indexOf('جلسه‌یِ دیگری') >= 0, r.why);
+});
+
+t('pickMarketFlow: بدون هیچ منبع، سکوت — و هرگز عددی از روی شاخص نمی‌سازد', () => {
+  const r = P.pickMarketFlow({ ixDay: P.tehranDay(Date.now()), now: Date.now() });
+  assert.strictEqual(r.flow, null);
+  assert.strictEqual(r.how, 'silent');
+  // حتی اگر شاخص باشد (ixDay داده شده)، جریان «ساخته» نمی‌شود
+  assert.strictEqual(r.flow, null);
+});
+
+t('pickMarketFlow: BrsApi وقتی منبعِ بی‌کلید ندارد', () => {
+  const r = P.pickMarketFlow({ fresh: null, brs: { netToman: 2e12, ratio: 0.08, n: 640, src: 'BrsApi' }, ixDay: P.tehranDay(Date.now()), now: Date.now() });
+  assert.strictEqual(r.how, 'brs');
+  assert.strictEqual(r.flow.src, 'BrsApi');
+  assert.strictEqual(r.flow.n, 640);
+});
+
+t('pickMarketFlow: ورودیِ نیمه‌کاره هم سکوت می‌سازد نه عددِ بد', () => {
+  assert.strictEqual(P.pickMarketFlow({ fresh: { netToman: 'آشغال' }, ixDay: 'x' }).flow, null);
+  assert.strictEqual(P.pickMarketFlow({ prev: { netToman: 1e12 }, ixDay: null }).flow, null, 'بدون روزِ جلسه ملاکی نداریم');
+  assert.strictEqual(P.pickMarketFlow({ prev: { netToman: 1e12, ts: 0 }, ixDay: '2026-09-21' }).flow, null);
+});
+
+t('btChart: نمودارِ توکار و سری‌هایش استخراج می‌شوند', () => {
+  const ch = P.btChart(BT_HTML, 'input_money');
+  assert.ok(ch, 'نمودار باید پیدا شود');
+  assert.ok(/ورود پول حقيقي/.test(ch.title || ''), ch.title);
+  assert.strictEqual(ch.series.length, 2, JSON.stringify(ch.series.map((s) => s.name)));
+  assert.strictEqual(ch.series[0].data.length, 60);
+  // سریِ نمودارِ دیگر نباید وارد این یکی شود
+  assert.ok(ch.series.every((s) => !/خريد|فروش/.test(s.name)), JSON.stringify(ch.series.map((s) => s.name)));
+  const q = P.btChart(BT_HTML, 'buysellqty');
+  assert.ok(q && q.series.length === 2, 'نمودارِ صف‌ها');
+  assert.strictEqual(P.btChart(BT_HTML, 'نموداری_که_نیست'), null);
+});
+
+t('btFlowCurve: منحنیِ خالص با واحدِ میلیارد تومان و نمونه‌برداری', () => {
+  const c = P.btFlowCurve(BT_HTML, -1.8e12);   // عددِ جدول: 1.8T- تومان
+  assert.ok(c, 'منحنی باید ساخته شود');
+  assert.strictEqual(c.unit, 'milliard_toman');
+  assert.strictEqual(c.raw, 60, 'تعدادِ نقاطِ خام');
+  assert.ok(c.n <= 48, 'نمونه‌برداری تا ۴۸ نقطه: ' + c.n);
+  assert.strictEqual(c.last, -1800, 'آخرین نقطه باید با جدول هم‌خوان باشد');
+  assert.strictEqual(c.min, -1800);
+  assert.strictEqual(c.max, -107);
+});
+
+t('btFlowCurve: نگهبانِ تطبیق — اگر آخرین نقطه با جدول نمی‌خواند، منحنی رد می‌شود', () => {
+  // جدول می‌گوید ‎۵۰۰- میلیارد؛ منحنی به ‎۱۸۰۰- ختم می‌شود → برداشت اشتباه است
+  assert.strictEqual(P.btFlowCurve(BT_HTML, -5e11), null);
+  // با عددِ هم‌خوان دوباره قبول می‌شود
+  assert.ok(P.btFlowCurve(BT_HTML, -1.9e12));
+  // بدون عددِ جدول هم باید کار کند (فقط نگهبانِ تطبیق اجرا نمی‌شود)
+  assert.ok(P.btFlowCurve(BT_HTML, null));
+});
+
+t('btFlowCurve: مقیاسِ غیرممکن و نبودِ سری رد می‌شود', () => {
+  const huge = BT_HTML.replace(/data: \[(-?\d+),(-?\d+),(-?\d+),(-?\d+),(-?\d+)/, 'data: [99999999,99999999,99999999,99999999,99999999');
+  assert.strictEqual(P.btFlowCurve(huge, null), null, 'مقیاسِ غیرممکن');
+  const noSeries = BT_HTML.replace(/id="input_money"[\s\S]*?<\/script>/, '');
+  assert.strictEqual(P.btFlowCurve(noSeries, -1.8e12), null, 'بی‌نمودار');
+});
+
+t('btQueueCurve: دو منحنیِ صفِ خرید/فروش با نگهبانِ تعداد', () => {
+  const q = P.btQueueCurve(BT_HTML);
+  assert.ok(q, 'منحنیِ صف‌ها باید ساخته شود');
+  assert.strictEqual(q.buy.length, q.sell.length);
+  assert.ok(q.buy[q.buy.length - 1] > 0 && q.sell[q.sell.length - 1] > 0);
+  assert.ok(q.buy.every((v) => v >= 0 && v <= 3000));
+  // تعدادِ صف نمی‌تواند ۳۰۰۰ تا باشد
+  const bad = BT_HTML.replace(/id="buysellqty"[\s\S]*?<\/script>/, '');
+  assert.strictEqual(P.btQueueCurve(bad), null);
+});
+
+t('parseBourseTrader: منحنی‌ها در خروجی می‌آیند و بقیه را خراب نمی‌کنند', () => {
+  const r = P.parseBourseTrader(BT_HTML);
+  assert.strictEqual(r.ok, true);
+  assert.ok(r.flowCurve && r.flowCurve.n > 5, 'منحنیِ جریان');
+  assert.ok(r.queueCurve && r.queueCurve.buy.length > 5, 'منحنیِ صف‌ها');
+  assert.strictEqual(r.flow.netToman, -1.8e12, 'جدول دست‌نخورده');
+  assert.ok(r.queue && r.queue.buyToman === 5.5e12, 'پولِ پشتِ صف دست‌نخورده');
+});
+
 console.log('publish.js: ' + n + ' tests, exit=' + (process.exitCode || 0));

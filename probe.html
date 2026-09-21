@@ -36,7 +36,11 @@ small.note{color:var(--dim)}
     سرورِ انتشارِ گرماسنج (GitHub Actions) بیرون از ایران است و در پروبِ سمت‌سرور نتوانست به TSETMC برسد.
     این صفحه همان نامزدها را از <b>مرورگرِ خودت</b> امتحان می‌کند: اگر تو داخل ایران باشی،
     معلوم می‌شود آیا مسیرِ «جریان پول حقیقی/حقوقی» از سمتِ کاربر باز است یا نه
-    (و آیا هدرِ CORS اجازه‌ی خواندن را می‌دهد).
+    (و آیا هدرِ CORS اجازه‌ی خواندن را می‌دهد).<br>
+    <b>جدید:</b> <code>tablokhani.com</code> هم اینجا هست. پروبِ سمت‌سرور نشان داد این سایت
+    بیرون از ایران پاسخِ HTTP نمی‌دهد (DNS و TCP و TLS برقرار می‌شود ولی پاسخی نمی‌آید)؛
+    پس تنها راهِ خواندنش، مرورگرِ داخلِ ایران است. اگر اینجا هم جواب نگرفتی،
+    یعنی هدرِ CORS هم اجازه نمی‌دهد و این منبع برای همیشه فقط «پیوند» خواهد بود.
   </p>
 
   <div class="panel">
@@ -67,11 +71,23 @@ small.note{color:var(--dim)}
     { key: 'cdn.clientType', url: 'https://cdn.tsetmc.com/api/ClientType/GetClientTypeAll/1', why: 'جریان پول (مسیر جدید)' },
     { key: 'cdn.marketOverview', url: 'https://cdn.tsetmc.com/api/MarketData/GetMarketOverview/1', why: 'خلاصه‌ی بازار' },
     { key: 'tsetmc.marketWatch', url: 'https://www.tsetmc.com/tsev2/data/MarketWatchInit.aspx?h=0&r=0', why: 'دیده‌بان' },
+    { key: 'tablokhani.home', url: 'https://tablokhani.com/', why: 'ارزشِ صف‌های خرید/فروش و شاخص‌ها — فقط داخل ایران',
+      snip: ['شاخص کل', 'تعداد صف‌های خرید و فروش', 'ارزش صف‌های خرید و فروش'] },
+    { key: 'tablokhani.api', url: 'https://api.tablokhani.com/', why: 'زیردامنه‌ی api — اگر JSON بدهد مسیرِ تمیزتری است', snip: [] },
+    { key: 'tablokhani.hotmoney', url: 'https://tablokhani.com/stock-screener/hot-money', why: 'پول داغ — معاملاتِ درشتِ حقیقی', snip: ['پول داغ'] },
     { key: 'tgju.ajax', url: 'https://call5.tgju.org/ajax.json', why: 'شاهدِ کنترل (باید کار کند)' }
   ];
   var rows = [];
 
   function clean(s, n) { return String(s == null ? '' : s).replace(/\s+/g, ' ').slice(0, n || 130); }
+
+  /** برشِ کوتاهِ دورِ یک برچسب (برای اینکه بفهمیم پارسر چه می‌بیند) */
+  function snippet(txt, label, before, after) {
+    var s0 = String(txt || '').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ');
+    var i = s0.indexOf(label);
+    if (i < 0) return null;
+    return clean(s0.slice(Math.max(0, i - (before || 40)), i + (after || 220)), 320);
+  }
 
   function one(target, proxy) {
     var url = proxy.build(target.url);
@@ -83,14 +99,15 @@ small.note{color:var(--dim)}
           key: target.key, proxy: proxy.tag, why: target.why,
           ok: r.ok, status: r.status, bytes: txt.length, ct: ct,
           ms: Math.round(((performance && performance.now) ? performance.now() : Date.now()) - t0),
-          sample: clean(txt, 150)
+          sample: clean(txt, 150),
+          snips: (target.snip || []).map(function (lb) { return lb + ' → ' + (snippet(txt, lb) || 'پیدا نشد'); })
         };
       });
     }).catch(function (e) {
       return {
         key: target.key, proxy: proxy.tag, why: target.why, ok: false, status: 'خطا',
         bytes: 0, ct: '', ms: Math.round(((performance && performance.now) ? performance.now() : Date.now()) - t0),
-        sample: clean(String((e && e.message) || e), 90)
+        sample: clean(String((e && e.message) || e), 90), snips: []
       };
     });
   }
@@ -107,7 +124,8 @@ small.note{color:var(--dim)}
         '<td class="' + (r.ok ? 'ok' : 'no') + '">' + r.status + '</td>' +
         '<td>' + r.bytes + '</td><td>' + r.ms + '</td>' +
         '<td class="' + (note.join(' ').indexOf('✅') >= 0 ? 'ok' : 'warn') + '">' + (note.join(' · ') || '—') + '</td>' +
-        '<td class="s">' + (r.sample || '').replace(/[<>&]/g, '') + '</td></tr>';
+        '<td class="s">' + (r.sample || '').replace(/[<>&]/g, '') +
+        ((r.snips && r.snips.length) ? '<br><small class="note">' + r.snips.join('<br>').replace(/[<>&]/g, '') + '</small>' : '') + '</td></tr>';
     }).join('');
     var good = rows.filter(function (r) { return r.ok && r.bytes > 0 && !/^\s*<(!doctype|html)/i.test(r.sample); });
     var txt = ['# خودآزمای بورس از مرورگر — ' + new Date().toISOString(),
@@ -118,6 +136,7 @@ small.note{color:var(--dim)}
     rows.forEach(function (r) {
       txt.push('- ' + r.key + ' | ' + r.proxy + ' | status=' + r.status + ' | bytes=' + r.bytes + ' | ms=' + r.ms +
         ' | ' + clean(r.sample, 110));
+      (r.snips || []).forEach(function (sn) { txt.push('    · ' + sn); });
     });
     document.getElementById('out').value = txt.join('\n');
   }
