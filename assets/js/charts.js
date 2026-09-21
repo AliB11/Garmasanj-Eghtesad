@@ -447,10 +447,13 @@
     }
     var rows = sessions.rows;
     var max = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.netToman); }).concat([1e9]));
+    var dayFa = function (day) {
+      try { return U.dateFa(Date.parse(day + 'T12:00:00Z') - 3.5 * 3600e3); } catch (e) { return ''; }
+    };
     var bars = rows.map(function (r) {
       var pct = U.clamp(Math.abs(r.netToman) / max * 100, 6, 100);
       var inFlow = r.netToman >= 0;
-      return '<div class="fs-row"><span class="fs-day">' + U.esc(r.day.slice(5)) + '</span>' +
+      return '<div class="fs-row"><span class="fs-day">' + U.esc(dayFa(r.day) || r.day.slice(5)) + '</span>' +
         '<div class="fs-track"><i class="fs-fill ' + (inFlow ? 'in' : 'out') + '" style="width:' + pct.toFixed(1) + '%"></i></div>' +
         '<b class="fs-val ' + (inFlow ? 'in' : 'out') + '">' + signedMoney(r.netToman) + '</b></div>';
     }).join('');

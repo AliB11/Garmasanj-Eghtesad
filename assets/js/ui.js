@@ -544,6 +544,47 @@
     return (+v < 0 ? '−' : '+') + txt;
   }
 
+  /* =============================== برچسبِ «به‌روزرسانی»ی صادقِ بورس ===============================
+     هر داده با timestamp خودش برچسب می‌خورد، نه با timestampِ منبعِ دیگر:
+     • داده از «آخرین جلسه‌ی برگزارشده» است و بازار بسته است →
+       «آخرین جلسه {تاریخِ فارسی}» — دقیقاً بگوید داده از کدام جلسه
+       در دسترس است (نه «۳۶ ساعت پیش»).
+     • تازه است → «همین الان / N دقیقه/ساعت پیش»
+     • خیلی قدیمی است → «N ساعت/روز پیش» (بی‌دعا، واقعی) */
+  function tseLastSessionDay(now) {
+    var S = CFG().TSE_SESSION;
+    if (!S || !S.days) return null;
+    now = now || Date.now();
+    for (var back = 0; back <= 8; back++) {
+      var d = new Date(now - back * 86400000 + 3.5 * 3600e3);
+      var win = S.days[(d.getUTCDay() + 1) % 7];
+      if (!win) continue;
+      if (back === 0) {
+        // «امروز» فقط وقتی که جلسه‌اش تمام شده؛ وگرنه آخرین جلسه‌ی برگزارشده، روزِ قبل‌تر است
+        var mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+        if (mins >= Math.round(win[1] * 60)) return d.toISOString().slice(0, 10);
+        continue;
+      }
+      return d.toISOString().slice(0, 10);
+    }
+    return null;
+  }
+  function bourseAgeLabel(ts) {
+    if (!ts) return '—';
+    var ageMin = (Date.now() - ts) / 60000;
+    if (ageMin < 2) return 'همین الان';
+    var stale = ageMin > 4 * 1440; // بیش از ۴ روز: «آخرین جلسه» دیگر صادق نیست
+    var tsDay = null;
+    try { tsDay = new Date(ts + 3.5 * 3600e3).toISOString().slice(0, 10); } catch (e) {}
+    var s = U.tseSession();
+    if (!stale && s && !s.open && tsDay && tsDay === tseLastSessionDay()) {
+      return 'آخرین جلسه ' + U.dateFa(ts);
+    }
+    if (ageMin < 90) return U.fa(Math.round(ageMin)) + ' دقیقه پیش';
+    if (ageMin < 36 * 60) return U.fa(Math.round(ageMin / 60)) + ' ساعت پیش';
+    return U.fa(Math.round(ageMin / 1440)) + ' روز پیش';
+  }
+
   function bourseCard() {
     var mk = null;
     try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
@@ -630,16 +671,23 @@
     var chgTxt = mk.chgPct != null ? U.pct(mk.chgPct, 1) : '';
     var chgTone = mk.chgPct == null ? '' : mk.chgPct > 0 ? 'up' : mk.chgPct < 0 ? 'down' : 'z';
     if (titleEl) titleEl.innerHTML = 'شاخص کل ' + U.fmt(Math.round(mk.p)) + (chgTxt ? ' <small class="' + chgTone + '">' + chgTxt + '</small>' : '') + ' <small style="font-weight:400;color:var(--mut)">· ' + U.esc(mk.src || '') + '</small>';
-    var ageMin = Math.round((Date.now() - (bt.ts || mk.ts || Date.now())) / 60000);
-    var ageTxt = ageMin < 2 ? 'همین الان' : ageMin < 90 ? U.fa(ageMin) + ' دقیقه پیش' : ageMin < 36 * 60 ? U.fa(Math.round(ageMin / 60)) + ' ساعت پیش' : 'آخرین جلسه';
-    if (metaEl) metaEl.textContent = 'جلسه ' + (mk.day || (mk.ts ? U.dateFa(mk.ts) : '—')) + ' · به‌روزرسانی ' + ageTxt + (mk.session && mk.session.open ? ' · جلسه باز' : ' · بازار بسته');
+    // مهم: سنِ «شاخص» همیشه با timestampِ خودش (mk.ts ← TGJU) اندازه می‌شود،
+    // نه با سنِ مکملِ bourse-trader (bt.ts) که ممکن است از جلسه‌ی قبل باشد
+    // (fresh=false). برچسبِ قبلی «۳۶ ساعت پیش» درست همین‌جا از bt.ts می‌آمد.
+    var mkAgeTxt = bourseAgeLabel(mk.ts);
+    var btAgeTxt = bourseAgeLabel(bt.ts);
+    var dayFa = mk.ts ? U.dateFa(mk.ts) : '';
+    var metaTxt = 'به‌روزرسانی ' + mkAgeTxt + (mk.session && mk.session.open ? ' · جلسه باز' : ' · بازار بسته');
+    if (dayFa && mkAgeTxt.indexOf('آخرین جلسه') < 0) metaTxt = 'جلسه ' + dayFa + ' · ' + metaTxt;
+    if (metaEl) metaEl.textContent = metaTxt;
     if (badgeEl) {
       var score = bourseHealthScore(mk, bt);
       badgeEl.className = 'bp-badge ' + score.tone;
       badgeEl.textContent = score.label + ' · ' + score.pct + '٪ سلامت';
     }
-    if (ageEl) ageEl.textContent = ageTxt;
-    if (srcEl) srcEl.textContent = 'شاخص از ' + (mk.src || 'TGJU') + '، مکمل از bourse-trader.ir · ' + ageTxt;
+    if (ageEl) ageEl.textContent = mkAgeTxt;
+    // هر منبع با سنِ خودش نشان داده می‌شود: شاخصِ TGJU تازه + مکملِ جلسه‌ی قبل
+    if (srcEl) srcEl.textContent = 'شاخص از ' + (mk.src || 'TGJU') + ' · مکمل از bourse-trader.ir: ' + btAgeTxt;
     if (explEl) {
       var parts = [];
       if (bt.breadth) parts.push('پهنا ' + U.fa(Math.round(bt.breadth.posPct)) + '٪ مثبت');
@@ -837,8 +885,9 @@
     }
     if (cards.length < 2) { host.innerHTML = ''; host.style.display = 'none'; if (title) title.style.display = 'none'; return; }
     if (title) {
-      var ageMin = Math.round((Date.now() - bt.ts) / 60000);
-      var ageTxt = ageMin < 2 ? 'همین الان' : ageMin < 90 ? U.fa(ageMin) + ' دقیقه پیش' : ageMin < 36 * 60 ? U.fa(Math.round(ageMin / 60)) + ' ساعت پیش' : 'آخرین جلسه';
+      // همان برچسبِ صادق: اگر داده‌ی مکمل از آخرین جلسه‌ی برگزارشده است،
+      // «آخرین جلسه {تاریخ}» نشان بده، نه فقط «آخرین جلسه»
+      var ageTxt = bourseAgeLabel(bt.ts);
       title.style.display = '';
       title.textContent = 'بورس تهران — فراتر از شاخصِ کل · منبع: bourse-trader.ir (از انتشارِ سرور) · ' + ageTxt;
     }
@@ -1232,7 +1281,7 @@
           ['جریان خرد', mk && mk.flow ? btMoneySigned(mk.flow.netToman) + (mk.flowRatio != null ? ' · ' + U.fa((Math.abs(mk.flowRatio) * 100).toFixed(1)) + '٪' : '') : '—'],
           ['درآمد ثابت', bt.funds && bt.funds.fixed ? btMoneySigned(bt.funds.fixed.netToman) : '—'],
           ['سهامی', bt.funds && bt.funds.equity ? btMoneySigned(bt.funds.equity.netToman) : '—'],
-          ['سرانه خرید/فروش', bt.perCapita ? U.fa(bt.perCapita.buy) + '/' + U.fa(bt.perCapita.sell) + ' = ' + U.fa((bt.perCapita.buy / (bt.perCapita.sell || 1)).toFixed(2)) + '×' : '—'],
+          ['سرانه خرید/فروش', (bt.perCapita && bt.perCapita.buy != null && bt.perCapita.sell != null) ? U.fa(bt.perCapita.buy) + '/' + U.fa(bt.perCapita.sell) + ' = ' + U.fa((bt.perCapita.buy / (bt.perCapita.sell || 1)).toFixed(2)) + '×' : '—'],
           ['صف خرید/فروش', bt.breadth ? U.fa(bt.breadth.queueBuy || 0) + '/' + U.fa(bt.breadth.queueSell || 0) : '—']
         ] : [],
         n: 'هر بُعد ۰=ضعیف، ۱۰۰=قوی. میانگین ۶ بُعد = سلامت کل بورس. داده از bourse-trader.ir (بدون کلید، صفحه عمومی) + شاخص TGJU.' },

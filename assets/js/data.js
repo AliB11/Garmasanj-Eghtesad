@@ -204,7 +204,8 @@
     return firstOk(jobs, 18000).then(function (d) {
       if (d) {
         var n = Object.keys(d.current).length;
-        markSrc('tgju', true, 'دلار ' + U.fmt(U.num(d.current.price_dollar_rl.p) / 10) + ' · ' + U.fa(n) + ' کلید از ' + d.via, d.ms);
+        var dUsd = U.num(d.current.price_dollar_rl && d.current.price_dollar_rl.p) / 10;
+        markSrc('tgju', true, (isFinite(dUsd) && dUsd > 0 ? 'دلار ' + U.fmt(dUsd) + ' · ' : '') + U.fa(n) + ' کلید از ' + d.via, d.ms);
         netlog(true, d.via + '/ajax.json → ' + n + ' کلید', d.ms);
       } else {
         markSrc('tgju', false, 'هر ۵ آینه بی‌پاسخ (فیلتر/CORS؟)');
