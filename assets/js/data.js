@@ -788,15 +788,119 @@
       valueToman: (+tr.valueToman > 0 && +tr.valueToman < 1e17) ? +tr.valueToman : null,
       volume: (+tr.volume > 0 && +tr.volume < 1e14) ? +tr.volume : null
     } : null;
+    /* منحنیِ درون‌جلسه‌ایِ جریانِ پول (واحد: میلیارد تومان — از نمودارِ خودِ منبع).
+       نگهبان: فقط اعدادِ متناهی، بین ۵ تا ۲۰۰ نقطه، و هیچ نقطه‌ای بزرگ‌تر از
+       ۵۰۰۰ همت؛ وگرنه کلِ منحنی کنار گذاشته می‌شود. */
+    var fc = x.flowCurve;
+    out.flowCurve = null;
+    if (fc && Array.isArray(fc.v) && fc.v.length >= 5 && fc.v.length <= 200) {
+      var cv = [], fcOk = true;
+      for (var fi = 0; fi < fc.v.length; fi++) {
+        var fv = +fc.v[fi];
+        if (!isFinite(fv) || Math.abs(fv) > 5e6) { fcOk = false; break; }
+        cv.push(Math.round(fv));
+      }
+      if (fcOk && cv.length >= 5) {
+        var flo = Math.min.apply(null, cv), fhi = Math.max.apply(null, cv);
+        out.flowCurve = {
+          v: cv, n: cv.length, raw: (+fc.raw || cv.length),
+          unit: fc.unit || 'milliard_toman',
+          first: cv[0], last: cv[cv.length - 1], min: flo, max: fhi,
+          src: fc.src || 'BourseTrader'
+        };
+      }
+    }
+    /* منحنیِ تعدادِ صف‌ها (خرید/فروش) در طولِ جلسه */
+    var qc = x.queueCurve;
+    out.queueCurve = null;
+    if (qc && Array.isArray(qc.buy) && Array.isArray(qc.sell) && qc.buy.length >= 5 && qc.sell.length >= 5) {
+      var cb = [], cs = [], qOk = true;
+      var qn = Math.min(qc.buy.length, qc.sell.length, 200);
+      for (var qi = 0; qi < qn; qi++) {
+        var qbv = +qc.buy[qi], qsv = +qc.sell[qi];
+        if (!isFinite(qbv) || !isFinite(qsv) || qbv < 0 || qsv < 0 || qbv > 3000 || qsv > 3000) { qOk = false; break; }
+        cb.push(Math.round(qbv)); cs.push(Math.round(qsv));
+      }
+      if (qOk && cb.length >= 5) out.queueCurve = { buy: cb, sell: cs, n: cb.length };
+    }
+
     var pc = x.perCapita;
     out.perCapita = (pc && ((+pc.buy > 0) || (+pc.sell > 0))) ? {
       buy: (+pc.buy > 0 && +pc.buy < 1e8) ? +pc.buy : null,
       sell: (+pc.sell > 0 && +pc.sell < 1e8) ? +pc.sell : null
     } : null;
+    /* پولِ پشتِ صف‌ها: ارزشِ صفِ خرید/فروش (تومان)
+       نگهبان: ارزش نمی‌تواند منفی باشد یا از کلِ ارزشِ بازار بزرگ‌تر؛
+       «سهمِ صفِ خرید» باید بین صفر و یک باشد (وگرنه یعنی پارس درست نبوده). */
+    var q = x.queue;
+    if (q) {
+      var qb = (+q.buyToman >= 0 && +q.buyToman < 1e16) ? +q.buyToman : null;
+      var qs = (+q.sellToman >= 0 && +q.sellToman < 1e16) ? +q.sellToman : null;
+      var share = (q.buyShare != null && isFinite(+q.buyShare) && +q.buyShare >= 0 && +q.buyShare <= 1) ? +q.buyShare : null;
+      if (share == null && qb != null && qs != null && (qb + qs) > 0) share = qb / (qb + qs);
+      if (qb != null || qs != null) {
+        out.queue = {
+          buyToman: qb, sellToman: qs,
+          netToman: (qb != null && qs != null) ? Math.round(qb - qs) : null,
+          buyShare: share
+        };
+      } else out.queue = null;
+    } else out.queue = null;
     // اگر هیچ بخشِ معتبری نماند، کلِ مکمل را نگه نمی‌داریم
-    var any = out.index || out.equal || out.fara || out.cap || out.trade || out.breadth || out.perCapita ||
+    var any = out.index || out.equal || out.fara || out.cap || out.trade || out.breadth || out.perCapita || out.queue ||
+      out.flowCurve || out.queueCurve ||
       (out.funds && (out.funds.equity || out.funds.fixed || out.funds.commodity || out.funds.option));
     return any ? out : null;
+  }
+
+  /**
+   * سریِ درون‌جلسه‌ایِ جریانِ پول — اعتبارسنجیِ سمتِ کلاینت.
+   * نگهبان‌ها: فقط نقطه‌های عددی، فقط رو‌به‌جلو در زمان، فقط همان جلسه،
+   * حداکثر ۲۴ نقطه. نتیجه: یا یک سریِ سالم یا هیچ.
+   */
+  function flowSeriesShape(arr, dayMs) {
+    if (!Array.isArray(arr)) return null;
+    var out = [];
+    for (var i = 0; i < arr.length; i++) {
+      var p = arr[i];
+      if (!Array.isArray(p) || p.length < 2) continue;
+      var t = +p[0], v = +p[1];
+      if (!(t > 0) || !isFinite(v)) continue;
+      if (Math.abs(v) > 1e17) continue;               // مقیاسِ غیرمعقول
+      if (dayMs && tehranDayStr(t) !== tehranDayStr(dayMs)) continue;  // جلسه‌ی دیگر
+      if (out.length && t <= out[out.length - 1][0]) continue;         // فقط رو‌به‌جلو
+      out.push([t, Math.round(v)]);
+    }
+    while (out.length > 24) out.shift();
+    return out.length >= 2 ? out : null;
+  }
+
+  /** کلیدِ روزِ تهران (برای اینکه بفهمیم یک نقطه به کدام جلسه تعلق دارد) */
+  function tehranDayStr(ms) {
+    return new Date(+ms + 3.5 * 3600e3).toISOString().slice(0, 10);
+  }
+
+  /**
+   * «روندِ پولِ امروز» از روی سریِ درون‌جلسه‌ای.
+   * سه چیز ازش می‌خوانیم: جهتِ خالص (ورود/خروج)، شتاب (شیب بر حسب همت/ساعت)
+   * و اینکه آیا جریان در حالِ بازگشت بوده (برگشت = خالص و شیب خلافِ هم).
+   */
+  function flowTrend(series) {
+    if (!series || series.length < 2) return null;
+    var a = series[0], b = series[series.length - 1];
+    var spanMin = (b[0] - a[0]) / 60000;
+    if (!(spanMin > 0)) return null;
+    var d = b[1] - a[1];
+    return {
+      points: series.length,
+      spanMin: Math.round(spanMin),
+      from: a[1], to: b[1], delta: d,
+      perHour: Math.round(d / (spanMin / 60)),
+      // شتاب‌دار یعنی جهتِ حرکت، جهتِ خالص را تقویت می‌کند
+      accelerating: (b[1] < 0 && d < 0) || (b[1] > 0 && d > 0),
+      // برگشت یعنی بازار در طولِ جلسه خلافِ جهتِ اولیه رفته
+      reversing: (a[1] > 0 && b[1] < 0) || (a[1] < 0 && b[1] > 0)
+    };
   }
 
   function setMarket(m, origin) {
@@ -824,7 +928,9 @@
         ratio: r,
         n: f.n || null,
         src: f.src || 'TSETMC',
-        ts: f.ts || m.asOf || Date.now()
+        ts: f.ts || m.asOf || Date.now(),
+        day: f.day || tehranDayStr(f.ts || m.asOf || Date.now()),
+        fresh: f.fresh !== false
       };
       if (MARKET.flow.ratio == null && r == null && f.ratio != null) {
         // اگر نسبت ناممکن بود، جریان را نگه ندار — سکوت به‌جای عددِ غلط
@@ -834,6 +940,16 @@
     // مکملِ بورس‌تریدر (هم‌وزن/فرابورس/صندوق‌ها/پهنا) — با نگهبانِ شکل و واحد
     MARKET.bt = btShape(m.bt);
     if (prev && prev.bt && !MARKET.bt) MARKET.bt = prev.bt;
+    // سریِ درون‌جلسه‌ایِ جریانِ پول (برای نمودارِ «روند پولِ امروز»).
+    // اگر خودِ سند کلید را فرستاده، همان ملاک است (حتی اگر یک نقطه داشته باشد —
+    // یک نقطه یعنی «هنوز روندی نیست»، نه اینکه سریِ جلسه‌ی قبل را نگه داریم).
+    // فقط وقتی کلید در سند نبود (مثلِ انتشارهای قدیمی‌تر)، سریِ همان جلسه از قبل می‌ماند.
+    if (m.flowSeries !== undefined) {
+      MARKET.flowSeries = flowSeriesShape(m.flowSeries, (MARKET.flow && MARKET.flow.ts) || MARKET.ts);
+    } else {
+      MARKET.flowSeries = (prev && prev.flowSeries && tehranDayStr(MARKET.ts) === tehranDayStr((prev.flowSeries[0] || [])[0] || 0))
+        ? prev.flowSeries : null;
+    }
     // جریانِ پول ممکن است از کلیدِ شخصیِ کاربر (مرورگر) آمده باشد؛
     // انتشارِ سرور نباید آن را پاک کند، و اگر هر دو دارند، تازه‌تر برنده است
     if (prev && prev.flow) {
@@ -912,8 +1028,44 @@
       stale: ageDays > 4,          // بیش از ۴ روز یعنی حتی یک جلسه هم عقب نیستیم... بلکه خیلی عقبیم
       flow: MARKET.flow || null,
       flowRatio: (MARKET.flow && MARKET.flow.ratio != null) ? MARKET.flow.ratio : null,
+      flowSeries: MARKET.flowSeries || null,
+      flowTrend: flowTrend(MARKET.flowSeries),
+      flowFresh: !!(MARKET.flow && MARKET.flow.fresh),
+      // جریانِ پول مربوط به همین جلسه است یا جلسه‌ای دیگر؟ (برچسبِ تازگی)
+      flowSameSession: !!(MARKET.flow && MARKET.flow.day && MARKET.day && MARKET.flow.day === MARKET.day),
+      flowSessions: tseFlowSessions(5),
       bt: MARKET.bt || null,
-      btAgeH: MARKET.bt ? (Date.now() - MARKET.bt.ts) / 3600000 : null
+      btAgeH: MARKET.bt ? (Date.now() - MARKET.bt.ts) / 3600000 : null,
+      tk: tablokhani()
+    };
+  }
+
+  /** سریِ جلسه‌ایِ جریانِ پول از history.json (منفی = خروج) */
+  function tseFlowDaily() { return (HISTORY && HISTORY.daily && HISTORY.daily.TSEFLOW) || []; }
+
+  /**
+   * «روندِ چندجلسه‌ایِ پول»: مجموع و پیاپی‌بودنِ چند جلسه‌ی آخر.
+   * چرا مهم است؟ یک جلسه‌ی خروج اتفاق است؛ سه جلسه‌ی پیاپی یعنی رفتار.
+   */
+  function tseFlowSessions(n) {
+    var d = tseFlowDaily();
+    if (!d.length) return null;
+    var rows = d.slice(-(n || 5)).filter(function (r) { return r && r.length >= 2 && isFinite(+r[1]); });
+    if (!rows.length) return null;
+    var sum = 0, pos = 0, neg = 0;
+    rows.forEach(function (r) {
+      sum += +r[1];
+      if (+r[1] > 0) pos++;
+      else if (+r[1] < 0) neg++;
+    });
+    return {
+      rows: rows.map(function (r) { return { day: r[0], netToman: +r[1] }; }),
+      n: rows.length,
+      sum: sum,
+      pos: pos,
+      neg: neg,
+      // پیاپی: همه‌ی جلسه‌های موجود هم‌جهت بوده‌اند (حداقل دو جلسه)
+      streak: (rows.length >= 2 && (pos === rows.length || neg === rows.length)) ? (pos === rows.length ? 'in' : 'out') : null
     };
   }
 
@@ -1040,6 +1192,295 @@
     try { recompute(); } catch (e) {}
     emit('quotes', {});
     return true;
+  }
+
+  /* ============================================================
+     تابلوخوانی (tablokhani.com) — «روندِ پولِ پشتِ صف» از مرورگر
+     ============================================================
+     اندازه‌گیریِ واقعی (reports/probe-moneyflow.md، روی رانرِ گیت‌هاب):
+     DNS و TCP و TLS کامل برقرار می‌شود اما هیچ پاسخِ HTTP برنمی‌گردد —
+     امضای مسدودسازیِ جغرافیایی. پس برخلافِ بقیه‌ی منابع، ناشرِ سمت‌سرور
+     هرگز نمی‌تواند این سایت را بخواند؛ فقط مرورگرِ کاربر (اگر داخلِ ایران
+     باشد و CORS اجازه بدهد). برای همین:
+       • تلاش، مستقیم و بی‌واسطه است (پراکسی‌های پروژه خارجی‌اند و همان بلاک
+         را می‌خورند، پس اینجا بی‌فایده‌اند)؛
+       • هر یک ساعت بیش از یک بار نمی‌خوانیم؛
+       • «روندِ پولِ پشتِ صف» از پیاپیِ همین برداشت‌ها در خودِ مرورگر ساخته
+         می‌شود (سری در localStorage، فقط مربوط به جلسه‌ی امروز)؛
+       • اگر یک بخش معتبر نباشد همان بخش نمی‌آید و هیچ عددی ساخته نمی‌شود.
+     ============================================================ */
+  var TK = {
+    url: 'https://tablokhani.com/',
+    hotUrl: 'https://tablokhani.com/stock-screener/hot-money',
+    gameUrl: 'https://tablokhani.com/stock-screener/market-game',
+    minGapMs: 60 * 60000,     // ادب: هر یک ساعت یک‌بار
+    timeoutMs: 12000,
+    maxSeries: 24,
+    lsKey: 'garmasanj.tk.v1'
+  };
+  var TK_DOC = null;   // آخرین برداشتِ معتبر در این نشست
+  var tkAt = 0;
+
+  /* وضعیتِ اولیه در «سلامت داده»: این منبع جغرافیاً محدود است، پس تا اولین
+     تلاش نه «سالم» است و نه «بی‌پاسخ» — فقط در انتظارِ یک مرورگرِ داخلِ ایران. */
+  SRC['tablokhani'] = { ok: null, ms: null, at: Date.now(), note: 'فقط از مرورگرِ داخلِ ایران — هر یک ساعت یک‌بار تلاش می‌شود' };
+
+  /** واکشیِ متن (همان fetchJSON ولی خروجی رشته) — برای صفحاتِ HTML */
+  function fetchText(url, opt) {
+    opt = opt || {};
+    var timeout = opt.timeout || 12000;
+    if (typeof fetch !== 'function') return Promise.reject(new Error('no fetch'));
+    var ctl = null;
+    try { ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null; } catch (e) { ctl = null; }
+    var timer = ctl ? setTimeout(function () { try { ctl.abort(); } catch (e) {} }, timeout) : null;
+    var t0 = nowMs();
+    var fopts = { cache: 'no-store', mode: 'cors' };
+    if (ctl) fopts.signal = ctl.signal;
+    return fetch(url, fopts).then(function (r) {
+      if (timer) clearTimeout(timer);
+      var ms = Math.round(nowMs() - t0);
+      if (!r.ok) { var e = new Error('HTTP ' + r.status); e.ms = ms; throw e; }
+      return r.text().then(function (t) {
+        var okv = true;
+        if (opt.validate) { try { okv = !!opt.validate(t); } catch (e2) { okv = false; } }
+        if (!okv) { var e3 = new Error('invalid body'); e3.ms = ms; throw e3; }
+        return { t: t, ms: ms };
+      });
+    }).catch(function (e) { if (timer) clearTimeout(timer); throw e; });
+  }
+
+  /** HTML → متنِ ساده با ارقامِ لاتین (پارسر روی متن کار می‌کند، نه تگ‌ها) */
+  function tkPlain(html) {
+    return String(html || '')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, '\n')
+      .replace(/[\u06F0-\u06F9]/g, function (d) { return String(d.charCodeAt(0) - 0x06F0); })
+      .replace(/[\u0660-\u0669]/g, function (d) { return String(d.charCodeAt(0) - 0x0660); })
+      .replace(/[\u2212\u2013\u2014]/g, '-')
+      .replace(/[\u066C\u066B]/g, '')
+      // «٪» عربی (U+066A) در متنِ فارسی همان «%» است؛ بدون این تبدیل،
+      // درصدِ تغییر اصلاً دیده نمی‌شد و همه‌ی شاخص‌ها بی‌درصد می‌ماندند.
+      .replace(/[\u066A]/g, '%')
+      .replace(/[\u00A0]/g, ' ');
+  }
+
+  /** عددهای بعد از یک برچسب (با ضریبِ K/M/B/T و علامتِ درصد) */
+  function tkScan(plain, label, span, cap) {
+    var i = plain.indexOf(label);
+    if (i < 0) return null;
+    var chunk = plain.slice(i + label.length, i + label.length + (span || 260));
+    var out = [], re = /(-?\d[\d,]*(?:\.\d+)?)\s*(%|K|M|B|T)?/g, m;
+    while ((m = re.exec(chunk)) && out.length < (cap || 6)) {
+      var v = parseFloat(m[1].replace(/,/g, ''));
+      if (!isFinite(v)) continue;
+      if (m[2] === '%') out.push({ v: v, unit: '%' });
+      else {
+        if (m[2]) v *= ({ K: 1e3, M: 1e6, B: 1e9, T: 1e12 })[m[2]];
+        out.push({ v: v, unit: m[2] || '' });
+      }
+    }
+    return out;
+  }
+
+  /** اولین عددِ بعد از یک برچسب، داخل یک برشِ محدود (مثلاً یک جدول) */
+  function tkNumAfter(section, label, span) {
+    var i = section.indexOf(label);
+    if (i < 0) return null;
+    var chunk = section.slice(i + label.length, i + label.length + (span || 140));
+    var m = chunk.match(/(-?\d[\d,]*(?:\.\d+)?)/);
+    if (!m) return null;
+    var v = parseFloat(m[1].replace(/,/g, ''));
+    return isFinite(v) ? v : null;
+  }
+
+  /** نمادهایِ پُرتراکنشِ صفحه (برای پیوندِ عمیق به تابلوی هر نماد) */
+  function tkSymbols(html, cap) {
+    var out = [], seen = {};
+    var re = /href="https:\/\/tablokhani\.com\/([^"#?]{2,70})"/g, m;
+    while ((m = re.exec(html)) && out.length < (cap || 8)) {
+      var s;
+      try { s = decodeURIComponent(m[1]); } catch (e) { s = m[1]; }
+      s = s.replace(/^symbol\//, '').replace(/\/$/, '').trim();
+      if (!s || seen[s]) continue;
+      if (!/^[\u0600-\u06FF\s]{1,24}$/.test(s)) continue;      // فقط نامِ فارسیِ نماد
+      if (/^(توضیحات|مشاهده)$/.test(s)) continue;
+      seen[s] = 1; out.push(s);
+    }
+    return out;
+  }
+
+  /**
+   * تجزیه‌ی صفحه‌ی تابلوخوانی. هر بخش مستقل نگهبانی می‌شود.
+   * واحدها را از عنوانِ خودِ صفحه می‌گیریم (ارزشِ صف‌ها: میلیارد تومان)،
+   * نه از حدس روی مقدارِ عدد.
+   */
+  function parseTablokhani(html) {
+    // نگهبانِ اصلی «وجودِ برچسب‌هایِ بازار» است، نه حجمِ صفحه؛
+    // این عدد فقط جلویِ صفحاتِ خطا/نگهداریِ تقریباً خالی را می‌گیرد.
+    if (!html || html.length < 1200) return { ok: false, why: 'پاسخِ کوتاه/خالی' };
+    var t = tkPlain(html);
+    if (!/شاخص/.test(t) && !/صف/.test(t)) return { ok: false, why: 'شاخص/صف در صفحه نبود' };
+    var out = { ok: false, src: 'Tablokhani', missing: [] };
+
+    /* --- شاخص‌ها: عدد + درصدِ تغییرِ بعدش ---
+       نکته: این سایت جهتِ تغییر را با فلش (▼/▲) نشان می‌دهد نه با علامتِ منفی؛
+       اگر فلش را نخوانیم، یک افتِ ۲درصدی را «۲+٪» می‌خوانیم. */
+    function idx(label, lo, hi) {
+      var i = t.indexOf(label);
+      if (i < 0) return null;
+      var chunk = t.slice(i + label.length, i + label.length + 240);
+      var m = chunk.match(/(-?\d[\d,]*(?:\.\d+)?)/);
+      if (!m) return null;
+      var p = parseFloat(m[1].replace(/,/g, ''));
+      if (!(p > lo && p < hi)) return null;
+      var pct = null;
+      var pm = chunk.match(/([\u25BC\u25B2])\s*(\d[\d.]*)\s*%/);
+      if (pm) pct = (pm[1] === '\u25BC' ? -1 : 1) * parseFloat(pm[2]);
+      else {
+        var pm2 = chunk.match(/(-?\d[\d.]*)\s*%/);
+        if (pm2) pct = parseFloat(pm2[1]);
+      }
+      if (pct != null && (!isFinite(pct) || Math.abs(pct) > 20)) pct = null;
+      return { p: p, chgPct: pct };
+    }
+    out.index = idx('شاخص کل', 1e6, 5e7);
+    out.equal = idx('شاخص هم\u200cوزن', 1e4, 5e7);
+    if (!out.equal) out.equal = idx('شاخص هم وزن', 1e4, 5e7);
+    out.fara = idx('شاخص فرابورس', 1e2, 5e7);
+
+    /* --- تعدادِ صف‌های خرید و فروش --- */
+    var cSec = t.indexOf('تعداد صف');
+    var cText = cSec >= 0 ? t.slice(cSec, cSec + 420) : '';
+    var qb = cText ? tkNumAfter(cText, 'صف خرید', 140) : null;
+    var qs = cText ? tkNumAfter(cText, 'صف فروش', 140) : null;
+
+    /* --- ارزشِ صف‌ها: واحد طبقِ عنوانِ جدولِ خودِ سایت «میلیارد تومان» --- */
+    var vSec = t.indexOf('ارزش صف');
+    var vText = vSec >= 0 ? t.slice(vSec, vSec + 420) : '';
+    var vb = vText ? tkNumAfter(vText, 'صف خرید', 140) : null;
+    var vs = vText ? tkNumAfter(vText, 'صف فروش', 140) : null;
+    if (vb != null) vb = vb * 1e9;
+    if (vs != null) vs = vs * 1e9;
+
+    var guards = function (v, hi) { return (v != null && isFinite(v) && v >= 0 && v <= hi) ? v : null; };
+    qb = guards(qb, 3000); qs = guards(qs, 3000);
+    vb = guards(vb, 5e14); vs = guards(vs, 5e14);
+    if (qb != null || qs != null || vb != null || vs != null) {
+      out.queue = {
+        buy: qb, sell: qs,
+        buyToman: vb, sellToman: vs,
+        netToman: (vb != null && vs != null) ? Math.round(vb - vs) : null,
+        buyShare: (vb != null && vs != null && (vb + vs) > 0) ? vb / (vb + vs) : null
+      };
+      if (vb == null && vs == null) out.missing.push('ارزشِ صف‌ها استخراج نشد');
+    } else out.missing.push('صف‌ها استخراج نشد');
+
+    /* --- نمادهایِ پُرتراکنش (برای پیوندِ عمیق) --- */
+    var syms = tkSymbols(html, 8);
+    if (syms.length) out.symbols = syms;
+
+    out.ok = !!(out.index || out.equal || out.fara || out.queue || (out.symbols && out.symbols.length));
+    if (!out.ok) out.why = 'هیچ بخشِ معتبری استخراج نشد';
+    return out;
+  }
+
+  /* --- سریِ محلیِ «پولِ پشتِ صف» (فقط جلسه‌ی امروز، در خودِ مرورگر) --- */
+  function tkSeriesLoad() {
+    var raw = null;
+    try { raw = U.store.get(TK.lsKey, null); } catch (e) { raw = null; }
+    var doc = null;
+    try { doc = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { doc = null; }
+    if (!doc || doc.day !== tehranDayStr(Date.now()) || !Array.isArray(doc.pts)) return [];
+    return doc.pts.filter(function (p) {
+      return Array.isArray(p) && p.length >= 3 && isFinite(+p[0]) && isFinite(+p[1]) && isFinite(+p[2]);
+    });
+  }
+
+  function tkSeriesSave(pts) {
+    try {
+      U.store.set(TK.lsKey, JSON.stringify({ day: tehranDayStr(Date.now()), pts: pts }));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /** یک نقطه به سری: [زمان، ارزش صف خرید، ارزش صف فروش] */
+  function tkSeriesPush(q) {
+    if (!q || q.buyToman == null || q.sellToman == null) return 0;
+    var pts = tkSeriesLoad();
+    var now = Date.now();
+    var last = pts[pts.length - 1];
+    // کمتر از ۵ دقیقه: ادغام (به‌جای انباشتنِ نقطه‌های بی‌معنی)
+    if (last && now - last[0] < 5 * 60000) pts[pts.length - 1] = [now, Math.round(q.buyToman), Math.round(q.sellToman)];
+    else pts.push([now, Math.round(q.buyToman), Math.round(q.sellToman)]);
+    while (pts.length > TK.maxSeries) pts.shift();
+    tkSeriesSave(pts);
+    return pts.length;
+  }
+
+  /**
+   * روندِ «پولِ پشتِ صف» از سریِ محلی: خالص (خرید − فروش) در طولِ جلسه.
+   * شیبِ مثبت یعنی در طولِ جلسه پولِ بیشتری پشتِ صفِ خرید صف‌آرایی کرده.
+   */
+  function tkQueueTrend(pts) {
+    if (!pts || pts.length < 2) return null;
+    var a = pts[0], b = pts[pts.length - 1];
+    var spanMin = (b[0] - a[0]) / 60000;
+    if (!(spanMin > 0)) return null;
+    var netA = a[1] - a[2], netB = b[1] - b[2];
+    var d = netB - netA;
+    return {
+      points: pts.length, spanMin: Math.round(spanMin),
+      from: netA, to: netB, delta: d,
+      perHour: Math.round(d / (spanMin / 60)),
+      rising: d > 0,
+      series: pts.map(function (p) { return [p[0], p[1] - p[2]]; })
+    };
+  }
+
+  /** واکشیِ تابلوخوانی — مستقیم، بی‌واسطه، هر یک ساعت یک‌بار */
+  function fetchTablokhani(force) {
+    if (!force && tkAt && Date.now() - tkAt < TK.minGapMs) return Promise.resolve(TK_DOC);
+    tkAt = Date.now();
+    return fetchText(TK.url, { timeout: TK.timeoutMs, validate: function (t) { return t && t.length > 5000; } })
+      .then(function (r) {
+        var d = parseTablokhani(r.t);
+        if (!d.ok) {
+          markSrc('tablokhani', false, (d.why || 'ساختارِ ناشناخته') + ' — صفحه آمد ولی چیزِ معتبری در آن نبود', r.ms);
+          return null;
+        }
+        d.ts = Date.now();
+        TK_DOC = d;
+        if (d.queue) d.queue.points = tkSeriesPush(d.queue);
+        var bits = [];
+        if (d.index) bits.push('شاخص ' + U.fmt(Math.round(d.index.p)));
+        if (d.queue && d.queue.buyToman != null) bits.push('صف خرید ' + U.fa((d.queue.buyToman / 1e12).toFixed(1)) + ' همت');
+        if (d.queue && d.queue.buy != null) bits.push(d.queue.buy + '/' + (d.queue.sell || 0) + ' نمادِ صف');
+        markSrc('tablokhani', true, bits.join(' · ') || 'صفحه خوانده شد', r.ms);
+        try { recompute(); } catch (e) {}
+        emit('quotes', {});
+        return d;
+      })
+      .catch(function (e) {
+        markSrc('tablokhani', false, 'بی‌پاسخ — این منبع فقط از داخلِ ایران پاسخ می‌دهد (مسدودسازیِ جغرافیایی)');
+        return null;
+      });
+  }
+
+  /** وضعیتِ تابلوخوانی برای نمایش (یا null اگر چیزی نداریم) */
+  function tablokhani() {
+    var pts = tkSeriesLoad();
+    var trend = tkQueueTrend(pts);
+    if (!TK_DOC && !trend) return null;
+    var out = { ts: (TK_DOC && TK_DOC.ts) || (pts.length ? pts[pts.length - 1][0] : Date.now()), series: pts, trend: trend };
+    if (TK_DOC) {
+      out.index = TK_DOC.index || null;
+      out.equal = TK_DOC.equal || null;
+      out.fara = TK_DOC.fara || null;
+      out.queue = TK_DOC.queue || null;
+      out.symbols = TK_DOC.symbols || null;
+    }
+    return out;
   }
 
   /* ----- انتشار زنده‌ی سرور (هم‌مبدأ؛ از CORS و فیلتر عبور می‌کند) ----- */
@@ -1467,6 +1908,8 @@
     var run = Promise.all([
       safeCall(fetchNavasan).then(function (d) { if (d != null) ingest('navasan', d); return d; }),
       safeCall(fetchBrsFlow).then(function (d) { return d; }),
+      // تابلوخوانی: فقط از مرورگرِ داخلِ ایران؛ مهارِ زمانی درونِ خودش (هر یک ساعت)
+      safeCall(fetchTablokhani).then(function (d) { return d; }),
       safeCall(fetchBtcHist).then(function (d) { if (d != null) ingest('btcHist', d); return d; }),
       safeCall(fetchHistory)
     ]);
@@ -1632,6 +2075,12 @@
     clearBrsKey: clearBrsKey,
     fetchBrsFlow: fetchBrsFlow,
     aggregateFlow: aggregateFlow,
+    tablokhani: tablokhani,
+    fetchTablokhani: fetchTablokhani,
+    parseTablokhani: parseTablokhani,
+    tkQueueTrend: tkQueueTrend,
+    tkSeriesLoad: tkSeriesLoad,
+    clearTablokhani: function () { TK_DOC = null; tkAt = 0; try { U.store.del(TK.lsKey); } catch (e) {} },
     clearCache: clearCache,
     liveCount: function () { return CFG.ASSETS.filter(function (a) { return QUOTES[a.sym] && QUOTES[a.sym].live; }).length; },
     okSources: function () { return Object.keys(SRC).filter(function (id) { return SRC[id] && SRC[id].ok && id !== 'snapshot'; }).length; },

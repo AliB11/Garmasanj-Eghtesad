@@ -442,6 +442,7 @@ const BT = {
     volume: [1e5, 1e13],    // حجم معاملات (برگه)
     cap: [1e14, 1e19],      // ارزش بازار (تومان)
     perCapita: [0.1, 1e7],  // سرانه (میلیون تومان)
+    queueValue: [0, 1e15],  // ارزشِ صفِ خرید/فروش (تومان) — پولِ پشتِ صف
   },
 };
 
@@ -610,6 +611,28 @@ function parseBourseTrader(html) {
   const khVol = inR(numCell('حجم معاملات', 'خرد'), BT.ranges.volume);
   out.trade = (khVal != null || khVol != null) ? { valueToman: khVal, volume: khVol } : null;
 
+  /* --- منحنیِ درون‌جلسه‌ایِ جریانِ پول (از نمودارِ خودِ صفحه) ---
+       چرا؟ جدول فقط «عددِ الان» را می‌دهد؛ این منحنی می‌گوید پول در طولِ
+       جلسه «چه مسیری» آمده. واحد: میلیارد تومان (از زیرعنوانِ نمودار). */
+  if (out.flow) out.flowCurve = btFlowCurve(html, out.flow.netToman);
+  const qc = btQueueCurve(html);
+  if (qc) out.queueCurve = qc;
+
+  /* --- ارزشِ صف‌های خرید و فروش: «پولِ پشتِ صف» ---
+     تعدادِ صف (که از قبل داشتیم) می‌گوید چند نماد صف است؛ ارزشِ صف می‌گوید
+     چه مقدار پول پشتِ آن صف ایستاده — برای سنجشِ فشارِ تقاضا/عرضه دقیق‌تر است. */
+  const qbV = inR(numCell('ارزش صف خرید', 'خرد'), BT.ranges.queueValue);
+  const qsV = inR(numCell('ارزش صف فروش', 'خرد'), BT.ranges.queueValue);
+  if (qbV != null || qsV != null) {
+    out.queue = {
+      buyToman: qbV,
+      sellToman: qsV,
+      netToman: (qbV != null && qsV != null) ? Math.round(qbV - qsV) : null,
+    };
+    // نسبتِ بدون‌بُعد: سهمِ صفِ خرید از کلِ پولِ پشتِ صف‌ها (۰ تا ۱)
+    if (qbV != null && qsV != null && (qbV + qsV) > 0) out.queue.buyShare = qbV / (qbV + qsV);
+  }
+
   /* --- تحرکاتِ صندوق‌ها (درآمد ثابت، سهامی، کالایی، آپشن) --- */
   const fund = (col, pair) => {
     let net = btNum(cell('ورود پول حقیقی', col));
@@ -651,8 +674,227 @@ function parseBourseTrader(html) {
   const pB = inR(pcB, BT.ranges.perCapita), pS = inR(pcS, BT.ranges.perCapita);
   out.perCapita = (pB != null || pS != null) ? { buy: pB, sell: pS } : null;
 
-  out.ok = !!(out.index || out.equal || out.fara || out.flow || out.funds || out.breadth || out.trade);
+  out.ok = !!(out.index || out.equal || out.fara || out.flow || out.funds || out.breadth || out.trade || out.queue);
   if (!out.ok) out.why = 'هیچ بخشِ معتبری استخراج نشد';
+  return out;
+}
+
+/**
+ * یک نمودارِ توکارِ Highcharts را از صفحه بیرون می‌کشد (سری‌هایِ درون‌جلسه‌ای).
+ * فقط «مقدارها» برمی‌گردند، نه زمان: این نمودارها محورِ زمان ندارند (فقط ترتیب)،
+ * پس هیچ timestampای ساخته نمی‌شود — شکلِ منحنی واقعی است و محورش
+ * «ترتیبِ نقاط در جلسه» است، نه ساعتِ دقیق.
+ */
+function btChart(html, id, cap) {
+  const re = new RegExp('<div class="pre_chart[^"]*" id="' + id + '"');
+  const m = re.exec(String(html || ''));
+  if (!m) return null;
+  let chunk = html.slice(m.index, m.index + (cap || 14000));
+  // فقط تا نمودارِ بعدی: وگرنه سری‌هایِ دو نمودار با هم قاطی می‌شوند
+  const next = chunk.slice(1).search(/<div class="pre_chart/);
+  if (next > 0) chunk = chunk.slice(0, next + 1);
+  const out = { id: id, title: null, sub: null, series: [] };
+  const tm = chunk.match(/title\s*:\s*\{\s*text\s*:\s*['"]([^'"]{2,160})['"]/);
+  if (tm) out.title = tm[1];
+  const sm = chunk.match(/subtitle\s*:\s*\{\s*text\s*:\s*['"]([^'"]{0,160})['"]/);
+  if (sm) out.sub = sm[1];
+  const sre = /name\s*:\s*["']([^"']{1,60})["']\s*,\s*data\s*:\s*\[([^\]]{0,8000})\]/g;
+  let s;
+  while ((s = sre.exec(chunk)) && out.series.length < 6) {
+    const vals = s[2].split(',').map(function (x) {
+      const t = String(x).trim();
+      if (t === 'null' || t === '' || t === 'undefined') return null;
+      const v = parseFloat(t);
+      return isFinite(v) ? v : null;
+    });
+    out.series.push({ name: s[1], data: vals });
+  }
+  return out.series.length ? out : null;
+}
+
+/** کوتاه‌کردنِ یک سری با نمونه‌برداریِ یکنواخت (همیشه آخرین نقطه می‌ماند) */
+function btDownsample(arr, max) {
+  if (!Array.isArray(arr) || arr.length <= max) return arr ? arr.slice() : [];
+  const n = arr.length, out = [];
+  for (let i = 0; i < max; i++) out.push(arr[Math.round(i * (n - 1) / (max - 1))]);
+  return out;
+}
+
+/**
+ * منحنیِ خالصِ «ورود/خروجِ پولِ حقیقی» در طولِ جلسه، از نمودارِ `input_money`.
+ * قراردادِ منبع (از روی پاسخِ زنده استخراج شد):
+ *   • دو سری دارد: «ورود پول» (وقتی خالص مثبت است) و «خروج پول» (وقتی منفی؛
+ *     مقدارهایش خودبه‌خود منفی‌اند). در هر نقطه دقیقاً یکی مقدار دارد.
+ *   • واحد: میلیارد تومان (زیرعنوانِ خودِ نمودار می‌گوید «آخرین ۷۱۴ میلیارد تومان»).
+ * نگهبان‌ها: تعدادِ نقاط، مقیاس، و **تطبیق با عددِ جدول** — اگر آخرین نقطه با
+ * خالصِ جدول هم‌خوان نباشد یعنی نمودار چیزِ دیگری است و منحنی منتشر نمی‌شود.
+ */
+function btFlowCurve(html, netToman) {
+  const ch = btChart(html, 'input_money');
+  if (!ch || ch.series.length < 2) return null;
+  // «ورود/خروج» با ی/کِ نرمال‌شده (هم عربی هم فارسی)
+  const RE_IN = /\u0648\u0631\u0648\u062F/;   // ورود
+  const RE_OUT = /\u062E\u0631\u0648\u062C/; // خروج
+  let inflow = null, outflow = null;
+  for (const s of ch.series) {
+    const nm = btNorm(s.name);
+    if (RE_IN.test(nm) && !inflow) inflow = s.data;
+    else if (RE_OUT.test(nm) && !outflow) outflow = s.data;
+  }
+  if (!inflow || !outflow) return null;
+  const n = Math.min(inflow.length, outflow.length);
+  if (n < 10 || n > 1200) return null;
+  const net = [];
+  for (let i = 0; i < n; i++) {
+    const a = inflow[i], b = outflow[i];
+    if (a == null && b == null) continue;         // پیش از شروعِ جلسه
+    const v = (a || 0) + (b || 0);
+    if (!isFinite(v)) return null;
+    if (Math.abs(v) > 5e6) return null;           // ‎۵۰۰۰ همت = غیرممکن
+    net.push(Math.round(v));
+  }
+  if (net.length < 10) return null;
+  const last = net[net.length - 1];
+  // تطبیق با عددِ جدول (هر دو به میلیارد تومان): اختلافِ فاحش یعنی برداشتِ غلط
+  if (netToman != null && isFinite(netToman)) {
+    const tableMilliard = netToman / 1e9;
+    if (Math.abs(tableMilliard) > 1 && Math.abs(last) > 1) {
+      const ratio = Math.abs(last / tableMilliard);
+      if (ratio < 0.4 || ratio > 2.5) return null;
+    }
+  }
+  const v = btDownsample(net, 48);
+  let lo = Infinity, hi = -Infinity;
+  for (const x of v) { if (x < lo) lo = x; if (x > hi) hi = x; }
+  return {
+    v: v, n: v.length, raw: net.length,
+    unit: 'milliard_toman', last: last, first: net[0],
+    min: lo, max: hi, src: 'BourseTrader'
+  };
+}
+
+/** منحنیِ تعدادِ صف‌های خرید و فروش در طولِ جلسه (نمودارِ buysellqty) */
+function btQueueCurve(html) {
+  const ch = btChart(html, 'buysellqty');
+  if (!ch || ch.series.length < 2) return null;
+  const RE_BUY = /\u062E\u0631\u064A\u062F/;  // خرید (ی عربی پس از نرمال‌سازی)
+  const RE_SELL = /\u0641\u0631\u0648\u0634/; // فروش
+  let buy = null, sell = null;
+  for (const s of ch.series) {
+    const nm = btNorm(s.name);
+    if (RE_BUY.test(nm) && !buy) buy = s.data;
+    else if (RE_SELL.test(nm) && !sell) sell = s.data;
+  }
+  if (!buy || !sell) return null;
+  const n = Math.min(buy.length, sell.length);
+  if (n < 10 || n > 1200) return null;
+  const B = [], S = [];
+  for (let i = 0; i < n; i++) {
+    const a = buy[i], b = sell[i];
+    if (a == null || b == null) continue;
+    if (!isFinite(a) || !isFinite(b)) return null;
+    if (a < 0 || b < 0 || a > 3000 || b > 3000) return null;
+    B.push(Math.round(a)); S.push(Math.round(b));
+  }
+  if (B.length < 10) return null;
+  return { buy: btDownsample(B, 40), sell: btDownsample(S, 40), n: B.length, raw: n };
+}
+
+/**
+ * انتخابِ جریانِ پول برای انتشار — مهم‌ترین بخشِ «صداقتِ» این سامانه،
+ * برای همین جدا و مستقلاً قابل‌تست نوشته شده (در main فقط صدا زده می‌شود).
+ *
+ * ترتیبِ اعتبار:
+ *   ۱) عددِ تازه از بورس‌تریدر (در ساعتِ بازار)
+ *   ۲) عددِ تازه از BrsApi (اگر کلید باشد)
+ *   ۳) «حفظِ جلسه»: همان عدد از انتشارِ قبلی — اما فقط اگر متعلق به همان
+ *      جلسه‌ای باشد که شاخص به آن تعلق دارد. چرا؟ جریانِ پول یک عددِ «روزانه»
+ *      است؛ اگر بعد از بسته‌شدنِ بازار آن را دور بریزیم، هر کسی که عصر صفحه را
+ *      باز کند چیزی نمی‌بیند — با آن‌که صبحِ همان روز واقعاً اندازه‌گیری شده بود.
+ *      شرطِ صداقت: جلسه‌یِ قبل هرگز منتشر نمی‌شود تا «عددِ کهنه» لباسِ
+ *      «امروز» نپوشد.
+ *   ۴) سکوت — هرگز از روی شاخص ساخته نمی‌شود.
+ *
+ * @returns {{flow: object|null, why: string, how: string}}
+ */
+function pickMarketFlow(o) {
+  const inp = o || {};
+  const ixDay = inp.ixDay || null;
+  const now = inp.now || Date.now();
+  const dayOf = (ts) => (ts > 0 ? tehranDay(ts) : null);
+
+  if (inp.fresh && isFinite(+inp.fresh.netToman)) {
+    return {
+      flow: {
+        netToman: +inp.fresh.netToman,
+        ratio: (inp.fresh.ratio != null && isFinite(+inp.fresh.ratio)) ? +inp.fresh.ratio : null,
+        n: inp.fresh.n || null,
+        src: inp.fresh.src || 'BourseTrader',
+        ts: now, day: tehranDay(now), fresh: true,
+      },
+      how: 'fresh', why: 'تازه از ' + (inp.fresh.src || 'BourseTrader'),
+    };
+  }
+  if (inp.brs && isFinite(+inp.brs.netToman)) {
+    return {
+      flow: {
+        netToman: +inp.brs.netToman,
+        ratio: (inp.brs.ratio != null && isFinite(+inp.brs.ratio)) ? +inp.brs.ratio : null,
+        n: inp.brs.n || null,
+        src: inp.brs.src || 'BrsApi',
+        ts: now, day: tehranDay(now), fresh: true,
+      },
+      how: 'brs', why: 'از BrsApi',
+    };
+  }
+  const pf = inp.prev;
+  if (pf && pf.ts > 0 && isFinite(+pf.netToman) && ixDay && dayOf(pf.ts) === ixDay) {
+    return {
+      flow: {
+        netToman: +pf.netToman,
+        ratio: (pf.ratio != null && isFinite(+pf.ratio)) ? +pf.ratio : null,
+        n: pf.n || null,
+        src: pf.src || (pf.src === 'BrsApi' ? 'BrsApi' : 'BourseTrader'),
+        ts: pf.ts, day: dayOf(pf.ts), fresh: false,
+      },
+      how: 'kept', why: 'جریانِ جلسه‌یِ امروز از انتشارِ قبلی',
+    };
+  }
+  return {
+    flow: null,
+    how: 'silent',
+    why: pf
+      ? 'جریانِ موجود متعلق به جلسه‌یِ دیگری است — منتشر نمی‌شود (عددِ کهنه لباسِ امروز نمی‌پوشد)'
+      : 'منبعی در دسترس نبود — جریانِ پول منتشر نمی‌شود',
+  };
+}
+
+/**
+ * سریِ درون‌جلسه‌ایِ جریانِ پول.
+ * هر انتشارِ معتبر یک نقطه می‌افزاید؛ فقط نقاطِ همان روزِ تهران نگه داشته
+ * می‌شوند (جلسه‌ی فردا یعنی سریِ تازه). چرا اینجا و نه در history.json؟
+ * چون «روندِ پولِ امروز» باید همان لحظه دیده شود، نه فردا.
+ * نگهبان: حداکثر ۲۴ نقطه (سقفِ حجمِ live.json) و بدون ترتیبِ زمانی نمی‌شود.
+ */
+function flowSeries(prev, ts, netToman) {
+  if (!(ts > 0) || !isFinite(+netToman)) return [];
+  const day = tehranDay(ts);
+  const out = [];
+  if (Array.isArray(prev)) {
+    for (const p of prev) {
+      if (!Array.isArray(p) || p.length < 2) continue;
+      const t = +p[0], v = +p[1];
+      if (!(t > 0) || !isFinite(v)) continue;
+      if (tehranDay(t) !== day) continue;         // جلسه‌ی دیگر
+      if (out.length && t <= out[out.length - 1][0]) continue; // فقط رو به جلو
+      out.push([t, Math.round(v)]);
+    }
+  }
+  const last = out[out.length - 1];
+  if (!last) out.push([ts, Math.round(netToman)]);
+  else if (ts - last[0] >= 5 * 60000) out.push([ts, Math.round(netToman)]);  // کمتر از ۵ دقیقه ادغام
+  else out[out.length - 1] = [ts, Math.round(netToman)];
+  while (out.length > 24) out.shift();
   return out;
 }
 
@@ -680,7 +922,32 @@ async function fetchTGJU(log) {
   return win ? win.current : null;
 }
 
+/**
+ * مهارِ «دورِ بی‌فایده»: اگر انتشارِ روی دیسک از MIN_GAP_MIN دقیقه تازه‌تر باشد،
+ * این اجرا هیچ کاری نمی‌کند (بدون واکشی، بدون کامیت).
+ * چرا؟ چند جریان (ضربانِ ساعتی + نگهبانِ ساعتی) ممکن است هم‌زمان بیدار شوند؛
+ * انتشارِ دوبارهِ پشتِ‌هم فقط ترافیکِ بی‌دلیل روی منابعِ عمومی است.
+ *   node scripts/publish.cjs --min-gap=20
+ */
+function freshEnough(minutes) {
+  const m = Math.max(0, +minutes || 0);
+  if (!m) return 0;
+  try {
+    const j = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+    const age = (Date.now() - Date.parse(j && j.generated_at)) / 60000;
+    return (isFinite(age) && age >= 0 && age < m) ? age : 0;
+  } catch (e) { return 0; }
+}
+
 async function main() {
+  const argGap = (process.argv.slice(2).find((a) => a.startsWith('--min-gap=')) || '').split('=')[1];
+  const skipAge = freshEnough(argGap);
+  if (skipAge) {
+    console.log('PUBLISH SKIP: انتشارِ روی دیسک ' + skipAge.toFixed(1) + ' دقیقه پیش بوده' +
+      ' (حداقل فاصله: ' + argGap + ' دقیقه) — منبعی واکشی نشد.');
+    return;
+  }
+
   const SRC = {};
   const log = (id, ok, note, ms) => { SRC[id] = { ok: !!ok, ms: ms || null, note: note || '' }; };
   const now = Date.now();
@@ -819,7 +1086,10 @@ async function main() {
 
   /* بورس‌تریدر: صفحه‌ی عمومی است، پس مؤدبانه رفتار می‌کنیم — فقط در ساعتِ
      بازار و هر BT_MIN_GAP_MS یک‌بار؛ بیرون از آن، همان مقدارِ قبلی می‌ماند. */
-  const BT_MIN_GAP_MS = 30 * 60e3;
+  // فاصله‌ی واکشیِ صفحه‌ی عمومیِ بورس‌تریدر (ادب): پیش‌فرض هر نیم‌ساعت.
+  // با متغیرِ محیطی BT_MIN_GAP_MIN می‌توان کم/زیاد کرد؛ کمتر از ۱۵ دقیقه
+  // پذیرفته نمی‌شود چون صفحه برای مصرفِ ماشینیِ پرتکرار ساخته نشده.
+  const BT_MIN_GAP_MS = Math.max(15, Math.min(360, +(process.env.BT_MIN_GAP_MIN || 30) || 30)) * 60e3;
   const prevBt = (prevDoc.market && prevDoc.market.bt) || null;
   let btDoc = null, btFresh = false;
   if (!tseSessionOpen(now)) {
@@ -873,42 +1143,60 @@ async function main() {
   /* جریانِ پولِ حقیقیِ خرد، به ترتیبِ اعتبار:
      ۱) بورس‌تریدر — بدون کلید و کلِ بازار (اگر همین الان گرفته شده باشد)
      ۲) BrsApi — اگر Secret تنظیم شده باشد (حداکثر هر ۳ ساعت)
-     ۳) همان مقدارِ قبلی، فقط اگر از جلسه‌یِ فعلی عقب‌تر نباشد
+     ۳) «حفظِ جلسه»: همان مقدار از انتشارِ قبلی، اگر متعلق به همان جلسه‌ای باشد
+        که شاخص به آن تعلق دارد. چرا این بند حیاتی است؟ جریانِ پول یک عددِ
+        «روزانه» است، نه لحظه‌ای؛ اگر بعد از بسته‌شدنِ بازار آن را دور بریزیم،
+        هر کسی که عصر صفحه را باز کند چیزی نمی‌بیند — در حالی که صبحِ همان روز
+        واقعاً اندازه‌گیری شده بود. شرطِ صداقت: فقط همان جلسه؛ جلسه‌یِ قبل
+        منتشر نمی‌شود تا «عددِ کهنه» لباسِ «امروز» نپوشد.
      ۴) سکوت — هرگز از روی شاخص ساخته نمی‌شود */
+  const ixDay = marketOut ? tehranDay((marketOut.index && marketOut.index.ts) || now) : null;
+  const prevFlow = prevDoc.market && prevDoc.market.flow;
+
+  /* ورودی‌هایِ pickMarketFlow: اول منبعِ تازه، وگرنه همان جلسه از قبل */
+  const btFreshFlow = (btFresh && btDoc && btDoc.flow) ? {
+    netToman: btDoc.flow.netToman, ratio: btDoc.flow.ratio,
+    n: (btDoc.breadth && btDoc.breadth.total) || null, src: 'BourseTrader',
+  } : null;
+  let brsFresh = null;
   if (!marketOut) log('tsetmc', false, 'شاخص نیامد؛ جریان هم منتشر نمی‌شود');
-  else if (btFresh && btDoc && btDoc.flow) {
-    marketOut.flow = {
-      netToman: btDoc.flow.netToman, ratio: btDoc.flow.ratio,
-      n: (btDoc.breadth && btDoc.breadth.total) || null, src: 'BourseTrader', ts: now,
-    };
-    log('tsetmc', true, 'جریانِ خرد از بورس‌تریدر: ' + (btDoc.flow.netToman < 0 ? 'خروج ' : 'ورود ') +
-      faNum(Math.abs(btDoc.flow.netToman) / 1e12) + ' همت');
-  } else if (BRS_KEY) {
-    const pf = prevDoc.market && prevDoc.market.flow;
-    if (pf && pf.ts && (Date.now() - pf.ts < BRS_MIN_GAP_MS)) {
-      marketOut.flow = pf;
-      log('tsetmc', true, 'از انتشارِ قبلی (هنوز تازه است)');
-    } else {
+  else {
+    // BrsApi فقط وقتی صدا زده می‌شود که منبعِ بی‌کلید چیزی نداده باشد و
+    // جریانِ قبلی هم یا نداریم یا از مهارِ زمانی گذشته است.
+    const needBrs = !!BRS_KEY && !btFreshFlow &&
+      !(prevFlow && prevFlow.ts && (Date.now() - prevFlow.ts < BRS_MIN_GAP_MS) && ixDay && tehranDay(prevFlow.ts) === ixDay);
+    if (needBrs) {
       const url = BRS.base + '/' + BRS.marketPath + '?key=' + encodeURIComponent(BRS_KEY) + '&type=' + encodeURIComponent(BRS.type);
       try {
         const r = await getJSON(url, { timeout: 20000 });
         const pr = parseBrsMarket(r.j);
-        if (pr.ok) {
-          marketOut.flow = { netToman: pr.agg.netToman, ratio: pr.agg.ratio, n: pr.agg.n, src: 'BrsApi', ts: Date.now() };
-          log('tsetmc', true, 'جریانِ پولِ ' + pr.agg.n + ' نماد از BrsApi', r.ms);
-        } else {
-          log('tsetmc', false, pr.why + (pr.keys ? ' — کلیدها: ' + pr.keys.join(', ') : '') + ' · ' + redact(url));
-        }
+        if (pr.ok) { brsFresh = { netToman: pr.agg.netToman, ratio: pr.agg.ratio, n: pr.agg.n, src: 'BrsApi' }; log('tsetmc', true, 'جریانِ پولِ ' + pr.agg.n + ' نماد از BrsApi', r.ms); }
+        else log('tsetmc', false, pr.why + (pr.keys ? ' — کلیدها: ' + pr.keys.join(', ') : '') + ' · ' + redact(url));
       } catch (e) { log('tsetmc', false, String((e && e.message) || e).slice(0, 70) + ' · ' + redact(url)); }
+    } else if (BRS_KEY && !btFreshFlow) log('tsetmc', true, 'از انتشارِ قبلی (هنوز تازه است)');
+
+    const picked = pickMarketFlow({ fresh: btFreshFlow, brs: brsFresh, prev: prevFlow, ixDay: ixDay, now: now });
+    marketOut.flow = picked.flow;
+    if (picked.flow) {
+      if (picked.how === 'fresh') {
+        log('tsetmc', true, 'جریانِ خرد از بورس‌تریدر: ' + (picked.flow.netToman < 0 ? 'خروج ' : 'ورود ') +
+          faNum(Math.abs(picked.flow.netToman) / 1e12) + ' همت');
+      } else if (picked.how === 'brs') {
+        log('tsetmc', true, 'جریانِ پولِ ' + picked.flow.n + ' نماد از BrsApi');
+      } else {
+        log('tsetmc', true, 'جریانِ جلسه‌یِ امروز از انتشارِ قبلی (' +
+          Math.round((now - picked.flow.ts) / 3600e3) + ' ساعت پیش اندازه‌گیری شده)');
+      }
+    } else if (picked.how === 'silent') {
+      log('tsetmc', false, picked.why);
     }
-  } else {
-    const pf = prevDoc.market && prevDoc.market.flow;
-    const ixTs = (marketOut.index && marketOut.index.ts) || 0;
-    // فقط اگر از جلسه‌ای که شاخص به آن تعلق دارد عقب‌تر نباشد
-    if (pf && pf.ts && ixTs && pf.ts >= ixTs - 6 * 3600e3 && (Date.now() - pf.ts) < 48 * 3600e3) {
-      marketOut.flow = pf;
-      log('tsetmc', true, 'از انتشارِ قبلی (' + Math.round((Date.now() - pf.ts) / 3600e3) + ' ساعت پیش)');
-    } else log('tsetmc', false, 'بدون کلید و بدون مقدارِ تازهِ قبلی — جریانِ پول منتشر نمی‌شود');
+  }
+
+  /* سریِ درون‌جلسه‌ایِ «روندِ پولِ امروز»: هر انتشار یک نقطه.
+     با یک نقطه نمی‌شود روند کشید، پس فقط از دو نقطه به بالا منتشر می‌شود. */
+  if (marketOut && marketOut.flow && isFinite(+marketOut.flow.netToman)) {
+    const s = flowSeries(prevDoc.market && prevDoc.market.flowSeries, marketOut.flow.ts || now, +marketOut.flow.netToman);
+    if (s.length >= 2) marketOut.flowSeries = s;
   }
 
   // مکملِ بورس‌تریدر: شاخص‌های هم‌وزن/فرابورس، تحرکاتِ صندوق‌ها، پهنا، سرانه
@@ -922,6 +1210,9 @@ async function main() {
     if (btDoc.funds) bt.funds = btDoc.funds;
     if (btDoc.breadth) bt.breadth = btDoc.breadth;
     if (btDoc.perCapita) bt.perCapita = btDoc.perCapita;
+    if (btDoc.queue) bt.queue = btDoc.queue;
+    if (btDoc.flowCurve) bt.flowCurve = btDoc.flowCurve;
+    if (btDoc.queueCurve) bt.queueCurve = btDoc.queueCurve;
     if (Object.keys(bt).length > 3) marketOut.bt = bt;
   }
 
@@ -982,4 +1273,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('PUBLISH FATAL: ' + ((e && e.stack) || e)); process.exitCode = 1; });
 }
 
-module.exports = { num, tehranMs, tehranDay, faDay, faNum, redact, envKey, parseNavasan, aggregateFlow, parseBrsMarket, inRange, saneDayRange, sanePct, tgjuRow, tgjuIndex, pickTGJU, TGJU_MARKET_KEYS, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS, btNum, btCount, btNorm, btTable, btFind, btIndexRow, btPairRow, parseBourseTrader, tseSessionOpen, BT };
+module.exports = { num, tehranMs, tehranDay, faDay, faNum, redact, envKey, parseNavasan, aggregateFlow, parseBrsMarket, inRange, saneDayRange, sanePct, tgjuRow, tgjuIndex, pickTGJU, TGJU_MARKET_KEYS, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS, btNum, btCount, btNorm, btTable, btFind, btIndexRow, btPairRow, parseBourseTrader, tseSessionOpen, BT, flowSeries, pickMarketFlow, btChart, btDownsample, btFlowCurve, btQueueCurve };

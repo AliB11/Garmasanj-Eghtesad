@@ -851,6 +851,62 @@ kbd{display:inline-block;min-width:26px;text-align:center;font-family:inherit;fo
 .queue-fill.buy{background:var(--up)} .queue-fill.sell{background:var(--down)}
 .queue-foot{font-size:.72rem;color:var(--dim);background:var(--field);border:1px dashed var(--line);border-radius:8px;padding:8px 12px;line-height:1.8}
 
+/* ---- روندِ پول: جریانِ درون‌جلسه‌ای، پولِ پشتِ صف، چند جلسه‌ی اخیر ---- */
+.bp-money-grid{
+  display:grid;
+  grid-template-columns: 1.15fr 1fr .95fr;
+  gap:0;
+  border-top:1px solid var(--line);
+}
+.bp-money-grid .bp-panel{border-bottom:none}
+
+.mf-chart{display:flex;flex-direction:column;gap:8px}
+.mf-svg{width:100%;height:auto;background:var(--tint2);border:1px solid var(--line);border-radius:12px}
+.mf-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.78rem;color:var(--mut)}
+.mf-foot b{font-size:.95rem;font-variant-numeric:tabular-nums}
+.mf-delta{font-size:.72rem;color:var(--dim);margin-inline-start:auto}
+.mf-note{font-size:.7rem;color:var(--dim);line-height:1.7;padding:0 2px}
+
+.qm-chart{display:flex;flex-direction:column;gap:8px}
+.qm-row{display:grid;grid-template-columns:74px 1fr auto;gap:10px;align-items:center;background:var(--tint2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.8rem}
+.qm-label{font-size:.72rem;color:var(--mut);font-weight:700}
+.qm-row.in .qm-label{color:var(--up)} .qm-row.out .qm-label{color:var(--down)}
+.qm-track{height:8px;border-radius:5px;background:var(--track);overflow:hidden}
+.qm-fill{display:block;height:100%;border-radius:5px;transition:width .6s}
+.qm-fill.in{background:var(--up)} .qm-fill.out{background:var(--down)}
+.qm-val{font-size:.8rem;font-weight:800;direction:ltr}
+.qm-net{font-size:.78rem;color:var(--mut);background:var(--field);border:1px dashed var(--line);border-radius:9px;padding:8px 12px}
+.qm-net b{direction:ltr}
+.qm-net.in b{color:var(--up)} .qm-net.out b{color:var(--down)}
+.qm-net span{color:var(--dim);font-size:.72rem}
+.qm-trend{font-size:.74rem;border-radius:9px;padding:7px 12px;line-height:1.7}
+.qm-trend.in{color:var(--up);background:rgba(62,207,142,.09);border:1px solid rgba(62,207,142,.25)}
+.qm-trend.out{color:var(--down);background:rgba(255,107,94,.09);border:1px solid rgba(255,107,94,.25)}
+.qm-trend span{color:var(--dim);font-size:.7rem}
+.qm-count{font-size:.72rem;color:var(--dim);padding:0 4px}
+
+.fs-chart{display:flex;flex-direction:column;gap:7px}
+.fs-row{display:grid;grid-template-columns:46px 1fr auto;gap:10px;align-items:center;background:var(--tint2);border:1px solid var(--line);border-radius:9px;padding:6px 10px}
+.fs-day{font-size:.7rem;color:var(--mut);direction:ltr;font-variant-numeric:tabular-nums}
+.fs-track{height:7px;border-radius:4px;background:var(--track);overflow:hidden}
+.fs-fill{display:block;height:100%;border-radius:4px}
+.fs-fill.in{background:var(--up)} .fs-fill.out{background:var(--down)}
+.fs-val{font-size:.74rem;font-weight:800;direction:ltr}
+.fs-val.in{color:var(--up)} .fs-val.out{color:var(--down)}
+.fs-note{font-size:.74rem;border-radius:9px;padding:7px 12px;line-height:1.7}
+.fs-note.in{color:var(--up);background:rgba(62,207,142,.09);border:1px solid rgba(62,207,142,.25)}
+.fs-note.out{color:var(--down);background:rgba(255,107,94,.09);border:1px solid rgba(255,107,94,.25)}
+
+.tk-links{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+.tk-hint{font-size:.7rem;color:var(--dim);width:100%;line-height:1.7}
+.tk-link{font-size:.72rem;color:var(--gold2);text-decoration:none;border:1px solid var(--line2);border-radius:999px;padding:3px 10px;background:var(--tint2);white-space:nowrap}
+.tk-link:hover{border-color:var(--gold);background:var(--gold-dim)}
+
+@media (max-width:900px){
+  .bp-money-grid{grid-template-columns:1fr}
+  .bp-money-grid .bp-panel{border-left:none;border-bottom:1px solid var(--line)}
+}
+
 /* بافت قدیمی bp-* برای سازگاری */
 .bp-cap{margin-top:10px}
 

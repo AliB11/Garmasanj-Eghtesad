@@ -77,6 +77,29 @@ function addMarketPoint(doc, ms, p, hi, lo) {
   return false;
 }
 
+/**
+ * یک نقطه‌ی «جریانِ پولِ حقیقیِ بورس» برای هر جلسه.
+ * چرا جدا از addPoint؟ چون مقدارش می‌تواند منفی باشد (خروجِ پول) و addPoint
+ * برای «قیمت» ساخته شده و فقط مقادیرِ مثبت می‌پذیرد.
+ * به‌روزرسانیِ درجا: در طولِ همان جلسه آخرین مقدار جایگزین می‌شود، چون
+ * جریانِ پول یک عددِ انباشتیِ روزانه است (آخرِ جلسه همان عددِ نهایی است).
+ *   daily.TSEFLOW = [["YYYY-MM-DD", netToman], ...]
+ */
+function addMarketFlowPoint(doc, ms, netToman) {
+  if (!(ms > 0) || !isFinite(+netToman)) return false;
+  const k = dayKey(ms);
+  const v = Math.round(+netToman);
+  const d = doc.daily.TSEFLOW || (doc.daily.TSEFLOW = []);
+  const ld = d[d.length - 1];
+  if (ld && ld[0] === k) {
+    if (ld[1] === v) return false;
+    ld[1] = v;
+    return true;
+  }
+  if (!ld || ld[0] < k) { d.push([k, v]); return true; }
+  return false;
+}
+
 function addPoint(doc, sym, ms, p, hi, lo) {
   if (!(p > 0) || !isFinite(p) || !(ms > 0)) return false;
   const sec = Math.round(ms / 1000);
@@ -121,6 +144,11 @@ function appendLive(doc, live) {
   if (mk && mk.p > 0) {
     const mms = (mk.ts && mk.ts > 0) ? mk.ts : ms;
     if (addMarketPoint(doc, mms, +mk.p, mk.high, mk.low)) added++;
+  }
+  /* بورس: خالصِ جریانِ پولِ حقیقیِ همان جلسه (برای «روندِ چندجلسه‌ایِ پول») */
+  const fl = live.market && live.market.flow;
+  if (fl && isFinite(+fl.netToman) && fl.ts > 0) {
+    if (addMarketFlowPoint(doc, fl.ts, +fl.netToman)) added++;
   }
   if (added) {
     const prev = Date.parse(doc.generated_at) || 0;
@@ -180,4 +208,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { load, save, appendLive, addPoint, addMarketPoint, backfillFromGit, prune, dayKey, stats, empty, HIST, KEEP_RECENT_DAYS, KEEP_DAILY_DAYS, saneDayRange };
+module.exports = { load, save, appendLive, addPoint, addMarketPoint, addMarketFlowPoint, backfillFromGit, prune, dayKey, stats, empty, HIST, KEEP_RECENT_DAYS, KEEP_DAILY_DAYS, saneDayRange };

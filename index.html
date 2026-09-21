@@ -212,6 +212,24 @@
           <div id="bourseCap"></div>
         </div>
       </div>
+      <!-- روندِ پول: جریان در طولِ جلسه + پولِ پشتِ صف + چند جلسه‌ی اخیر -->
+      <div class="bp-grid bp-money-grid">
+        <div class="bp-panel bp-trend-panel">
+          <div class="bp-panel-h"><h4>روندِ پول در جلسه</h4><span>خالصِ پولِ حقیقی، برداشت‌به‌برداشت
+            <button class="f-help" data-formula="moneyTrend" title="فرمول روند پول">؟</button></span></div>
+          <div id="bourseMoneyTrend"></div>
+        </div>
+        <div class="bp-panel bp-queue-panel">
+          <div class="bp-panel-h"><h4>پولِ پشتِ صف</h4><span>ارزشِ صف‌های خرید و فروش
+            <button class="f-help" data-formula="queueMoney" title="فرمول پول پشت صف">؟</button></span></div>
+          <div id="bourseQueueMoney"></div>
+        </div>
+        <div class="bp-panel bp-sessions-panel">
+          <div class="bp-panel-h"><h4>چند جلسه‌ی اخیر</h4><span>خالصِ جریانِ هر جلسه</span></div>
+          <div id="bourseFlowSessions"></div>
+          <div id="bourseTkLinks" class="bp-tk"></div>
+        </div>
+      </div>
       <div class="bp-foot">
         <span>منبع: <b>bourse-trader.ir</b> (عمومی، بدون کلید) + <b>TGJU</b> شاخص · از انتشار سرور · <span id="bourseProSource">—</span></span>
         <span id="bourseProExplain">—</span>
@@ -478,7 +496,17 @@
       <button class="btn btn-ghost sm" id="brsClear">حذف</button>
     </div>
     <p class="m-hint">کلیدِ رایگان را از <b dir="ltr">brsapi.ir</b> بگیرید؛ فقط در مرورگرِ خودتان ذخیره می‌شود و مستقیماً (بدون واسطه) ارسال می‌گردد. این مسیر فقط برای کاربرِ صاحبِ کلید فعال است، چون بازنشرِ آن به‌عنوانِ سرویسِ عمومی ممنوع است.</p>
-    <label>۴. پاک‌سازی کش محلی</label>
+    <label>۴. تابلوخوانی — روندِ پولِ پشتِ صف (فقط داخلِ ایران)</label>
+    <div class="set-row">
+      <button class="btn btn-ghost sm" id="tkRetry">تلاشِ دوباره</button>
+      <button class="btn btn-ghost sm" id="tkClear">پاک کردن سری</button>
+    </div>
+    <p class="m-hint" id="tkStatus">وضعیت: …</p>
+    <p class="m-hint">اندازه‌گیری روی رانرِ گیت‌هاب نشان داد <b dir="ltr">tablokhani.com</b> بیرون از ایران پاسخِ HTTP نمی‌دهد؛
+      پس این منبع فقط از مرورگرِ شما (اگر داخل ایران باشید) خوانده می‌شود — هر یک ساعت یک‌بار و مستقیم، بدون واسطه.
+      سریِ «پولِ پشتِ صف» در همین مرورگر و فقط برای جلسه‌ی امروز نگه داشته می‌شود.
+      اگر اینجا هم بی‌پاسخ ماند، پیوندهایِ تابلوخوانی در بخشِ بورس همچنان کار می‌کنند.</p>
+    <label>۵. پاک‌سازی کش محلی</label>
     <div class="set-row">
       <button class="btn btn-ghost sm" id="cacheClear">پاک کردن کش قیمت‌ها</button>
     </div>

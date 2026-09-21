@@ -4,19 +4,35 @@
 # assets/data/history.json کامیت می‌شود.
 #
 # نکته‌ی صادقانه: زمان‌بندی cron گیت‌هاب «تلاش حداکثری» است و در عمل
-# */15 حدود ۵ تا ۸ بار در روز اجرا می‌شود. برای جبران، هر اجرا چند دور
-# (ROUNDS) با فاصله‌ی INTERVAL_MIN دقیقه منتشر می‌کند.
+# یک cronِ */15 حدود ۵ تا ۸ بار در روز اجرا می‌شود — برای همین اینجا
+# سه لایه داریم تا «هر یک ساعت» واقعاً رعایت شود:
+#   ۱) ضربانِ ساعتی (cron روی دقیقه‌ی ۵ و ۳۵) — اگر یک ضربان پرید، دیگری هست
+#   ۲) حلقه‌ی درون‌کار: هر اجرا چند دور (ROUNDS) با فاصله‌ی INTERVAL_MIN
+#      منتشر می‌کند، پس یک اجرا تا ROUNDS×INTERVAL_MIN دقیقه جلوتر را هم می‌پوشاند
+#   ۳) نگهبانِ ساعتی (hourly.yml) که با یک کارِ بلندمدت، ساعت‌به‌ساعت منتشر
+#      می‌کند و جبران می‌کند اگر کلّ یک ساعت cron اجرا نشد
+# لایه‌ی چهارم (اختیاری): repository_dispatch — یک کرونِ بیرونی رایگان
+# (مثل cron-job.org) می‌تواند هر ساعت این جریان را صدا بزند؛
+# راهنما در docs/UPDATE_SCHEDULE_FA.md
 name: انتشار زنده قیمت‌ها
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/15 * * * *'   # تلاشِ پرتکرار (بهترین‌تلاشی)
+    - cron: '5 * * * *'      # ضربانِ ساعتی
+    - cron: '35 * * * *'     # ضربانِ ساعتیِ دوم (میان‌ساعت)
   workflow_dispatch:
     inputs:
       rounds:
         description: 'تعداد دورهای انتشار در این اجرا'
-        default: '3'
+        default: '2'
         required: false
+      interval:
+        description: 'فاصله‌ی بین دورها (دقیقه)'
+        default: '45'
+        required: false
+  repository_dispatch:
+    types: [publish]
 
 permissions:
   contents: write
@@ -26,8 +42,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ROUNDS: ${{ github.event.inputs.rounds || '3' }}
-  INTERVAL_MIN: '15'
+  ROUNDS: ${{ github.event.inputs.rounds || '2' }}
+  INTERVAL_MIN: ${{ github.event.inputs.interval || '45' }}
+  # اگر انتشارِ روی دیسک از این حد تازه‌تر باشد، این اجرا کاری نمی‌کند
+  # (جلوی انتشارِ دوبارهِ بی‌فایده وقتی دو جریان هم‌زمان بیدار می‌شوند).
+  MIN_GAP_MIN: ${{ github.event.inputs.min_gap || '20' }}
   # مسیرهای کلیددار (اختیاری): اگر این Secrets تنظیم شوند، ناشر از آن‌ها هم
   # استفاده می‌کند؛ اگر نباشند، این مسیرها کاملاً خاموش می‌مانند.
   # کلیدها هرگز وارد کد، لاگ یا فایلِ داده نمی‌شوند.
@@ -37,7 +56,8 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # دو دورِ ۴۵ دقیقه‌ای = ۴۵ دقیقه + حاشیه برای واکشی و کامیت
+    timeout-minutes: 115
     steps:
       - name: دریافت کد
         uses: actions/checkout@v4
@@ -48,36 +68,6 @@ jobs:
           node-version: 22
 
       - name: اجرای ناشر (چند دور) و کامیت
-        run: |
-          git config user.name 'garmasanj-bot'
-          git config user.email 'garmasanj-bot@users.noreply.github.com'
-
-          commit_and_push() {
-            git add assets/data/live.json assets/data/history.json
-            if git diff --staged --quiet; then echo "no changes"; return 0; fi
-            TS=$(node -e "console.log(JSON.parse(require('fs').readFileSync('assets/data/live.json','utf8')).generated_at)")
-            # [skip ci] → کامیت‌های داده‌ای، CI تست‌ها را فعال نمی‌کنند
-            git commit -q -m "chore(data): انتشار زنده قیمت‌ها ($TS) [skip ci]"
-            for i in 1 2 3; do
-              if git push -q; then return 0; fi
-              echo "push failed (attempt $i) — rebasing onto latest upstream"
-              # شاخه‌ی جاری را با بالادستِ خودش هماهنگ کن (وابسته به نام شاخه نباشد)
-              if ! git pull -q --rebase --autostash; then
-                git rebase --abort || true
-                git reset -q --hard @{upstream} || git reset -q --hard HEAD
-                node scripts/publish.cjs
-                git add assets/data/live.json assets/data/history.json
-                git commit -q -m "chore(data): انتشار زنده قیمت‌ها ($TS) [skip ci]" || true
-              fi
-              sleep 5
-            done
-            echo "::warning::push failed after 3 attempts — next round/run will retry"
-            return 0
-          }
-
-          for r in $(seq 1 "$ROUNDS"); do
-            echo "── round $r/$ROUNDS  $(date -u +%FT%TZ)"
-            node scripts/publish.cjs || echo "::warning::publish round $r failed"
-            commit_and_push
-            if [ "$r" -lt "$ROUNDS" ]; then sleep $(( INTERVAL_MIN * 60 )); fi
-          done
+        # منطقِ حلقه/کامیت یک‌جا در scripts/publish_rounds.sh است تا نگهبانِ
+        # ساعتی و این جریان هیچ‌وقت از هم جدا نیفتند.
+        run: bash scripts/publish_rounds.sh

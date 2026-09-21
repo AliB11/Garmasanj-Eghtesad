@@ -1,0 +1,59 @@
+# گرماسنج — نگهبانِ ساعتی (تضمینِ «هر یک ساعت یک انتشار»)
+#
+# مسئله: زمان‌بندیِ cron گیت‌هاب «بهترین تلاش» است و در عمل یک cronِ پرتکرار
+# (مثل */15) تنها چند بار در روز اجرا می‌شود. نتیجه‌اش این است که یک جلسه‌ی
+# کاملِ بازار (۰۹:۰۰ تا ۱۲:۳۰ تهران) ممکن است هیچ انتشاری نگیرد و داده‌ی بورس
+# تا فردا عقب بماند — دقیقاً همان اتفاقی که در بازبینی دیده شد.
+#
+# راه‌حل: به‌جای تکیه بر تعدادِ دفعاتِ بیدار شدن، یک کارِ بلندمدت می‌گیریم که
+# خودش ساعت‌به‌ساعت منتشر می‌کند. پس هر بار که بیدار شود، چند ساعتِ بعد هم
+# پوشش داده می‌شود و اگر یک نوبتِ cron هم پرید، پوشش سوراخ نمی‌خورد.
+#
+# خاموش کردن: در Settings → Secrets and variables → Variables متغیری به نام
+# HOURLY_KEEPER با مقدار false بساز (بدون نیاز به تغییرِ کد).
+name: نگهبان ساعتی انتشار
+
+on:
+  schedule:
+    # چهار نوبت در شبانه‌روز؛ هر نوبت ۵ ساعتِ بعد را هم می‌پوشاند
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: 'تعداد دورهای ساعتی در این اجرا'
+        default: '6'
+        required: false
+
+permissions:
+  contents: write
+
+# گروهی جدا از ناشر: اگر هر دو هم‌زمان بیدار شوند، دومی با --min-gap
+# خودش را خاموش می‌کند (بدون واکشی و بدون کامیت) نه اینکه در صف بماند.
+concurrency:
+  group: live-hourly
+  cancel-in-progress: false
+
+env:
+  ROUNDS: ${{ github.event.inputs.rounds || '6' }}
+  INTERVAL_MIN: '60'
+  MIN_GAP_MIN: '40'
+  NAVASAN_KEY: ${{ secrets.NAVASAN_KEY }}
+  BRS_API_KEY: ${{ secrets.BRS_API_KEY }}
+
+jobs:
+  keep:
+    runs-on: ubuntu-latest
+    # ۶ دور یعنی ۵ ساعت پوشش (آخرین دور بلافاصله اجرا می‌شود)
+    timeout-minutes: 350
+    if: vars.HOURLY_KEEPER != 'false'
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: انتشارِ ساعت‌به‌ساعت
+        run: bash scripts/publish_rounds.sh

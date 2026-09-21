@@ -307,5 +307,158 @@
       '</div>';
   }
 
-  GS.charts = { spark: spark, assetSpark: assetSpark, rangeBar: rangeBar, dirColor: dirColor, lineChart: lineChart, compareChart: compareChart, radarChart: radarChart, breadthDonut: breadthDonut, fundsFlowChart: fundsFlowChart, perCapitaGauge: perCapitaGauge, queueChart: queueChart };
+  /* ============================================================
+     روندِ پول — سه نمودارِ تازه برای «تحلیلِ ورود و خروجِ پول»
+     ۱) moneyFlowChart: خالصِ پولِ حقیقی در طولِ جلسه (سریِ انتشارها)
+     ۲) queueMoneyChart: پولِ ایستاده پشتِ صف‌های خرید/فروش + روندش
+     ۳) flowSessionsChart: خالصِ جریانِ چند جلسه‌ی اخیر (روندِ چندروزه)
+     ============================================================ */
+
+  /** نمایشِ کوتاهِ مبالغِ بورسی (همت/میلیارد) */
+  function bourseMoney(v) {
+    var a = Math.abs(+v);
+    if (!isFinite(a)) return '—';
+    if (a >= 1e12) return U.fa((a / 1e12).toFixed(2)) + ' همت';
+    if (a >= 1e9) return U.fa(Math.round(a / 1e9)) + ' میلیارد';
+    if (a >= 1e6) return U.fa(Math.round(a / 1e6)) + ' میلیون';
+    return U.fmt(Math.round(a));
+  }
+  function signedMoney(v) { return (+v < 0 ? '−' : '+') + bourseMoney(v); }
+
+  /**
+   * روندِ خالصِ پولِ حقیقی در طولِ جلسه.
+   * series: [[ts, netToman], ...] — خروجیِ مستقیمِ انتشارهای سرور
+   * خطِ صفر کشیده می‌شود چون معنای نمودار «عبور از ورود به خروج» است.
+   */
+  function moneyFlowChart(series, opts) {
+    opts = opts || {};
+    var pts = (series || []).filter(function (p) { return Array.isArray(p) && p.length >= 2 && isFinite(+p[0]) && isFinite(+p[1]); });
+    if (pts.length < 2) return '<div class="lc-empty">برای رسمِ روند، دو برداشتِ معتبر در این جلسه لازم است</div>';
+    var w = opts.w || 300, h = opts.h || 96;
+    var vals = pts.map(function (p) { return +p[1]; }).concat([0]);
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    if (hi === lo) { hi = lo + Math.max(1, Math.abs(lo) * 0.1); }
+    var pad = 6;
+    function X(i) { return (pad + i / (pts.length - 1) * (w - pad * 2)).toFixed(1); }
+    function Y(v) { return (pad + (hi - v) / (hi - lo) * (h - pad * 2)).toFixed(1); }
+    var d = pts.map(function (p, i) { return (i ? 'L' : 'M') + X(i) + ' ' + Y(+p[1]); }).join(' ');
+    var last = +pts[pts.length - 1][1], first = +pts[0][1];
+    var col = last > 0 ? '#3ECF8E' : last < 0 ? '#FF6B5E' : '#9A9284';
+    var zeroY = Y(0);
+    var area = '<path d="' + d + 'L' + X(pts.length - 1) + ' ' + zeroY + 'L' + X(0) + ' ' + zeroY + 'Z" fill="' + col + '" opacity="0.14"/>';
+    var dots = pts.map(function (p, i) {
+      return '<circle cx="' + X(i) + '" cy="' + Y(+p[1]) + '" r="' + (i === pts.length - 1 ? 3 : 1.8) + '" fill="' + col + '" opacity="' + (i === pts.length - 1 ? 1 : 0.65) + '"/>';
+    }).join('');
+    var head = '<text x="' + X(0) + '" y="' + (h - 1) + '" font-size="8" fill="#7E97A3" text-anchor="start">اول جلسه</text>';
+    var tail = '<text x="' + X(pts.length - 1) + '" y="' + (h - 1) + '" font-size="8" fill="#7E97A3" text-anchor="end">اکنون</text>';
+    var delta = last - first;
+    var arrow = Math.abs(delta) < 1e9 ? 'ثبات' : (delta > 0 ? '▲ ورودیِ رو‌به‌رشد' : '▼ خروجیِ رو‌به‌رشد');
+    return '<div class="mf-chart">' +
+      '<svg class="mf-svg" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="روند خالص پول حقیقی در جلسه">' +
+      '<line x1="0" y1="' + zeroY + '" x2="' + w + '" y2="' + zeroY + '" stroke="#3A332A" stroke-width="1" stroke-dasharray="4 3"/>' +
+      area +
+      '<path d="' + d + '" fill="none" stroke="' + col + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+      dots + head + tail + '</svg>' +
+      '<div class="mf-foot"><b style="color:' + col + '">' + signedMoney(last) + '</b>' +
+      '<span>' + arrow + '</span><span class="mf-delta">' + (delta >= 0 ? '+' : '−') + bourseMoney(delta) + ' از اولِ جلسه</span></div>' +
+      '</div>';
+  }
+
+  /**
+   * منحنیِ درون‌جلسه‌ایِ جریانِ پول (از نمودارِ خودِ منبع).
+   * تفاوت با moneyFlowChart: آن یکی نقاطِ «زمان‌دارِ» انتشارهای ماست؛
+   * این یکی منحنیِ پیوسته‌یِ خودِ تابلوست (بدون برچسبِ ساعت — محور فقط ترتیب است،
+   * برای همین ادعا نمی‌کنیم هر نقطه چه ساعتی بوده).
+   */
+  function flowCurveChart(curve, opts) {
+    opts = opts || {};
+    var pts = (curve && Array.isArray(curve.v)) ? curve.v.slice() : null;
+    if (!pts || pts.length < 5) return '<div class="lc-empty">منحنیِ درون‌جلسه‌ای در دسترس نیست</div>';
+    var w = opts.w || 300, h = opts.h || 104, pad = 6;
+    var lo = Math.min.apply(null, pts), hi = Math.max.apply(null, pts);
+    if (hi === lo) hi = lo + 1;
+    // کمی حاشیه تا خط روی لبه نچسبد
+    var span = hi - lo; lo -= span * 0.08; hi += span * 0.08;
+    function X(i) { return (pad + i / (pts.length - 1) * (w - pad * 2)).toFixed(1); }
+    function Y(v) { return (pad + (hi - v) / (hi - lo) * (h - pad * 2)).toFixed(1); }
+    var d = pts.map(function (v, i) { return (i ? 'L' : 'M') + X(i) + ' ' + Y(v); }).join(' ');
+    var last = pts[pts.length - 1], first = pts[0];
+    var col = last > 0 ? '#3ECF8E' : last < 0 ? '#FF6B5E' : '#9A9284';
+    var zeroY = Y(0);
+    var area = '<path d="' + d + 'L' + X(pts.length - 1) + ' ' + zeroY + 'L' + X(0) + ' ' + zeroY + 'Z" fill="' + col + '" opacity="0.12"/>';
+    // نقطه‌یِ کمینه و بیشینه را نشان بده (دو سرِ ماجرا)
+    var iMin = pts.indexOf(Math.min.apply(null, pts)), iMax = pts.indexOf(Math.max.apply(null, pts));
+    var marks = '<circle cx="' + X(iMin) + '" cy="' + Y(pts[iMin]) + '" r="2" fill="#7E97A3" opacity=".8"/>' +
+      '<circle cx="' + X(iMax) + '" cy="' + Y(pts[iMax]) + '" r="2" fill="#7E97A3" opacity=".8"/>';
+    var delta = last - first;
+    var dir = Math.abs(delta) < 1 ? 'ثبات' : (delta > 0 ? '▲ ورودی در جریان' : '▼ خروجی در جریان');
+    return '<div class="mf-chart">' +
+      '<svg class="mf-svg" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="منحنی ورود و خروج پول حقیقی در جلسه">' +
+      '<line x1="0" y1="' + zeroY + '" x2="' + w + '" y2="' + zeroY + '" stroke="#3A332A" stroke-width="1" stroke-dasharray="4 3"/>' +
+      area +
+      '<path d="' + d + '" fill="none" stroke="' + col + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+      marks +
+      '<circle cx="' + X(pts.length - 1) + '" cy="' + Y(last) + '" r="3" fill="' + col + '"/>' +
+      '<text x="' + X(0) + '" y="' + (h - 1) + '" font-size="8" fill="#7E97A3" text-anchor="start">شروع جلسه</text>' +
+      '<text x="' + X(pts.length - 1) + '" y="' + (h - 1) + '" font-size="8" fill="#7E97A3" text-anchor="end">اکنون</text>' +
+      '</svg>' +
+      '<div class="mf-foot"><b style="color:' + col + '">' + signedMoney(last * 1e9) + '</b>' +
+      '<span>' + dir + '</span>' +
+      '<span class="mf-delta">' + U.fa(pts.length) + ' نقطه · تغییر از شروع: ' +
+      (delta >= 0 ? '+' : '−') + bourseMoney(Math.abs(delta) * 1e9) + '</span></div>' +
+      '<div class="mf-note">منحنیِ پیوسته از نمودارِ بورس‌تریدر (ترتیبی، بدون برچسبِ ساعت)؛ ' +
+      'اعدادِ بالا به میلیارد تومان در مقیاسِ منبع است.</div>' +
+      '</div>';
+  }
+
+  /** پولِ ایستاده پشتِ صف‌های خرید و فروش (و روندش اگر سری داریم) */
+  function queueMoneyChart(queue, trend) {
+    if (!queue || (queue.buyToman == null && queue.sellToman == null && queue.buy == null)) {
+      return '<div class="lc-empty">ارزشِ صف‌ها در دسترس نیست</div>';
+    }
+    var vb = queue.buyToman, vs = queue.sellToman;
+    var max = Math.max.apply(null, [vb || 0, vs || 0, 1]);
+    function row(label, val, dir) {
+      if (val == null) return '';
+      var pct = U.clamp(val / max * 100, 3, 100);
+      return '<div class="qm-row ' + dir + '"><span class="qm-label">' + label + '</span>' +
+        '<div class="qm-track"><i class="qm-fill ' + dir + '" style="width:' + pct.toFixed(1) + '%"></i></div>' +
+        '<b class="qm-val">' + bourseMoney(val) + '</b></div>';
+    }
+    var net = queue.netToman;
+    var netTxt = (net == null) ? '' :
+      '<div class="qm-net ' + (net >= 0 ? 'in' : 'out') + '">خالصِ پولِ پشتِ صف: <b>' + signedMoney(net) + '</b>' +
+      (queue.buyShare != null ? ' <span>· سهمِ صفِ خرید ' + U.fa(Math.round(queue.buyShare * 100)) + '٪</span>' : '') + '</div>';
+    var tr = '';
+    if (trend && trend.points >= 2) {
+      tr = '<div class="qm-trend ' + (trend.rising ? 'in' : 'out') + '">روندِ امروز: ' +
+        (trend.rising ? '▲ ' : '▼ ') + signedMoney(trend.delta) + ' در ' + U.fa(trend.spanMin) + ' دقیقهٔ اخیر' +
+        ' <span>(' + U.fa(trend.points) + ' برداشت)</span></div>';
+    }
+    return '<div class="qm-chart">' + row('صف خرید', vb, 'in') + row('صف فروش', vs, 'out') +
+      (queue.buy != null || queue.sell != null ? '<div class="qm-count">تعداد: ' + U.fa(queue.buy || 0) + ' صف خرید / ' + U.fa(queue.sell || 0) + ' صف فروش</div>' : '') +
+      netTxt + tr + '</div>';
+  }
+
+  /** خالصِ جریانِ چند جلسه‌ی اخیر (مثبت = ورود، منفی = خروج) */
+  function flowSessionsChart(sessions) {
+    if (!sessions || !sessions.rows || !sessions.rows.length) {
+      return '<div class="lc-empty">تاریخچه‌ی جریانِ پول هنوز انباشته نشده</div>';
+    }
+    var rows = sessions.rows;
+    var max = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.netToman); }).concat([1e9]));
+    var bars = rows.map(function (r) {
+      var pct = U.clamp(Math.abs(r.netToman) / max * 100, 6, 100);
+      var inFlow = r.netToman >= 0;
+      return '<div class="fs-row"><span class="fs-day">' + U.esc(r.day.slice(5)) + '</span>' +
+        '<div class="fs-track"><i class="fs-fill ' + (inFlow ? 'in' : 'out') + '" style="width:' + pct.toFixed(1) + '%"></i></div>' +
+        '<b class="fs-val ' + (inFlow ? 'in' : 'out') + '">' + signedMoney(r.netToman) + '</b></div>';
+    }).join('');
+    var streak = '';
+    if (sessions.streak === 'out') streak = '<div class="fs-note out">خروجِ پیاپی در ' + U.fa(sessions.n) + ' جلسه — رفتار، نه اتفاق.</div>';
+    else if (sessions.streak === 'in') streak = '<div class="fs-note in">ورودِ پیاپی در ' + U.fa(sessions.n) + ' جلسه.</div>';
+    return '<div class="fs-chart">' + bars + streak + '</div>';
+  }
+
+  GS.charts = { spark: spark, assetSpark: assetSpark, rangeBar: rangeBar, dirColor: dirColor, lineChart: lineChart, compareChart: compareChart, radarChart: radarChart, breadthDonut: breadthDonut, fundsFlowChart: fundsFlowChart, perCapitaGauge: perCapitaGauge, queueChart: queueChart, moneyFlowChart: moneyFlowChart, flowCurveChart: flowCurveChart, queueMoneyChart: queueMoneyChart, flowSessionsChart: flowSessionsChart, bourseMoney: bourseMoney, signedMoney: signedMoney };
 })();
