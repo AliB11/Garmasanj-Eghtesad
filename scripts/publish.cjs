@@ -854,7 +854,7 @@ function pickMarketFlow(o) {
         netToman: +pf.netToman,
         ratio: (pf.ratio != null && isFinite(+pf.ratio)) ? +pf.ratio : null,
         n: pf.n || null,
-        src: pf.src || (pf.src === 'BrsApi' ? 'BrsApi' : 'BourseTrader'),
+        src: pf.src || 'BourseTrader',
         ts: pf.ts, day: dayOf(pf.ts), fresh: false,
       },
       how: 'kept', why: 'جریانِ جلسه‌یِ امروز از انتشارِ قبلی',

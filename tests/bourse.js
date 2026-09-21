@@ -137,6 +137,15 @@ function boot(fetchFn, opts) {
   window.addEventListener('error', (e) => errors.push(e.message));
   window.fetch = fetchFn;
   if (!window.matchMedia) window.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {} });
+  if (opts.date != null) {
+    // ساعتِ ثابت برای تست‌های قطعیِ زمانی: «اکنون»ِ صفحه روی opts.date می‌ماند
+    const RealDate = window.Date;
+    class FixedDate extends RealDate {
+      constructor(...a) { if (a.length === 0) super(opts.date); else super(...a); }
+      static now() { return opts.date; }
+    }
+    window.Date = FixedDate;
+  }
   for (const s of (opts.scripts || SCRIPTS)) {
     const el = window.document.createElement('script');
     el.textContent = fs.readFileSync(path.join(REPO, 'assets/js', s), 'utf8');
@@ -842,6 +851,103 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     GS.data._ingest('live', { quotes: few.quotes, market: few.market, at: Date.now() });
     assert.strictEqual(GS.data.market().bt.flowCurve.last, -1800, 'سه نقطه کافی نیست و جایگزین نشده');
     assert.strictEqual(errors.length, 0, 'خطای پنجره: ' + errors.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
+  /* ============================================================
+     ۴دو) برچسبِ صادقِ «به‌روزرسانی»: شاخص با سنِ خودش، نه با سنِ مکمل
+     باگِ گزارش‌شده: شاخصِ تازه از TGJU (آخرین جلسه) اما برچسبِ
+     «به‌روزرسانی ۳۶ ساعت پیش» — چون سن از bt.ts (مکملِ جلسه‌ی قبل)
+     گرفته می‌شد. ساعت ثابت تا نتیجه به ساعتِ اجرای تست وابسته نباشد.
+     ============================================================ */
+  // ساعت‌ها به وقت تهران: ۲۰۲۶-۰۹-۲۶ شنبه (جلسه)، ۲۰۲۶-۰۹-۲۷ یکشنبه (بسته)
+  const IDX_TS = Date.UTC(2026, 8, 26, 8, 40);  // شنبه ۱۲:۱۰ تهران — پایانِ آخرین جلسه
+  const BT_TS = Date.UTC(2026, 8, 26, 6, 0);    // شنبه ۰۹:۳۰ تهران — وسطِ همان جلسه
+  const NOW_CLOSED = Date.UTC(2026, 8, 27, 4, 30); // یکشنبه ۰۸:۰۰ تهران — بازار بسته
+  const faDate = (ms) => new Intl.DateTimeFormat('fa-IR', { calendar: 'persian', timeZone: 'Asia/Tehran', day: 'numeric', month: 'short' }).format(new Date(ms));
+
+  await ta('بورس: شاخصِ تازه از آخرین جلسه → «آخرین جلسه {تاریخ}»، نه «N ساعت پیش»', async () => {
+    const market = {
+      index: { p: 7448839, high: 7619210, low: 7448839, ts: IDX_TS, day: '2026-09-26', src: 'TGJU' },
+      day: '2026-09-26', src: 'TGJU',
+      bt: {
+        ts: BT_TS, fresh: false,
+        equal: { p: 1950840, chgPct: -0.23 }, fara: { p: 108420, chgPct: 0.42 },
+        breadth: { pos: 126, neg: 141, equal: 92, total: 359, posPct: 35, queueBuy: 64, queueSell: 509 },
+      },
+    };
+    const { GS, d, window: W, errors } = boot((u) => {
+      const url = String(u);
+      if (url.includes('live.json')) return jres(liveDoc(market));
+      if (url.includes('snapshot.json')) return jres({ generated_at: '', quotes: {} });
+      return jrej();
+    }, { date: NOW_CLOSED });
+    await GS.data.bootAll(); await wait(300);
+    const mk = GS.data.market();
+    assert.ok(mk && mk.p === 7448839, 'شاخص باید بیاید: ' + JSON.stringify(mk));
+    const meta = d.querySelector('#bourseProMeta').textContent;
+    const age = d.querySelector('#bourseProAge').textContent;
+    const src = d.querySelector('#bourseProSource').textContent;
+    // شاخص از آخرین جلسه‌ی برگزارشده (شنبه) است و بازار بسته → برچسبِ دقیق
+    assert.ok(meta.indexOf('به‌روزرسانی آخرین جلسه ' + faDate(IDX_TS)) >= 0, 'meta=' + meta);
+    assert.ok(meta.indexOf('بازار بسته') >= 0, meta);
+    assert.ok(meta.indexOf('ساعت پیش') < 0, 'سنِ شاخص نباید از مکملِ قدیمی گرفته شود: ' + meta);
+    assert.ok(meta.indexOf('2026-') < 0, 'تاریخِ خامِ میلادی نباید دیده شود: ' + meta);
+    assert.strictEqual(age, 'آخرین جلسه ' + faDate(IDX_TS), age);
+    // مکمل هم با سنِ خودش (همان جلسه) — ولی جدا از برچسبِ شاخص
+    assert.ok(src.indexOf('bourse-trader.ir: آخرین جلسه ' + faDate(BT_TS)) >= 0, src);
+    // نوارِ زیر: عنوانِ مکمل هم با برچسبِ صادق
+    const title = d.querySelector('#bourseTitle');
+    assert.ok(title && title.textContent.indexOf('آخرین جلسه ' + faDate(BT_TS)) >= 0, title ? title.textContent : 'بدون عنوان');
+    assert.ok(errors.length === 0, 'خطای پنجره: ' + errors.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('بورس: جلسه باز + داده‌ی تازه → «N دقیقه پیش» برای هر دو منبع', async () => {
+    const NOW_OPEN = Date.UTC(2026, 8, 28, 6, 30); // دوشنبه ۱۰:۰۰ تهران — جلسه باز
+    const mIdx = NOW_OPEN - 10 * 60000;            // ۱۰ دقیقه پیش
+    const mBt = NOW_OPEN - 5 * 60000;              // ۵ دقیقه پیش
+    const market = {
+      index: { p: 7452100, high: 7460000, low: 7440000, ts: mIdx, day: '2026-09-28', src: 'TGJU' },
+      day: '2026-09-28', src: 'TGJU',
+      bt: { ts: mBt, fresh: true, breadth: { pos: 200, neg: 80, equal: 79, total: 359, posPct: 56, queueBuy: 120, queueSell: 210 } },
+    };
+    const { GS, d, window: W, errors } = boot((u) => {
+      const url = String(u);
+      if (url.includes('live.json')) return jres(liveDoc(market));
+      if (url.includes('snapshot.json')) return jres({ generated_at: '', quotes: {} });
+      return jrej();
+    }, { date: NOW_OPEN });
+    await GS.data.bootAll(); await wait(300);
+    const meta = d.querySelector('#bourseProMeta').textContent;
+    const age = d.querySelector('#bourseProAge').textContent;
+    const src = d.querySelector('#bourseProSource').textContent;
+    assert.ok(meta.indexOf('جلسه باز') >= 0, meta);
+    assert.ok(meta.indexOf('به‌روزرسانی ۱۰ دقیقه پیش') >= 0, 'meta=' + meta);
+    assert.strictEqual(age, '۱۰ دقیقه پیش', age);
+    assert.ok(src.indexOf('مکمل از bourse-trader.ir: ۵ دقیقه پیش') >= 0, src);
+    assert.ok(errors.length === 0, 'خطای پنجره: ' + errors.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('بورس: داده‌ی خیلی قدیمی (>۴ روز) → «N روز پیش» (بی‌دعا، واقعی)', async () => {
+    const OLD_TS = NOW_CLOSED - 5 * 86400000; // پنج روز پیش
+    const market = {
+      index: { p: 7448839, high: 7619210, low: 7448839, ts: OLD_TS, day: '2026-09-22', src: 'TGJU' },
+      day: '2026-09-22', src: 'TGJU',
+      bt: { ts: OLD_TS, fresh: false, breadth: { pos: 126, neg: 141, equal: 92, total: 359, posPct: 35 } },
+    };
+    const { GS, d, window: W, errors } = boot((u) => {
+      const url = String(u);
+      if (url.includes('live.json')) return jres(liveDoc(market));
+      if (url.includes('snapshot.json')) return jres({ generated_at: '', quotes: {} });
+      return jrej();
+    }, { date: NOW_CLOSED });
+    await GS.data.bootAll(); await wait(300);
+    const age = d.querySelector('#bourseProAge').textContent;
+    assert.ok(age.indexOf('روز پیش') >= 0, 'باید بگوید چند روز پیش: ' + age);
+    assert.ok(age.indexOf('آخرین جلسه') < 0, 'داده‌ی ۵ روزه «آخرین جلسه» نیست: ' + age);
+    assert.ok(errors.length === 0, 'خطای پنجره: ' + errors.join(' | '));
     W.close(); GS.data.clearCache();
   });
 
