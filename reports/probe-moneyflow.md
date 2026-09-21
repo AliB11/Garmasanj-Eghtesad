@@ -4,31 +4,65 @@
 GitHub Actions (IP خارجِ ایران) نوشته است. مبنای تصمیم برای نوشتن/اصلاحِ پارسرهاست؛
 هیچ فایلِ داده‌ای را تغییر نمی‌دهد.
 
-- زمان (UTC): `2026-09-21T15:08:43.306Z`
-- مبدأ درخواست: `{ "ip": "172.214.47.24", "city": "Dulles Town Center", "region": "Virginia", "country": "US", "loc": "39.0376,-77.4158", "org": "AS8075 Microsoft Corporation", `
+- زمان (UTC): `2026-09-21T15:15:24.907Z`
+- مبدأ درخواست: `{ "ip": "48.214.53.114", "city": "Boydton", "region": "Virginia", "country": "US", "loc": "36.6676,-78.3875", "org": "AS8075 Microsoft Corporation", "postal": "`
 
 ## ۱) دسترسی‌پذیری از رانر
 
 | منبع | وضعیت | بایت | زمان (ms) | نوع | یادداشت |
 |---|---|---:|---:|---|---|
-| `tk.robots` | ❌ خطا | 0 | 10426 | `?` | fetch failed |
-| `tk.home` | ❌ خطا | 0 | 10495 | `?` | fetch failed |
-| `tk.api.root` | ❌ خطا | 0 | 10494 | `?` | fetch failed |
-| `tk.hotmoney` | ❌ خطا | 0 | 10494 | `?` | fetch failed |
-| `tk.marketgame` | ❌ خطا | 0 | 10495 | `?` | fetch failed |
+| `tk.robots` | ❌ خطا | 0 | 10112 | `?` | fetch failed |
+| `tk.home` | ❌ خطا | 0 | 10496 | `?` | fetch failed |
+| `tk.api.root` | ❌ خطا | 0 | 10495 | `?` | fetch failed |
+| `tk.hotmoney` | ❌ خطا | 0 | 10495 | `?` | fetch failed |
+| `tk.marketgame` | ❌ خطا | 0 | 10494 | `?` | fetch failed |
 | `tk.bigmoves` | ❌ خطا | 0 | 10495 | `?` | fetch failed |
 | `tk.hall` | ❌ خطا | 0 | 10494 | `?` | fetch failed |
-| `bt.api` | ✅ 200 | 341572 | 1130 | `text/html; charset=UTF-8` | بورس‌تریدر — منبعِ فعلیِ جریانِ پول |
+| `bt.api` | ✅ 200 | 341572 | 974 | `text/html; charset=UTF-8` | بورس‌تریدر — منبعِ فعلیِ جریانِ پول |
+
+## ۱٫۱) کالبدشکافیِ شکستِ تابلوخوانی (curl)
+
+`fetch failed` پنج علتِ ممکن دارد: DNS، TCP، TLS، WAF و HTTP. فقط curl فرق‌شان را می‌گوید.
+
+- DNS: `185.208.173.17 tablokhani.com `
+- **پیش‌فرض (https)** → `https://tablokhani.com/`
+  ```
+  * Host tablokhani.com:443 was resolved. ⏎ * Trying 185.208.173.17:443... ⏎ * Connected to tablokhani.com (185.208.173.17) port 443 ⏎ * ALPN: curl offers h2,http/1.1 ⏎ * TLSv1.3 (OUT), TLS handshake, Client hello (1): ⏎ * CAfile: /etc/ssl/certs/ca-certificates.crt ⏎ * CApath: /etc/ssl/certs ⏎ * TLSv1.3 (IN), TLS handshake, Server hello (2): ⏎ * TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8): ⏎ * TLSv1.3 (IN), TLS handshake, Certificate (11): ⏎ * TLSv1.3 (IN), TLS handshake, CERT verify (15): ⏎ * TLSv1.3 (IN), TLS handshake, Finished (20): ⏎ * TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1): ⏎ * TLSv1.3 (OUT), TLS handshake, Finished (20):
+  ```
+- **روی www** → `https://www.tablokhani.com/`
+  ```
+  * Host www.tablokhani.com:443 was resolved. ⏎ * Trying 185.208.173.17:443... ⏎ * Connected to www.tablokhani.com (185.208.173.17) port 443 ⏎ * ALPN: curl offers h2,http/1.1 ⏎ * TLSv1.3 (OUT), TLS handshake, Client hello (1): ⏎ * CAfile: /etc/ssl/certs/ca-certificates.crt ⏎ * CApath: /etc/ssl/certs ⏎ * TLSv1.3 (IN), TLS handshake, Server hello (2): ⏎ * TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8): ⏎ * TLSv1.3 (IN), TLS handshake, Certificate (11): ⏎ * TLSv1.3 (IN), TLS handshake, CERT verify (15): ⏎ * TLSv1.3 (IN), TLS handshake, Finished (20): ⏎ * TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1): ⏎ * TLSv1.3 (OUT), TLS handshake, Finished (20):
+  ```
+- **روی http (پورت ۸۰)** → `http://tablokhani.com/`
+  ```
+  * Host tablokhani.com:80 was resolved. ⏎ * Trying 185.208.173.17:80... ⏎ * Connected to tablokhani.com (185.208.173.17) port 80 ⏎ > GET / HTTP/1.1 ⏎ < HTTP/1.1 301 Moved Permanently ⏎ < Location: https://tablokhani.com/
+  ```
+- **با هدرهای مرورگر** → `https://tablokhani.com/`
+  ```
+  * Host tablokhani.com:443 was resolved. ⏎ * Trying 185.208.173.17:443... ⏎ * Connected to tablokhani.com (185.208.173.17) port 443 ⏎ * ALPN: curl offers h2,http/1.1 ⏎ * TLSv1.3 (OUT), TLS handshake, Client hello (1): ⏎ * CAfile: /etc/ssl/certs/ca-certificates.crt ⏎ * CApath: /etc/ssl/certs ⏎ * TLSv1.3 (IN), TLS handshake, Server hello (2): ⏎ * TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8): ⏎ * TLSv1.3 (IN), TLS handshake, Certificate (11): ⏎ * TLSv1.3 (IN), TLS handshake, CERT verify (15): ⏎ * TLSv1.3 (IN), TLS handshake, Finished (20): ⏎ * TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1): ⏎ * TLSv1.3 (OUT), TLS handshake, Finished (20):
+  ```
+- **با HTTP/1.1** → `https://tablokhani.com/`
+  ```
+  * Host tablokhani.com:443 was resolved. ⏎ * Trying 185.208.173.17:443... ⏎ * Connected to tablokhani.com (185.208.173.17) port 443 ⏎ * ALPN: curl offers http/1.1 ⏎ * TLSv1.3 (OUT), TLS handshake, Client hello (1): ⏎ * CAfile: /etc/ssl/certs/ca-certificates.crt ⏎ * CApath: /etc/ssl/certs ⏎ * TLSv1.3 (IN), TLS handshake, Server hello (2): ⏎ * TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8): ⏎ * TLSv1.3 (IN), TLS handshake, Certificate (11): ⏎ * TLSv1.3 (IN), TLS handshake, CERT verify (15): ⏎ * TLSv1.3 (IN), TLS handshake, Finished (20): ⏎ * TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1): ⏎ * TLSv1.3 (OUT), TLS handshake, Finished (20):
+  ```
+- **زیردامنه‌ی api** → `https://api.tablokhani.com/`
+  ```
+  * Host api.tablokhani.com:443 was resolved. ⏎ * Trying 185.208.173.17:443... ⏎ * Connected to api.tablokhani.com (185.208.173.17) port 443 ⏎ * ALPN: curl offers h2,http/1.1 ⏎ * TLSv1.3 (OUT), TLS handshake, Client hello (1): ⏎ * CAfile: /etc/ssl/certs/ca-certificates.crt ⏎ * CApath: /etc/ssl/certs ⏎ * TLSv1.3 (IN), TLS handshake, Server hello (2): ⏎ * TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8): ⏎ * TLSv1.3 (IN), TLS handshake, Certificate (11): ⏎ * TLSv1.3 (IN), TLS handshake, CERT verify (15): ⏎ * TLSv1.3 (IN), TLS handshake, Finished (20): ⏎ * TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1): ⏎ * TLSv1.3 (OUT), TLS handshake, Finished (20):
+  ```
+
+> اگر فقط «resolve/TCP/TLS» شکست خورده باشد، مشکلِ شبکه است؛
+> اگر `403/503` با WAF برگشته باشد، مسیرِ سمت‌سرور بسته است و این منبع
+> فقط از مرورگرِ کاربر (مثلِ TSETMC) یا با واسطه‌ای دیگر در دسترس است.
 
 ## ۲) تابلوخوانی — ساختارِ خامِ صفحه‌ی اصلی
 
 صفحه‌ی اصلی در دسترس نبود — ادامه‌ی بررسیِ تابلوخوانی ممکن نیست.
 ## ۳) اندپوینت‌های JSON (حدسی + استخراج‌شده)
 
-- `https://api.tablokhani.com/api/market` → ❌ خطا · 0 بایت · JSON نیست · ``
-- `https://api.tablokhani.com/api/v1/market` → ❌ خطا · 0 بایت · JSON نیست · ``
-- `https://tablokhani.com/api/market` → ❌ خطا · 0 بایت · JSON نیست · ``
-- `https://tablokhani.com/api/v1/market/overview` → ❌ خطا · 0 بایت · JSON نیست · ``
+- `https://api.tablokhani.com/api/market` → ❌ 404 · 6603 بایت · JSON نیست · ` Not Found /*! normalize.css v8.0.1 \| MIT License \| github.com/necolas/normalize.css */html{line-height:1.15;-webkit-text-size-adjust:100%}body{margin`
+- `https://api.tablokhani.com/api/v1/market` → ❌ 404 · 6603 بایت · JSON نیست · ` Not Found /*! normalize.css v8.0.1 \| MIT License \| github.com/necolas/normalize.css */html{line-height:1.15;-webkit-text-size-adjust:100%}body{margin`
+- `https://tablokhani.com/api/market` → ❌ 404 · 6603 بایت · JSON نیست · ` Not Found /*! normalize.css v8.0.1 \| MIT License \| github.com/necolas/normalize.css */html{line-height:1.15;-webkit-text-size-adjust:100%}body{margin`
+- `https://tablokhani.com/api/v1/market/overview` → ❌ 404 · 6603 بایت · JSON نیست · ` Not Found /*! normalize.css v8.0.1 \| MIT License \| github.com/necolas/normalize.css */html{line-height:1.15;-webkit-text-size-adjust:100%}body{margin`
 
 ## ۴) صفحاتِ پول‌محورِ تابلوخوانی
 
@@ -128,6 +162,29 @@ GitHub Actions (IP خارجِ ایران) نوشته است. مبنای تصمی
 - `نماد مثبت`: 5 بار → `="boxborard"> <div class="pre_chart responsive-table" id="posnegqty"></div> <a href="#" class="q_in_h_ch"><i data-toggle="tooltip" data-placement="bottom" title="تعداد نماد مثبت و منفی بازار" class="q_i_in_h fa fa-question-circle"></i></a> <script> var options = { title:{ text:'تعداد نمادهای مثبت و منفی', align:'center' }, subtitle:{ text:'مثبت 420 \| منفی 523', align:'center', offsetY:25, style:{fontSize:'12px', color:'#9699a2'} }, series:[ { name:"مثبت", data: [383,404,434,454,486,515,537,547,553,555,561,561,555,545,536,512,488,478,456,426,400,3`
 
 - جلسه‌ی تهران باز است؟ خیر
+
+### ۵٫۳) نمودارهای توکار (سری‌های درون‌جلسه‌ای)
+
+- تعداد نمودار: 8
+- **`posnegqty`** — `تعداد نمادهای مثبت و منفی` · زیرعنوان: `مثبت 420 \| منفی 523`
+  - سری «مثبت»: 210 نقطه · اول: `383` · آخر: `420` · نمونه: `383,404,434,454,486,515,537,547`
+  - سری «منفی»: 210 نقطه · اول: `534` · آخر: `523` · نمونه: `534,514,484,464,432,403,381,371`
+  - سری «خرید»: 210 نقطه · اول: `128` · آخر: `224` · نمونه: `128,132,137,144,155,156,156,157`
+- **`buysellqty`** — `تعداد صف های خرید و فروش` · زیرعنوان: `خرید 224 \| فروش 179`
+  - سری «خرید»: 210 نقطه · اول: `128` · آخر: `224` · نمونه: `128,132,137,144,155,156,156,157`
+  - سری «فروش»: 210 نقطه · اول: `129` · آخر: `179` · نمونه: `129,105,94,89,80,69,63,62`
+- **`avg_ha_capita`** — `سرانه خرید و فروش حقیقی (کد)` · زیرعنوان: `خرید 98 \| فروش 120 \| قدرت 0.8`
+- **`ho_buy_sell_shakh`** — `ارزش خرید و فروش حقوقی 60 شرکت بزرگ` · زیرعنوان: `خرید 5389 \| فروش 6455 \| نسبت 0.8`
+  - سری «خرید حقوقی»: 210 نقطه · اول: `352` · آخر: `5389` · نمونه: `352,385,460,487,550,672,746,766`
+  - سری «فروش حقوقی»: 210 نقطه · اول: `216` · آخر: `6455` · نمونه: `216,263,426,465,527,654,761,791`
+- **`input_money_sf`** — `ورود پول حقیقی به صندوق درآمد ثابت` · زیرعنوان: `آخرین 123- میلیارد تومان`
+  - سری «ورود پول»: 383 نقطه · اول: `null` · آخر: `null` · نمونه: `null,null,null,null,null,null,null,null`
+  - سری «خروج پول»: 383 نقطه · اول: `-232` · آخر: `-123` · نمونه: `-232,-558,-571,-558,-571,-571,-571,-571`
+- **`input_money`** — `ورود پول حقیقی به معاملات خرد` · زیرعنوان: ` آخرین 714 میلیارد تومان`
+  - سری «ورود پول»: 210 نقطه · اول: `null` · آخر: `714` · نمونه: `null,null,null,null,null,null,null,14`
+  - سری «خروج پول»: 210 نقطه · اول: `-107` · آخر: `null` · نمونه: `-107,-141,-129,-114,-132,-99,-12,null`
+- **`trans_value_pie`** — `درصد ارزش معاملات (همت)`
+- **`pos_neg_pie`** — `تعداد نماد مثبت و منفی`
 
 ## ۶) نشانی‌های امتحان‌شده
 
