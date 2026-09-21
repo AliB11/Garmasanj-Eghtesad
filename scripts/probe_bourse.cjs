@@ -33,6 +33,9 @@ const CANDIDATES = [
   { tag: 'tse.ir', url: 'https://tse.ir/', want: 'سایت رسمیِ بورس تهران' },
   { tag: 'service.tsetmc', url: 'https://service.tsetmc.com/WebService/TsePublicV2.asmx', want: 'وب‌سرویس رسمی (نیازمند اشتراک)' },
   { tag: 'bourse-trader', url: 'https://bourse-trader.ir/api/?task=api', want: 'وب‌سرویسِ ثالث' },
+  /* ---- دورِ چهارم: تابلوخوانی (نسل ۹ — روندِ پول بدون کلید) ---- */
+  { tag: 'tablokhani.home', url: 'https://tablokhani.com/', want: 'خانه: شاخص‌ها، صف‌ها، حقیقی/حقوقی' },
+  { tag: 'tablokhani.robots', url: 'https://tablokhani.com/robots.txt', want: 'سیاستِ واکشی' },
   /* ---- دورِ سوم: تاریخچه‌ی شاخص (برای منطقِ «این هفته») ---- */
   { tag: 'yahoo.tedpix', url: 'https://query1.finance.yahoo.com/v8/finance/chart/%5ETEDPIX?range=1mo&interval=1d', want: 'تاریخچه‌ی شاخص از یاهو' },
   { tag: 'yahoo.search', url: 'https://query1.finance.yahoo.com/v1/finance/search?q=tehran&quotesCount=10', want: 'جست‌وجوی نمادِ تهران در یاهو' },
@@ -208,6 +211,70 @@ async function probe(c) {
     say('   خطا: ' + clean(String((e && e.message) || e), 80));
   }
 
+  /* ---- تابلوخوانی (tablokhani.com) — ساختارِ خام + کشفِ مسیرهایِ بدونِ کلید (نسل ۹) ----
+     هدف: (۱) اثباتِ دسترسی از رانر، (۲) ساختارِ واقعیِ بخش‌هایِ کلیدی برای
+     صیقلِ پارسر، (۳) پیدا کردنِ اندپوینتِ JSONِ جریانِ پولِ حقیقی/حقوقی
+     اگر صفحه از AJAX تغذیه می‌شود. */
+  const tblLines = [];
+  say('\n--- تابلوخوانی: ساختارِ خام و کشفِ API ---');
+  let tblRaw = '';
+  try {
+    const r = await fetch('https://tablokhani.com/', { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': UA, Accept: 'text/html' } });
+    tblRaw = await r.text();
+    tblLines.push('- خانه: ' + r.status + ' · ' + tblRaw.length + ' بایت · ' + (r.headers.get('content-type') || '?'));
+    say('   خانه: ' + r.status + ' · ' + tblRaw.length + 'B');
+    try {
+      const rr = await fetch('https://tablokhani.com/robots.txt', { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': UA } });
+      const robots = await rr.text();
+      tblLines.push('- robots.txt: ' + rr.status + ' · `' + clean(robots, 300).replace(/`/g, "'") + '`');
+    } catch (e) { tblLines.push('- robots.txt: خطا ' + clean(String((e && e.message) || e), 60)); }
+    const scripts = new Set();
+    let m;
+    const scRe = /<script[^>]+src=["']([^"']+)["']/gi;
+    while ((m = scRe.exec(tblRaw)) && scripts.size < 30) scripts.add(m[1]);
+    tblLines.push('- `<script src>` (' + scripts.size + '): ' + (scripts.size ? [...scripts].map((s) => '`' + s + '`').join(' ') : 'هیچ'));
+    const apis = new Set();
+    const apRe = /["'](\/(?:api|ajax|service)[^"'\s]{2,90})["']/g;
+    while ((m = apRe.exec(tblRaw)) && apis.size < 30) apis.add(m[1]);
+    tblLines.push('- نشانی‌های API-مانندِ داخلِ صفحه: ' + (apis.size ? [...apis].slice(0, 25).map((s) => '`' + s + '`').join(' ') : 'هیچ'));
+    // برشِ خام دورِ برچسب‌های کلیدی (برای نوشتنِ پارسرِ دقیق)
+    const labels = ['شاخص کل', 'شاخص هم وزن', 'شاخص فرابورس', 'ارزش کل معاملات',
+      'تعداد صف', 'ارزش صف', 'تغییرات وضعیت بازار', 'اشخاص حقیقی', 'اشخاص حقوقی',
+      'خالص', 'ورود پول', 'خروج پول', 'صف خرید', 'صف فروش'];
+    for (const lb of labels) {
+      const i = tblRaw.indexOf(lb);
+      if (i < 0) { tblLines.push('- `' + lb + '`: پیدا نشد'); continue; }
+      const count = tblRaw.split(lb).length - 1;
+      const snip = clean(tblRaw.slice(Math.max(0, i - 100), i + 400), 420).replace(/`/g, "'");
+      tblLines.push('- `' + lb + '` (' + count + ' بار): `' + snip + '`');
+    }
+    // پارسرِ واقعیِ پروژه روی همین صفحه (تطبیقِ کد با دنیای واقعی)
+    try {
+      const P = require('./publish.cjs');
+      const pr = P.parseTablokhani(tblRaw);
+      tblLines.push('- خروجیِ `parseTablokhani` (کدِ پروژه روی صفحه‌ی زنده):');
+      tblLines.push('  ```json');
+      tblLines.push(JSON.stringify(pr, null, 1).split('\n').slice(0, 50).join('\n'));
+      tblLines.push('  ```');
+      say('   parseTablokhani.ok=' + pr.ok + (pr.why ? ' why=' + pr.why : ''));
+    } catch (e) {
+      tblLines.push('- خطا در اجرای پارسر: ' + clean(String((e && e.message) || e), 120));
+    }
+    // اگر اندپوینتِ JSON پیدا شده بود، چندتایش را امتحان کن
+    for (const u of [...apis].slice(0, 6)) {
+      try {
+        const full = /^https?:/.test(u) ? u : 'https://tablokhani.com' + (u.startsWith('/') ? u : '/' + u);
+        const rr = await fetch(full, { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': UA, Accept: 'application/json' } });
+        const tt = await rr.text();
+        const isJson = /^\s*[\[{]/.test(tt);
+        tblLines.push('- `' + u + '` → ' + rr.status + ' · ' + (rr.headers.get('content-type') || '?') + ' · ' + tt.length + 'B · ' + (isJson ? 'JSON' : 'JSON نیست') + ' · `' + clean(tt, 140).replace(/`/g, "'") + '`');
+      } catch (e) { tblLines.push('- `' + u + '` → خطا: ' + clean(String((e && e.message) || e), 60)); }
+    }
+  } catch (e) {
+    tblLines.push('- خطا: ' + clean(String((e && e.message) || e), 80) + ' — آیا tablokhani.com از این رانر در دسترس است؟');
+    say('   خطا: ' + clean(String((e && e.message) || e), 80));
+  }
+
   /* ---- مسیرهای کلیددار: فقط وقتی کلید در محیط باشد ----
      هدف: پیدا کردنِ مسیرِ درستِ اندپوینت و نامِ واقعیِ فیلدها،
      بدونِ چاپِ خودِ کلید. */
@@ -312,6 +379,10 @@ async function probe(c) {
   md.push('## بورس‌تریدر (bourse-trader.ir) — ساختارِ خام');
   md.push('');
   md.push(btLines.length ? btLines.join('\n') : 'بررسی نشد.');
+  md.push('');
+  md.push('## تابلوخوانی (tablokhani.com) — ساختارِ خام و روندِ پول');
+  md.push('');
+  md.push(tblLines.length ? tblLines.join('\n') : 'بررسی نشد.');
   md.push('');
   md.push('## مسیرهای کلیددار (بدون نمایشِ کلید)');
   md.push('');

@@ -1,9 +1,11 @@
 /* ============================================================
    گرماسنج — ناشر زنده (publish.cjs)
-   اجرا در GitHub Actions هر ۱۵ دقیقه: همه‌ی منابع را سمت‌سرور
-   (جایی که CORS اعمال نمی‌شود) می‌خواند و assets/data/live.json
-   را می‌سازد. سایت همین فایل را هم‌مبدأ و بدون واسطه می‌خواند.
-   بدون هیچ وابستگی (فقط Node 18+).
+   اجرا در GitHub Actions هر ساعت (نسل ۹؛ پیش‌تر هر ۱۵ دقیقه):
+   همه‌ی منابع را سمت‌سرور (جایی که CORS اعمال نمی‌شود) می‌خواند
+   و assets/data/live.json را می‌سازد. سایت همین فایل را هم‌مبدأ
+   و بدون واسطه می‌خواند. بدون هیچ وابستگی (فقط Node 18+).
+   منابعِ بورس (بورس‌تریدر + تابلوخوانی) در ساعتِ بازار حداکثر
+   هر ۶۰ دقیقه یک‌بار دریافت می‌شوند — بروزرسانیِ دوره‌ایِ ساعتی.
    ============================================================ */
 'use strict';
 const fs = require('fs');
@@ -656,6 +658,281 @@ function parseBourseTrader(html) {
   return out;
 }
 
+/* ------------------------------------------------------------
+   تابلوخوانی (tablokhani.com) — منبعِ سومِ بورس، بدون کلید (نسل ۹)
+   ------------------------------------------------------------
+   اندازه‌گیری روی رانرِ GitHub Actions (دورِ ۴ پروب — reports/probe-bourse.md):
+    - صفحه‌ی عمومیِ خانه (Laravel)؛ مبالغ به «تومان» با ضرایبِ K/M/B/T
+      (B = 1e9، T = 1e12) — همان قراردادِ بورس‌تریدر.
+    - بخش‌های اصلیِ صفحه: شاخص‌ها (کل/هم‌وزن/فرابورس) با درصد تغییر،
+      ارزشِ کلِ معاملات، صف‌های خرید/فروش (تعداد + ارزش به میلیارد تومان)،
+      پهنا (تغییرات وضعیت بازار) و جریانِ پولِ حقیقی/حقوقی.
+   پارسر بر پایه‌ی «برچسب» است، نه اندیس: هر بخش به‌تنهایی با بازه نگهبانی
+   می‌شود. اگر ساختارِ صفحه عوض شود یا عددی غیرمعقول بیاید، همان بخش null
+   می‌شود — سکوتِ صادقانه به‌جای عددِ ساختگی (اصلِ همین پروژه).
+   ------------------------------------------------------------ */
+const TBL = {
+  url: 'https://tablokhani.com/',
+  minGapMs: 60 * 60e3,   // بروزرسانیِ دوره‌ایِ ساعتی: یک دریافت در ساعت، فقط در ساعتِ بازار
+  ranges: {
+    equal: [5e4, 2e8],      // شاخص هم‌وزن
+    fara: [5e2, 5e7],       // شاخص کل فرابورس
+    value: [1e12, 1e16],    // ارزشِ کلِ معاملات (تومان)
+    queueCount: [1, 10000], // تعدادِ صف‌ها
+    queueValue: [1e9, 1e16],// ارزشِ صف‌ها (تومان، بعد از تبدیل)
+    flow: [1e9, 1e16],      // جریانِ پول (تومان)
+  },
+};
+
+/**
+ * متنِ صفحه‌ی تابلوخوانی: ارقامِ فارسی/عربی → ASCII، ٪ → %، منهای‌ها
+ * یکنواخت + همان نرمال‌سازیِ برچسبِ btNorm (نیم‌فاصله، ی/ک) تا برچسب‌ها
+ * در هر دو شکلِ صفحه پیدا شوند.
+ */
+function tblPrep(html) {
+  return String(html == null ? '' : html)
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u2212\u2013\u2014]/g, '-')
+    .replace(/\u066A/g, '%')
+    .replace(/[\u200B-\u200F\uFEFF]/g, '')
+    .replace(/\u0640/g, '')
+    .replace(/[\u0649\u06CC]/g, '\u064A')
+    .replace(/\u06A9/g, '\u0643');
+}
+
+/**
+ * نرمال‌سازیِ برچسب — قراردادِ btNorm + تبدیلِ ک به ك (tblPrep همین کار را
+ * روی صفحه انجام می‌دهد؛ طرفینِ جست‌وجو باید یکی باشند).
+ */
+function tblLabel(s) { return btNorm(s).replace(/\u06A9/g, '\u0643'); }
+
+/**
+ * اولین رخدادِ برچسب در متنِ آماده.
+ * skipFn: برای ردِ رخادهای «تغییرِ برچسب» — مثلاً وقتی برای «شاخص کل»
+ * دنبالیم، رخادِ «شاخص کل فرابورس» را نمی‌خواهیم.
+ */
+function tblAt(prep, label, skipFn) {
+  const L = tblLabel(label);
+  if (!L) return -1;
+  let i = prep.indexOf(L);
+  let guard = 0;
+  while (i >= 0 && guard++ < 30) {
+    if (!skipFn || !skipFn(prep.slice(i, i + L.length + 20))) return i;
+    i = prep.indexOf(L, i + 1);
+  }
+  return -1;
+}
+
+/** متنِ ساده‌ی span کاراکترِ بعد از pos (تگ‌ها حذف می‌شوند) */
+function tblText(prep, pos, span) {
+  if (pos == null || pos < 0) return '';
+  return prep.slice(pos, pos + (span || 600)).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** اولین عددِ متن (جداکننده‌ی هزارگان + ضریبِ K/M/B/T) */
+function tblNumIn(text) {
+  const m = String(text == null ? '' : text).match(/-?\d[\d,]*(?:\.\d+)?/);
+  if (!m) return null;
+  const mult = (String(text).slice(m.index + m[0].length, m.index + m[0].length + 2).match(/^[KMBT]/) || [])[0];
+  let v = parseFloat(m[0].replace(/,/g, ''));
+  if (!isFinite(v)) return null;
+  if (mult) v *= { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[mult];
+  return v;
+}
+
+/**
+ * ردیفِ شاخص: «۷,۲۹۵,۰۱۳.۵۶  ▲ ۰.۰٪» → {p, chgPct}
+ * جهت از فلش می‌آید (▲/↑ مثبت، ▼/↓ منفی)؛ بدون فلش، درصد «بی‌داده» است — ساخته نمی‌شود.
+ * labelVariants: شکل‌هایِ ممکنِ برچسب در صفحه (مثلاً «شاخص کل فرابورس»/«شاخص فرابورس»).
+ * اگر اولین عددِ پنجره از بازه بیرون باشد، بقیه‌ی اعدادِ پنجره چک می‌شوند
+ * (جلوِ گرفتنِ اعدادِ فرعیِ بینِ برچسب و مقدار).
+ */
+function tblIndex(prep, labelVariants, range, skipFn) {
+  const labels = Array.isArray(labelVariants) ? labelVariants : [labelVariants];
+  for (const label of labels) {
+    const L = tblLabel(label);
+    const i = tblAt(prep, label, skipFn);
+    if (i < 0) continue;
+    const txt = tblText(prep, i + L.length, 900);
+    const m = txt.match(/(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?)\D{0,40}?(▲|▼|↑|↓)\s*(-?\d+(?:\.\d+)?)\s*%/);
+    if (m) {
+      const p = parseFloat(m[1].replace(/,/g, ''));
+      if (p > 0 && p >= range[0] && p <= range[1]) {
+        const down = (m[2] === '\u25BC' || m[2] === '\u2193');
+        const a = parseFloat(m[3]);
+        let pct = isFinite(a) ? (down ? -Math.abs(a) : Math.abs(a)) : null;
+        if (pct != null && Math.abs(pct) > 20) pct = null;
+        return { p: p, chgPct: pct };
+      }
+    }
+    const re = /-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?/g;
+    let m2;
+    while ((m2 = re.exec(txt)) !== null) {
+      const p = parseFloat(m2[0].replace(/,/g, ''));
+      if (p > 0 && p >= range[0] && p <= range[1]) return { p: p, chgPct: null };
+    }
+  }
+  return null;
+}
+
+/** عددِ برچسبِ صف در بازه‌ی [a, e) — a و e اندیس‌هایِ متنِ آماده‌شده */
+function tblQueueAt(prep, a, e, label) {
+  if (a < 0) return null;
+  const seg = prep.slice(a, (e > a) ? e : a + 4000);
+  const i = tblAt(seg, label);
+  if (i < 0) return null;
+  const txt = tblText(prep, a + i + tblLabel(label).length, 300);
+  const m = String(txt).match(/-?\d[\d,]*(?:\.\d+)?/);
+  if (!m) return null;
+  const mult = (String(txt).slice(m.index + m[0].length, m.index + m[0].length + 2).match(/^[KMBT]/) || [])[0];
+  let v = parseFloat(m[0].replace(/,/g, ''));
+  if (!isFinite(v)) return null;
+  if (mult) v *= { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[mult];
+  else {
+    // اگر سربرگِ همین بخش «ارزش صف‌ها (میلیارد تومان)» باشد: عددِ ساده = میلیارد تومان.
+    // فقط به بعدِ برچسب نگاه می‌کنیم (سربرگِ همین جدول)؛ نبایستی سربرگِ بخشِ
+    // بعدی را بگیرد. الگو از tblLabel ساخته می‌شود چون tblPrep همه‌ی ی/ی را یِ عربی می‌کند.
+    const back = prep.slice(Math.max(0, (a + i) - 300), a + i);
+    if (new RegExp(tblLabel('میلیارد')).test(back) && Math.abs(v) < 1e12) v *= 1e9;
+  }
+  return v;
+}
+
+/** اعدادِ پولیِ یک ردیف (با ضریبِ K/M/B/T) */
+function tblRowNums(row) {
+  const out = [];
+  const re = /-?\d[\d,]*(?:\.\d+)?\s*([KMBT])?/g;
+  let m;
+  while ((m = re.exec(row)) !== null && out.length < 16) {
+    const mult = m[1] || null;
+    let v = parseFloat(m[0].replace(/,/g, '').replace(/\s*[KMBT]$/, ''));
+    if (!isFinite(v)) continue;
+    if (mult) v *= { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[mult];
+    if (Math.abs(v) >= 1e8 && Math.abs(v) <= 1e16) out.push(v);
+  }
+  return out;
+}
+
+/**
+ * جریانِ پولِ یک نوعِ مشتری. روش:
+ *  ۱) بخشِ نوع در صفحه (از برچسب تا برچسبِ نوعِ دیگر یا ۱۰KB) پیداکُن
+ *  ۲) اول ردیف‌هایی که «خالص» دارند (این دقیقاً همانِ ورود−خروج است)
+ *  ۳) اگر نبود، ردیف‌هایِ پولیِ دیگرِ همان بخش
+ * نگهبان‌ها: |خالص| ≤ ارزشِ کلِ معاملات × ۱.۰۵ و بازه‌ی TBL.ranges.flow.
+ * اگر کاندیدای سالمی نبود → null (سکوت، نه عددِ حدسی).
+ * typeVariants: شکل‌هایِ ممکنِ برچسب (فارسی/عربی).
+ */
+function tblFlow(prep, typeVariants, valueToman, otherVariants) {
+  const netCands = [], otherCands = [];
+  // برچسب‌ها باید دقیقاً همان نرمال‌سازیِ tblPrep را داشته باشند
+  const norm = (xs) => (xs || []).map((x) => tblLabel(x)).filter(Boolean);
+  for (const L of norm(typeVariants)) {
+    const i = prep.indexOf(L);
+    if (i < 0) continue;
+    // پایانِ بخش: اولینِ (برچسبِ نوعِ دیگر، هدرِ بعدی، ۱۰KB)
+    let end = i + 10000;
+    for (const o of norm(otherVariants)) {
+      const j = prep.indexOf(o, i + L.length);
+      if (j > i && j < end) end = j;
+    }
+    const hRe = /<h[1-6]\b/gi;
+    hRe.lastIndex = i + L.length;
+    const hm = hRe.exec(prep);
+    if (hm && hm.index > i && hm.index < end) end = hm.index;
+    const seg = prep.slice(i, end);
+    const trRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+    let m2;
+    while ((m2 = trRe.exec(seg)) !== null) {
+      const cs = tblRowNums(m2[1]);
+      if (!cs.length) continue;
+      if (/خالص/.test(m2[1])) netCands.push(...cs);
+      else otherCands.push(...cs);
+    }
+  }
+  const pool = netCands.length ? netCands : otherCands;
+  let best = null;
+  for (const v of pool) {
+    if (!isFinite(v)) continue;
+    if (valueToman && valueToman > 0 && Math.abs(v) > valueToman * 1.05) continue;
+    if (v < TBL.ranges.flow[0] || v > TBL.ranges.flow[1]) {
+      // جریانِ کلِ بازار بزرگ است؛ عددِ خیلی ریز (سطحِ نمادِ تک) معنا ندارد
+      if (Math.abs(v) < 1e10) continue;
+    }
+    if (best == null || Math.abs(v) > Math.abs(best)) best = v; // ردیفِ تجمیعی معمولاً بزرگ‌ترین است
+  }
+  if (best == null) return null;
+  return { netToman: Math.round(best) };
+}
+
+/**
+ * تجزیه‌ی صفحه‌ی تابلوخوانی. هر بخش مستقل نگهبانی می‌شود:
+ * ساختارِ عوض‌شده یا عددِ غیرمعقول → همان بخش null (نه کلِ صفحه).
+ */
+function parseTablokhani(html) {
+  if (!html || html.length < 5000) return { ok: false, why: 'پاسخِ کوتاه/خالی' };
+  if (!/شاخص|معاملات|صف|تابلو|حقیقی|حقوقی/.test(html)) return { ok: false, why: 'صفحه‌ی بازار نبود' };
+  const prep = tblPrep(html);
+  const out = { ok: false, src: 'Tablokhani', missing: [] };
+  const inR = (v, r) => (v != null && isFinite(v) && v >= r[0] && v <= r[1]) ? v : null;
+
+  /* --- شاخص‌ها (با شکل‌هایِ ممکنِ برچسب؛ «هم‌وزن» ممکن است نیم‌فاصله یا فاصله داشته باشد) --- */
+  out.index = tblIndex(prep, ['شاخص کل'], RANGES.TSE, (s) => /فرابورس/.test(s));
+  out.equal = tblIndex(prep, ['شاخص هم وزن', 'شاخص هموزن'], TBL.ranges.equal);
+  out.fara = tblIndex(prep, ['شاخص کل فرابورس', 'شاخص فرابورس'], TBL.ranges.fara);
+
+  /* --- ارزشِ کلِ معاملات --- */
+  const iVal = tblAt(prep, 'ارزش کل معاملات');
+  out.value = inR(tblNumIn(tblText(prep, iVal, 400)), TBL.ranges.value);
+
+  /* --- صف‌ها: بخشِ «تعداد» (عدد کوچک) و بخشِ «ارزش» (میلیارد تومان) --- */
+  const iCount = tblAt(prep, 'تعداد صف');
+  const iValue = tblAt(prep, 'ارزش صف');
+  const eCount = (iValue > iCount) ? iValue : (iCount >= 0 ? iCount + 4000 : -1);
+  const qbN = inR(tblQueueAt(prep, iCount, eCount, 'صف خرید'), TBL.ranges.queueCount);
+  const qsN = inR(tblQueueAt(prep, iCount, eCount, 'صف فروش'), TBL.ranges.queueCount);
+  const qbT = inR(tblQueueAt(prep, iValue, -1, 'صف خرید'), TBL.ranges.queueValue);
+  const qsT = inR(tblQueueAt(prep, iValue, -1, 'صف فروش'), TBL.ranges.queueValue);
+  if (qbN != null || qsN != null) out.queues = {
+    buyN: qbN != null ? Math.round(qbN) : null,
+    sellN: qsN != null ? Math.round(qsN) : null,
+    buyT: qbT, sellT: qsT,
+  };
+
+  /* --- پهنا: «تغییرات وضعیت بازار» (۵ دسته‌ی تغییرِ درصد) --- */
+  const iBr = tblAt(prep, 'تغییرات وضعیت بازار');
+  if (iBr >= 0) {
+    const seg = prep.slice(iBr, iBr + 6000);
+    const bucket = (label) => {
+      const i = tblAt(seg, label);
+      if (i < 0) return null;
+      // بعد از خودِ برچسب شروع کن (برچسب‌ها عددِ «۲» و «0.5» در خود دارند)
+      const v = tblNumIn(tblText(prep, iBr + i + tblLabel(label).length, 300));
+      return (v != null && isFinite(v) && v >= 0 && v <= 10000) ? Math.round(v) : null;
+    };
+    const up1 = bucket('بیشتر از 2% +'), up2 = bucket('0.5 تا 2% +');
+    const flat = bucket('0.5% - تا 0.5% +');
+    const dn2 = bucket('0.5 تا 2% -'), dn1 = bucket('بیشتر از 2% -');
+    if (up1 != null && dn1 != null) {
+      const up = up1 + (up2 || 0), down = dn1 + (dn2 || 0);
+      if (up > 0 || down > 0) out.breadth = { up: up, down: down, flat: flat || 0, total: up + down + (flat || 0) };
+    }
+  }
+
+  /* --- جریانِ پول (حقیقی/حقوقی) — فقط اگر واقعاً در صفحه باشد --- */
+  const V_RETAIL = ['حقیقی', 'حقيقي'], V_CORP = ['حقوقی', 'حقوقي'];
+  const flow = {};
+  const fr = tblFlow(prep, V_RETAIL, out.value, V_CORP);
+  const fc = tblFlow(prep, V_CORP, out.value, V_RETAIL);
+  if (fr) flow.retail = fr;
+  if (fc) flow.corporate = fc;
+  out.flow = (flow.retail || flow.corporate) ? flow : null;
+
+  out.ok = !!(out.index || out.equal || out.fara || out.value || out.queues || out.breadth || out.flow);
+  if (!out.ok) out.why = 'هیچ بخشِ معتبری استخراج نشد';
+  return out;
+}
+
 /** جلسه‌ی بورسِ تهران باز است؟ (شنبه تا چهارشنبه، ۸:۵۰ تا ۱۳:۲۰ به وقت تهران) */
 function tseSessionOpen(ms) {
   const d = new Date((ms || Date.now()) + TEHRAN_OFFSET_MS);
@@ -818,8 +1095,9 @@ async function main() {
      بخش منتشر نمی‌شود (سکوتِ صادقانه به‌جای عددِ ساختگی). */
 
   /* بورس‌تریدر: صفحه‌ی عمومی است، پس مؤدبانه رفتار می‌کنیم — فقط در ساعتِ
-     بازار و هر BT_MIN_GAP_MS یک‌بار؛ بیرون از آن، همان مقدارِ قبلی می‌ماند. */
-  const BT_MIN_GAP_MS = 30 * 60e3;
+     بازار و هر ۶۰ دقیقه یک‌بار (بروزرسانیِ دوره‌ایِ ساعتی)؛ بیرون از آن،
+     همان مقدارِ قبلی می‌ماند. */
+  const BT_MIN_GAP_MS = 60 * 60e3;
   const prevBt = (prevDoc.market && prevDoc.market.bt) || null;
   let btDoc = null, btFresh = false;
   if (!tseSessionOpen(now)) {
@@ -841,6 +1119,32 @@ async function main() {
     } catch (e) { log('btrader', false, String((e && e.message) || e).slice(0, 70)); }
   }
   if (!btDoc && prevBt) btDoc = prevBt;
+
+  /* تابلوخوانی: مثلِ بورس‌تریدر — فقط در ساعتِ بازار و حداکثر هر ۶۰ دقیقه
+     یک‌بار (روندِ پول هر ساعت تازه می‌شود؛ خارج از بازار صفحه هم ثابت است). */
+  const prevTbl = (prevDoc.market && prevDoc.market.tbl) || null;
+  let tblDoc = null, tblFresh = false;
+  if (!tseSessionOpen(now)) {
+    log('tablokhani', !!prevTbl, prevTbl ? 'بیرون از ساعتِ بازار — از انتشارِ قبلی' : 'بیرون از ساعتِ بازار و مقدارِ قبلی نداریم');
+  } else if (prevTbl && prevTbl.ts && (now - prevTbl.ts) < TBL.minGapMs) {
+    log('tablokhani', true, 'مقدارِ قبلی هنوز تازه است (' + Math.round((now - prevTbl.ts) / 60000) + ' دقیقه)');
+  } else {
+    try {
+      const r = await getText(TBL.url, { timeout: 25000 });
+      const pr = parseTablokhani(r.t);
+      if (pr.ok) {
+        pr.ts = now;
+        tblDoc = pr; tblFresh = true;
+        const bits = [];
+        if (pr.index) bits.push('شاخص ' + faNum(pr.index.p));
+        if (pr.flow && pr.flow.retail) bits.push('حقیقی ' + (pr.flow.retail.netToman < 0 ? 'خروج ' : 'ورود ') + faNum(Math.abs(pr.flow.retail.netToman) / 1e12) + ' همت');
+        if (pr.queues) bits.push('صف ' + faNum(pr.queues.buyN || 0) + '/' + faNum(pr.queues.sellN || 0));
+        if (pr.missing && pr.missing.length) bits.push('(کم: ' + pr.missing.join('، ') + ')');
+        log('tablokhani', true, bits.join(' · ') || 'صفحه آمد', r.ms);
+      } else log('tablokhani', false, pr.why || 'ساختارِ ناشناخته', r.ms);
+    } catch (e) { log('tablokhani', false, String((e && e.message) || e).slice(0, 70)); }
+  }
+  if (!tblDoc && prevTbl) tblDoc = prevTbl;
 
   let marketOut = null;
   if (!tgju) log('tse', false, 'TGJU بی‌پاسخ — شاخص بورس هم نرسید');
@@ -869,20 +1173,52 @@ async function main() {
     };
     log('tse', true, 'شاخص کل از بورس‌تریدر (TGJU نیامد) ' + faNum(btDoc.index.p));
   }
+  // و اگر آن هم نبود، شاخصِ تابلوخوانی سومین لنگر است
+  if (!marketOut && tblDoc && tblDoc.index && tblDoc.index.p > 0) {
+    marketOut = {
+      index: { p: Math.round(tblDoc.index.p), chgPct: tblDoc.index.chgPct, high: null, low: null, ts: tblDoc.ts || now, day: tehranDay(tblDoc.ts || now), src: 'Tablokhani' },
+      day: tehranDay(tblDoc.ts || now), asOf: tblDoc.ts || now, src: 'Tablokhani',
+    };
+    log('tse', true, 'شاخص کل از تابلوخوانی (TGJU و بورس‌تریدر نیامدند) ' + faNum(tblDoc.index.p));
+  }
+  // تطبیقِ شاخصِ تابلوخوانی با منبعِ اصلی (مثلِ تطبیقِ بورس‌تریدر)
+  if (marketOut && tblDoc && tblDoc.index && tblDoc.index.p > 0 && marketOut.index && marketOut.index.p > 0) {
+    const d = Math.abs(tblDoc.index.p - marketOut.index.p) / marketOut.index.p;
+    if (d > 0.01) {
+      log('tablokhani', true, 'تطبیقِ شاخص: ' + (d * 100).toFixed(1) + '٪ اختلاف (یکی زنده است و دیگری آخرین جلسه)');
+    }
+  }
 
-  /* جریانِ پولِ حقیقیِ خرد، به ترتیبِ اعتبار:
+  /* جریانِ پولِ حقیقی، به ترتیبِ اعتبار:
      ۱) بورس‌تریدر — بدون کلید و کلِ بازار (اگر همین الان گرفته شده باشد)
-     ۲) BrsApi — اگر Secret تنظیم شده باشد (حداکثر هر ۳ ساعت)
-     ۳) همان مقدارِ قبلی، فقط اگر از جلسه‌یِ فعلی عقب‌تر نباشد
-     ۴) سکوت — هرگز از روی شاخص ساخته نمی‌شود */
+     ۲) تابلوخوانی — بدون کلید؛ جریانِ حقیقی (اگر همین الان گرفته شده باشد)
+     ۳) BrsApi — اگر Secret تنظیم شده باشد (حداکثر هر ۳ ساعت)
+     ۴) همان مقدارِ قبلی، فقط اگر از جلسه‌یِ فعلی عقب‌تر نباشد
+     ۵) سکوت — هرگز از روی شاخص ساخته نمی‌شود */
   if (!marketOut) log('tsetmc', false, 'شاخص نیامد؛ جریان هم منتشر نمی‌شود');
   else if (btFresh && btDoc && btDoc.flow) {
     marketOut.flow = {
       netToman: btDoc.flow.netToman, ratio: btDoc.flow.ratio,
       n: (btDoc.breadth && btDoc.breadth.total) || null, src: 'BourseTrader', ts: now,
     };
+    // تطبیقِ دو منبعِ جریان: اگر تابلوخوانی هم تازه بوده و اختلاف زیاد است، گزارش می‌شود
+    if (tblFresh && tblDoc && tblDoc.flow && tblDoc.flow.retail) {
+      const tf = tblDoc.flow.retail.netToman, bf = btDoc.flow.netToman;
+      const base = Math.max(Math.abs(tf), Math.abs(bf));
+      if (base > 0 && Math.abs(tf - bf) / base > 0.5) {
+        log('tablokhani', true, 'تطبیقِ جریان: اختلاف ' + Math.round(Math.abs(tf - bf) / base * 100) + '٪ با بورس‌تریدر (هر دو منتشر می‌شوند؛ اصلی: بورس‌تریدر)');
+      }
+    }
     log('tsetmc', true, 'جریانِ خرد از بورس‌تریدر: ' + (btDoc.flow.netToman < 0 ? 'خروج ' : 'ورود ') +
       faNum(Math.abs(btDoc.flow.netToman) / 1e12) + ' همت');
+  } else if (tblFresh && tblDoc && tblDoc.flow && tblDoc.flow.retail) {
+    marketOut.flow = {
+      netToman: tblDoc.flow.retail.netToman,
+      ratio: (tblDoc.value && tblDoc.value > 0) ? tblDoc.flow.retail.netToman / tblDoc.value : null,
+      n: (tblDoc.breadth && tblDoc.breadth.total) || null, src: 'Tablokhani', ts: now,
+    };
+    log('tsetmc', true, 'جریانِ حقیقی از تابلوخوانی: ' + (tblDoc.flow.retail.netToman < 0 ? 'خروج ' : 'ورود ') +
+      faNum(Math.abs(tblDoc.flow.retail.netToman) / 1e12) + ' همت');
   } else if (BRS_KEY) {
     const pf = prevDoc.market && prevDoc.market.flow;
     if (pf && pf.ts && (Date.now() - pf.ts < BRS_MIN_GAP_MS)) {
@@ -923,6 +1259,16 @@ async function main() {
     if (btDoc.breadth) bt.breadth = btDoc.breadth;
     if (btDoc.perCapita) bt.perCapita = btDoc.perCapita;
     if (Object.keys(bt).length > 3) marketOut.bt = bt;
+  }
+
+  // مکملِ تابلوخوانی: ارزشِ کلِ معاملات، صف‌ها، پهنا، جریانِ حقیقی/حقوقی
+  if (marketOut && tblDoc) {
+    const tbl = { ts: tblDoc.ts || now, src: 'Tablokhani', fresh: tblFresh };
+    if (tblDoc.value) tbl.value = Math.round(tblDoc.value);
+    if (tblDoc.queues) tbl.queues = tblDoc.queues;
+    if (tblDoc.breadth) tbl.breadth = tblDoc.breadth;
+    if (tblDoc.flow) tbl.flow = tblDoc.flow;
+    if (Object.keys(tbl).length > 3) marketOut.tbl = tbl;
   }
 
   // برابری‌های جهانی
@@ -982,4 +1328,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('PUBLISH FATAL: ' + ((e && e.stack) || e)); process.exitCode = 1; });
 }
 
-module.exports = { num, tehranMs, tehranDay, faDay, faNum, redact, envKey, parseNavasan, aggregateFlow, parseBrsMarket, inRange, saneDayRange, sanePct, tgjuRow, tgjuIndex, pickTGJU, TGJU_MARKET_KEYS, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS, btNum, btCount, btNorm, btTable, btFind, btIndexRow, btPairRow, parseBourseTrader, tseSessionOpen, BT };
+module.exports = { num, tehranMs, tehranDay, faDay, faNum, redact, envKey, parseNavasan, aggregateFlow, parseBrsMarket, inRange, saneDayRange, sanePct, tgjuRow, tgjuIndex, pickTGJU, TGJU_MARKET_KEYS, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS, btNum, btCount, btNorm, btTable, btFind, btIndexRow, btPairRow, parseBourseTrader, tseSessionOpen, BT, parseTablokhani, tblIndex, tblNumIn, tblQueueAt, tblFlow, tblAt, tblPrep, tblLabel, TBL };

@@ -851,6 +851,19 @@ kbd{display:inline-block;min-width:26px;text-align:center;font-family:inherit;fo
 .queue-fill.buy{background:var(--up)} .queue-fill.sell{background:var(--down)}
 .queue-foot{font-size:.72rem;color:var(--dim);background:var(--field);border:1px dashed var(--line);border-radius:8px;padding:8px 12px;line-height:1.8}
 
+/* روندِ پولِ حقیقی (نسل ۹) — میله‌ی هر جلسه، ورود=سبز / خروج=قرمز */
+.ft-head{margin-top:14px}
+.ft-row{display:flex;align-items:stretch;gap:5px;height:96px;padding:4px 2px 0}
+.ft-col{flex:1 1 0;min-width:13px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;height:100%}
+.ft-track{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center}
+.ft-fill{width:70%;max-width:22px;border-radius:4px 4px 2px 2px;min-height:4px;transition:height .5s}
+.ft-fill.up{background:linear-gradient(to top,rgba(62,207,142,.45),var(--up))}
+.ft-fill.down{background:linear-gradient(to top,rgba(255,107,94,.45),var(--down))}
+.ft-col small{font-size:.6rem;color:var(--dim);font-weight:700}
+.ft-empty{margin-top:12px}
+/* راستی‌آزماییِ متقابلِ جریان (تابلوخوانی در برابر منبعِ اصلی) */
+.bp-xcheck{margin-top:8px;font-size:.76rem;color:var(--mut);background:var(--tint2);border:1px dashed var(--line);border-radius:9px;padding:7px 11px}
+
 /* بافت قدیمی bp-* برای سازگاری */
 .bp-cap{margin-top:10px}
 

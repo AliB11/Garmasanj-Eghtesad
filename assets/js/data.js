@@ -799,6 +799,41 @@
     return any ? out : null;
   }
 
+  /**
+   * شکل‌دهی و نگهبانیِ «مکملِ تابلوخوانی» (tablokhani.com) — همان قرارداد
+   * نگهبانیِ btShape: داده از صفحه‌ی HTML بیرون می‌آید؛ هر بخش که ساختارش
+   * عوض شده باشد یا عددش غیرمعقول، دور ریخته می‌شود (سکوت، نه عددِ غلط).
+   */
+  function tblShape(x) {
+    if (!x || typeof x !== 'object') return null;
+    var out = { ts: +x.ts || Date.now(), src: x.src || 'Tablokhani', fresh: x.fresh !== false };
+    out.value = (+x.value > 1e12 && +x.value < 1e17) ? +x.value : null;
+    var q = x.queues;
+    out.queues = (q && (+q.buyN >= 0 || +q.sellN >= 0)) ? {
+      buyN: (+q.buyN >= 0 && +q.buyN < 100000) ? +q.buyN : null,
+      sellN: (+q.sellN >= 0 && +q.sellN < 100000) ? +q.sellN : null,
+      buyT: (+q.buyT > 1e8 && +q.buyT < 1e16) ? +q.buyT : null,
+      sellT: (+q.sellT > 1e8 && +q.sellT < 1e16) ? +q.sellT : null
+    } : null;
+    var b = x.breadth;
+    if (b) {
+      var up = +b.up || 0, dn = +b.down || 0, fl = +b.flat || 0;
+      if ((up + dn) > 0 && (up + dn + fl) <= 10000) {
+        out.breadth = { up: up, down: dn, flat: fl, total: up + dn + fl, posPct: (up / (up + dn)) * 100 };
+      }
+    }
+    var f = x.flow, fl2 = null;
+    if (f) {
+      fl2 = {};
+      if (f.retail && isFinite(+f.retail.netToman) && Math.abs(+f.retail.netToman) > 0 && Math.abs(+f.retail.netToman) < 1e17) fl2.retail = { netToman: +f.retail.netToman };
+      if (f.corporate && isFinite(+f.corporate.netToman) && Math.abs(+f.corporate.netToman) > 0 && Math.abs(+f.corporate.netToman) < 1e17) fl2.corporate = { netToman: +f.corporate.netToman };
+      if (!fl2.retail && !fl2.corporate) fl2 = null;
+    }
+    out.flow = fl2;
+    var any = out.value || out.queues || out.breadth || out.flow;
+    return any ? out : null;
+  }
+
   function setMarket(m, origin) {
     if (!m || !m.index || !(m.index.p > 0)) return false;
     var ix = m.index;
@@ -834,6 +869,9 @@
     // مکملِ بورس‌تریدر (هم‌وزن/فرابورس/صندوق‌ها/پهنا) — با نگهبانِ شکل و واحد
     MARKET.bt = btShape(m.bt);
     if (prev && prev.bt && !MARKET.bt) MARKET.bt = prev.bt;
+    // مکملِ تابلوخوانی (ارزش کل/صف‌ها/پهنا/جریان حقیقی-حقوقی) — با همان نگهبانی
+    MARKET.tbl = tblShape(m.tbl);
+    if (prev && prev.tbl && !MARKET.tbl) MARKET.tbl = prev.tbl;
     // جریانِ پول ممکن است از کلیدِ شخصیِ کاربر (مرورگر) آمده باشد؛
     // انتشارِ سرور نباید آن را پاک کند، و اگر هر دو دارند، تازه‌تر برنده است
     if (prev && prev.flow) {
@@ -857,6 +895,13 @@
       if (MARKET.bt.breadth) bits.push('پهنا ' + U.fa(Math.round(MARKET.bt.breadth.posPct)) + '٪ مثبت');
       markSrc('btrader', true, (bits.join(' · ') || 'مکملِ بورس') + (ageH >= 6 ? ' (آخرین جلسه)' : ''));
     } else markIdle('btrader', 'بیرون از ساعتِ بازار است یا صفحه در دسترس نبود — از انتشارِ بعدی');
+    if (MARKET.tbl) {
+      var tbits = [];
+      if (MARKET.tbl.value) tbits.push('ارزش کل ' + U.fa((MARKET.tbl.value / 1e12).toFixed(1)) + ' همت');
+      if (MARKET.tbl.flow && MARKET.tbl.flow.retail) tbits.push('حقیقی ' + (MARKET.tbl.flow.retail.netToman < 0 ? 'خروج' : 'ورود'));
+      if (MARKET.tbl.queues) tbits.push('صف ' + U.fa(MARKET.tbl.queues.buyN || 0) + '/' + U.fa(MARKET.tbl.queues.sellN || 0));
+      markSrc('tbl', true, (tbits.join(' · ') || 'مکملِ بورس'));
+    } else markIdle('tbl', 'بیرون از ساعتِ بازار است یا صفحه در دسترس نبود — از انتشارِ بعدی');
     return true;
   }
 
@@ -913,8 +958,26 @@
       flow: MARKET.flow || null,
       flowRatio: (MARKET.flow && MARKET.flow.ratio != null) ? MARKET.flow.ratio : null,
       bt: MARKET.bt || null,
-      btAgeH: MARKET.bt ? (Date.now() - MARKET.bt.ts) / 3600000 : null
+      btAgeH: MARKET.bt ? (Date.now() - MARKET.bt.ts) / 3600000 : null,
+      tbl: MARKET.tbl || null,
+      tblAgeH: MARKET.tbl ? (Date.now() - MARKET.tbl.ts) / 3600000 : null
     };
+  }
+
+  /**
+   * روندِ پولِ حقیقی، جلسه‌به‌جلسه: از سریِ روزانه‌ی TSE در history.json
+   * (عنصرِ پنجم هر ردیف؛ از نسل ۹ به بعد). فقط روزهایی که جریان واقعاً
+   * منتشر شده باشد — روزِ بدون منبع رد می‌شود، نه صفرِ ساختگی.
+   * خروجی: [[day, netToman], ...] از قدیمی به جدید.
+   */
+  function flowHistory() {
+    var d = tseDaily();
+    var out = [];
+    for (var i = 0; i < d.length; i++) {
+      var x = d[i];
+      if (x && x[4] != null && isFinite(+x[4])) out.push([x[0], +x[4]]);
+    }
+    return out;
   }
 
   /* ---------- مسیرِ کلیددارِ جریانِ پول (BrsApi) ---------- */
@@ -1613,6 +1676,7 @@
     chain: chain,
     mood: mood,
     market: market,
+    flowHistory: flowHistory,
     setMarket: setMarket,
     setMarketFlow: setMarketFlow,
     tickFast: tickFast,

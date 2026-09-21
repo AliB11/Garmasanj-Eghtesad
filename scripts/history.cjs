@@ -10,6 +10,10 @@
      recent: { SYM: [[epochSec, price], ...] }          // نقاط خام ۱۴ روز اخیر
      daily:  { SYM: [["YYYY-MM-DD", close, high, low], ...] } // خلاصه‌ی روزانه (به وقت تهران)
    }
+   سریِ TSE از نسل ۹ به بعد: [day, index, high, low, flowNet?] — عنصرِ پنجم
+   خالصِ جریانِ پولِ حقیقیِ همان جلسه (تومان؛ فقط وقتی منبع واقعاً داده باشد)
+   است که «روندِ پول» جلسه‌به‌جلسه را ممکن می‌کند. سازگاریِ به‌عقب:
+   مصرف‌کننده‌ها فقط اندیس‌های ۰ تا ۳ را می‌خوانند.
    بدون هیچ وابستگی (فقط Node 18+).
    ============================================================ */
 'use strict';
@@ -39,14 +43,16 @@ function dayKey(ms) { return new Date(ms + TEHRAN_OFFSET_MS).toISOString().slice
 
 /**
  * یک نقطه به تاریخچه. hi/lo اختیاری‌اند (برای شاخص که دامنه‌ی جلسه دارد).
- * نکته: مقادیرِ منفی (مثل خالصِ جریانِ پول) را اینجا نمی‌پذیریم؛ آن‌ها در
- * doc.market نگه داشته می‌شوند چون addPoint برای «قیمت» ساخته شده.
  */
 /**
  * یک نقطه‌ی «شاخصِ بورس» (TSE). چرا جدا از addPoint؟ چون شاخص ماهیتاً
  * روزانه است: زمانِ نقطه «جلسه» است نه لحظه‌ی انتشار، پس سری خام (recent)
  * برایش بی‌معناست و فقط خلاصه‌ی روزانه نگه می‌داریم — با به‌روزرسانیِ درجا
  * در طولِ همان جلسه (تا آخرین مقدارِ روز ثبت شود، نه اولینش).
+ *
+ * flowNet (نسل ۹): خالصِ جریانِ پولِ حقیقیِ جلسه (تومان، می‌تواند منفی باشد).
+ * در طولِ جلسه، انتشارِ بعدی جریانِ تازه‌تر را نگه می‌دارد (جریانِ روز
+ * تکمیل می‌شود، پس آخرین مقدارِ معتبر همان تصویرِ آخرِ جلسه است).
  */
 const RANGE_MAX_SPAN = 0.35;
 function saneDayRange(price, high, low) {
@@ -58,12 +64,13 @@ function saneDayRange(price, high, low) {
   return { high, low };
 }
 
-function addMarketPoint(doc, ms, p, hi, lo) {
+function addMarketPoint(doc, ms, p, hi, lo, flowNet) {
   if (!(p > 0) || !isFinite(p) || !(ms > 0)) return false;
   const k = dayKey(ms);
   const hl = saneDayRange(p, (hi > 0 && isFinite(hi)) ? hi : null, (lo > 0 && isFinite(lo)) ? lo : null);
   const h0 = hl.high != null ? hl.high : p;
   const l0 = hl.low != null ? hl.low : p;
+  const f = (flowNet != null && isFinite(flowNet) && flowNet !== 0) ? Math.round(flowNet) : null;
   const d = doc.daily.TSE || (doc.daily.TSE = []);
   const ld = d[d.length - 1];
   if (ld && ld[0] === k) {
@@ -71,9 +78,10 @@ function addMarketPoint(doc, ms, p, hi, lo) {
     ld[1] = p;
     if (h0 > ld[2]) ld[2] = h0;
     if (l0 < ld[3]) ld[3] = l0;
+    if (f != null) ld[4] = f;
     return ld.join('|') !== snap;
   }
-  if (!ld || ld[0] < k) { d.push([k, p, h0, l0]); return true; }
+  if (!ld || ld[0] < k) { d.push([k, p, h0, l0, f]); return true; }
   return false;
 }
 
@@ -116,11 +124,13 @@ function appendLive(doc, live) {
     const q = live.quotes[s];
     if (q && q.p > 0 && addPoint(doc, s, ms, +q.p)) added++;
   }
-  /* بورس: شاخص کل (TSE یک شبه‌نماد است، نه داراییِ گرماسنج) */
+  /* بورس: شاخص کل + خالصِ جریانِ پولِ جلسه (TSE یک شبه‌نماد است، نه داراییِ گرماسنج) */
   const mk = live.market && live.market.index;
   if (mk && mk.p > 0) {
     const mms = (mk.ts && mk.ts > 0) ? mk.ts : ms;
-    if (addMarketPoint(doc, mms, +mk.p, mk.high, mk.low)) added++;
+    const f = live.market && live.market.flow;
+    const fNet = (f && f.netToman != null && isFinite(+f.netToman)) ? +f.netToman : null;
+    if (addMarketPoint(doc, mms, +mk.p, mk.high, mk.low, fNet)) added++;
   }
   if (added) {
     const prev = Date.parse(doc.generated_at) || 0;

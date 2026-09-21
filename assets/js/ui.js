@@ -639,7 +639,7 @@
       badgeEl.textContent = score.label + ' · ' + score.pct + '٪ سلامت';
     }
     if (ageEl) ageEl.textContent = ageTxt;
-    if (srcEl) srcEl.textContent = 'شاخص از ' + (mk.src || 'TGJU') + '، مکمل از bourse-trader.ir · ' + ageTxt;
+    if (srcEl) srcEl.textContent = 'شاخص از ' + (mk.src || 'TGJU') + '، مکمل از bourse-trader.ir' + (mk.tbl ? ' + tablokhani.com' : '') + ' · ' + ageTxt;
     if (explEl) {
       var parts = [];
       if (bt.breadth) parts.push('پهنا ' + U.fa(Math.round(bt.breadth.posPct)) + '٪ مثبت');
@@ -688,17 +688,36 @@
       if (queueHost) queueHost.innerHTML = GS.charts.queueChart(bt.breadth);
     }
 
-    var mainFlowHost = U.$('#bourseMainFlow'), fundsHost = U.$('#bourseFundsFlow');
+    var mainFlowHost = U.$('#bourseMainFlow'), trendHost = U.$('#bourseFlowTrend'), fundsHost = U.$('#bourseFundsFlow');
     if (mainFlowHost) {
+      var extra = '';
       if (mk.flow) {
         var out = mk.flow.netToman < 0;
         var absT = Math.abs(mk.flow.netToman);
         var ratio = mk.flowRatio != null ? Math.abs(mk.flowRatio) * 100 : null;
+        var flowFa = (mk.flow.src === 'Tablokhani') ? 'جریان پول حقیقی' : 'جریان پول حقیقی خرد';
         mainFlowHost.innerHTML = '<div class="bp-main-flow-card ' + (out ? 'out' : 'in') + '"><div class="bp-mf-icon">' + (out ? '↗' : '↘') + '</div>' +
-          '<div class="bp-mf-main"><small>جریان پول حقیقی خرد</small><b>' + (out ? 'خروج ' : 'ورود ') + btMoney(absT) + '</b><span>' +
-          (ratio != null ? U.fa(ratio.toFixed(1)) + '٪ ارزش معاملات · ' + U.fa(mk.flow.n || '') + ' نماد' : '') + '</span></div>' +
+          '<div class="bp-mf-main"><small>' + flowFa + '</small><b>' + (out ? 'خروج ' : 'ورود ') + btMoney(absT) + '</b><span>' +
+          (ratio != null ? U.fa(ratio.toFixed(1)) + '٪ ارزش معاملات' : '') + (ratio != null && mk.flow.n ? ' · ' + U.fa(mk.flow.n) + ' نماد' : '') + ' · ' + flowSrcFa(mk.flow) + '</span></div>' +
           '<div class="bp-mf-ratio"><b>' + (ratio != null ? U.fa(ratio.toFixed(1)) + '٪' : '—') + '</b><small>شدت</small></div></div>';
       } else mainFlowHost.innerHTML = '<div class="lc-empty">جریان خرد در دسترس نیست</div>';
+      // راستی‌آزماییِ متقابل: اگر تابلوخوانی هم داده داشته، کنارش نشان داده می‌شود
+      if (mk.tbl && mk.tbl.flow) {
+        if (mk.tbl.flow.retail && (!mk.flow || mk.flow.src !== 'Tablokhani')) {
+          var tr = mk.tbl.flow.retail.netToman;
+          extra += '<div class="bp-xcheck">تابلوخوانی (حقیقی): ' + (tr < 0 ? 'خروج ' : 'ورود ') + btMoney(Math.abs(tr)) + '</div>';
+        }
+        if (mk.tbl.flow.corporate) {
+          var tc = mk.tbl.flow.corporate.netToman;
+          extra += '<div class="bp-xcheck">حقوقی: ' + (tc < 0 ? 'خروج ' : 'ورود ') + btMoney(Math.abs(tc)) + '</div>';
+        }
+      }
+      if (extra) mainFlowHost.innerHTML += extra;
+    }
+    if (trendHost) {
+      var rows = null;
+      try { rows = D().flowHistory ? D().flowHistory() : []; } catch (e) { rows = []; }
+      renderFlowTrend(trendHost, rows);
     }
     if (fundsHost) fundsHost.innerHTML = GS.charts.fundsFlowChart(bt.funds);
 
@@ -712,6 +731,37 @@
     }
     if (pcHost) pcHost.innerHTML = GS.charts.perCapitaGauge(bt.perCapita);
     if (capHost && bt.cap) capHost.innerHTML = '<div class="bp-cap-card"><small>ارزش بازار کل</small><b>' + U.fa((bt.cap / 1e15).toFixed(1)) + ' هزار همت</b></div>';
+  }
+
+  /** برچسبِ منبعِ جریانِ پول — هرگز «بورس‌تریدر» سخته نمی‌شود؛ منبعِ واقعی برچسب می‌خورد */
+  function flowSrcFa(f) {
+    var s = f && f.src;
+    if (s === 'Tablokhani') return 'از تابلوخوانی';
+    if (s === 'BrsApi') return 'از BrsApi (کلید)';
+    if (s === 'TSETMC') return 'از TSETMC (مرورگر)';
+    return 'از بورس‌تریدر';
+  }
+
+  /** روندِ پولِ حقیقی، جلسه‌به‌جلسه (از تاریخچه‌ی انباشته‌شده‌ی server) */
+  function renderFlowTrend(host, rows) {
+    if (!rows || rows.length < 2) {
+      host.innerHTML = '<div class="lc-empty ft-empty">روندِ پول از انتشارهای تازه انباشته می‌شود — بعد از ۲ جلسه‌ی دارای جریان پدیدار می‌شود.</div>';
+      return;
+    }
+    var last = rows.slice(-14);
+    var maxAbs = 1;
+    for (var i = 0; i < last.length; i++) maxAbs = Math.max(maxAbs, Math.abs(last[i][1]));
+    var bars = last.map(function (r) {
+      var v = r[1];
+      var h = Math.max(8, Math.round(Math.abs(v) / maxAbs * 56));
+      var cls = v >= 0 ? 'up' : 'down';
+      var label = U.fa((Math.abs(v) / 1e12).toFixed(1));
+      return '<div class="ft-col" title="جلسه‌ی ' + U.fa(r[0]) + ': ' + (v >= 0 ? 'ورود ' : 'خروج ') + label + ' همت">' +
+        '<div class="ft-track"><div class="ft-fill ' + cls + '" style="height:' + h + 'px"></div></div>' +
+        '<small>' + (v >= 0 ? label : '−' + label) + '</small></div>';
+    }).join('');
+    host.innerHTML = '<div class="bp-panel-h ft-head"><h4>روندِ پولِ حقیقی</h4><span>' + U.fa(last.length) + ' جلسه‌ی اخیر · همت</span></div>' +
+      '<div class="ft-row">' + bars + '</div>';
   }
 
   function flowCard(label, net, hint) {
@@ -738,8 +788,8 @@
     push(idxCard('شاخص هم‌وزن', bt.equal, 'وزنِ برابر برای همه‌ی نمادها — تصویرِ بدنه‌ی بازار'));
     push(idxCard('شاخص کل فرابورس', bt.fara, 'شرکت‌های کوچک‌تر و بازارِ دوم'));
     if (mk.flow) {
-      var ratioTxt = (mk.flowRatio != null) ? U.fa(Math.round(Math.abs(mk.flowRatio) * 100)) + '٪ ارزشِ معاملات خرد' : '';
-      push(flowCard('جریانِ پولِ خرد', mk.flow.netToman, ratioTxt || 'از بورس‌تریدر'));
+      var ratioTxt = (mk.flowRatio != null) ? U.fa(Math.round(Math.abs(mk.flowRatio) * 100)) + '٪ ارزشِ معاملات' : '';
+      push(flowCard(mk.flow.src === 'Tablokhani' ? 'جریانِ پولِ حقیقی' : 'جریانِ پولِ خرد', mk.flow.netToman, ratioTxt || flowSrcFa(mk.flow)));
     }
     if (bt.funds) {
       push(flowCard('صندوق‌های درآمد ثابت', bt.funds.fixed && bt.funds.fixed.netToman, 'پناهگاهِ کم‌ریسکِ بورس'));
@@ -764,7 +814,7 @@
       var ageMin = Math.round((Date.now() - bt.ts) / 60000);
       var ageTxt = ageMin < 2 ? 'همین الان' : ageMin < 90 ? U.fa(ageMin) + ' دقیقه پیش' : ageMin < 36 * 60 ? U.fa(Math.round(ageMin / 60)) + ' ساعت پیش' : 'آخرین جلسه';
       title.style.display = '';
-      title.textContent = 'بورس تهران — فراتر از شاخصِ کل · منبع: bourse-trader.ir (از انتشارِ سرور) · ' + ageTxt;
+      title.textContent = 'بورس تهران — فراتر از شاخصِ کل · منبع: bourse-trader.ir' + (mk.tbl ? ' + tablokhani.com' : '') + ' (از انتشارِ سرور) · ' + ageTxt;
     }
     host.innerHTML = cards.join('');
     host.style.display = '';

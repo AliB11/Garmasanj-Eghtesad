@@ -250,4 +250,101 @@ t('parseBrsMarket: نگهبان‌های مقیاس و ساختار', () => {
   assert.ok(err.why.indexOf('Invalid') >= 0, err.why);
 });
 
+// --- Tablokhani (tablokhani.com) — پارسرِ برچسبیِ ناشر، با نگهبانِ بخش‌به‌بخش ---
+const TBL_PAD = '<!-- ' + 'x'.repeat(6000) + ' -->';
+function tblHtml(body) { return '<html><body>' + body + TBL_PAD + '</body></html>'; }
+
+t('parseTablokhani: صفحه‌ی سالم (شاخص‌ها/ارزش/صف/پهنا/جریان)', () => {
+  const html = tblHtml(`
+    <div><small>شاخص کل</small><b>۷,۲۹۵,۰۱۳.۵۶</b><em>▲ ۰.۰٪</em></div>
+    <div><small>شاخص هم‌وزن</small><b>۱,۹۳۹,۲۸۳.۶۳</b><em>▼ ۰.۴٪</em></div>
+    <div><small>شاخص فرابورس</small><b>۵۶,۷۸۰.۸۷</b><em>▲ ۰.۳٪</em></div>
+    <div><small>ارزش کل معاملات</small><b>328148.9B</b></div>
+    <h3>تعداد صف‌های خرید و فروش</h3>
+    <table><tr><td>صف خرید</td><td>۱۳۴</td></tr><tr><td>صف فروش</td><td>۲۱۹</td></tr></table>
+    <h3>ارزش صف‌های خرید و فروش (میلیارد تومان)</h3>
+    <table><tr><td>صف خرید</td><td>۸۷۰۵۷.۲</td></tr><tr><td>صف فروش</td><td>۴۱۷۶۹.۱</td></tr></table>
+    <h3>تغییرات وضعیت بازار</h3>
+    <ul><li>بیشتر از ۲% + <b>۱۲</b></li><li>۰.۵ تا ۲% + <b>۱۴۵</b></li>
+      <li>۰.۵% - تا ۰.۵% + <b>۲۱۰</b></li><li>۰.۵ تا ۲% - <b>۲۶۸</b></li><li>بیشتر از ۲% - <b>۱۸۴</b></li></ul>
+    <h3>اشخاص حقیقی</h3>
+    <table><tr><td>ورود پول حقیقی</td><td>5.1T</td><td>خروج پول حقیقی</td><td>9.3T</td></tr>
+      <tr><td>خالص</td><td>-4.2T</td></tr></table>
+    <h3>اشخاص حقوقی</h3>
+    <table><tr><td>خالص</td><td>1.1T</td></tr></table>
+  `);
+  const r = P.parseTablokhani(html);
+  assert.strictEqual(r.ok, true);
+  assert.ok(Math.abs(r.index.p - 7295013.56) < 1e-6, 'شاخص کل');
+  assert.strictEqual(r.index.chgPct, 0);
+  assert.ok(Math.abs(r.equal.p - 1939283.63) < 1e-6, 'هم‌وزن (نیم‌فاصله)');
+  assert.strictEqual(r.equal.chgPct, -0.4);
+  assert.ok(Math.abs(r.fara.p - 56780.87) < 1e-6, 'فرابورس');
+  assert.strictEqual(r.fara.chgPct, 0.3);
+  assert.strictEqual(r.value, Math.round(328148.9e9), 'ارزش کل (B=میلیارد)');
+  assert.deepStrictEqual([r.queues.buyN, r.queues.sellN], [134, 219], 'تعداد صف‌ها');
+  assert.strictEqual(r.queues.buyT, Math.round(87057.2e9), 'ارزش صف (میلیارد→تومان)');
+  assert.strictEqual(r.queues.sellT, Math.round(41769.1e9));
+  assert.strictEqual(r.breadth.up, 157);
+  assert.strictEqual(r.breadth.down, 452);
+  assert.strictEqual(r.breadth.flat, 210);
+  assert.strictEqual(r.flow.retail.netToman, -4200000000000, 'خالصِ حقیقی (ردیفِ «خالص» اولویت دارد)');
+  assert.strictEqual(r.flow.corporate.netToman, 1100000000000);
+});
+
+t('parseTablokhani: کوتاه/آشغال → ok=false', () => {
+  assert.strictEqual(P.parseTablokhani('شاخص').ok, false);
+  const r = P.parseTablokhani('<html><body><p>شاخص کل ۱۲۳</p>' + TBL_PAD + '</body></html>');
+  assert.strictEqual(r.ok, false, 'عددِ بی‌بازه نمی‌سازد');
+});
+
+t('parseTablokhani: نگهبانِ نسبت (خالص > کلِ ارزش → سکوت)', () => {
+  const html = tblHtml(`
+    <div><small>ارزش کل معاملات</small><b>5T</b></div>
+    <h3>اشخاص حقیقی</h3>
+    <table><tr><td>خالص</td><td>-9T</td></tr></table>
+  `);
+  const r = P.parseTablokhani(html);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.value, 5e12);
+  assert.strictEqual(r.flow, null, 'خالصِ بزرگ‌تر از کل نمی‌تواند بیاید');
+});
+
+t('parseTablokhani: جریانِ بدونِ ردیفِ «خالص» (ردیفِ پولیِ بخش)', () => {
+  const html = tblHtml(`
+    <h3>اشخاص حقیقی</h3>
+    <table><tr><td>حقیقی</td><td>2.4T</td></tr></table>
+  `);
+  const r = P.parseTablokhani(html);
+  assert.ok(r.ok);
+  assert.strictEqual(r.flow.retail.netToman, 2400000000000);
+});
+
+// --- history: روندِ پول در سریِ TSE (عنصرِ پنجم، سازگار به عقب) ---
+t('history: addMarketPoint با/بدونِ جریان + به‌روزرسانی درجا', () => {
+  const H = require('../scripts/history.cjs');
+  const doc = H.empty();
+  const ms = Date.UTC(2026, 8, 20, 5, 0);
+  H.addMarketPoint(doc, ms, 7290000, 7300000, 7250000, -4.2e12);
+  assert.deepStrictEqual(doc.daily.TSE[0], ['2026-09-20', 7290000, 7300000, 7250000, -4200000000000]);
+  H.addMarketPoint(doc, ms + 3600e3, 7285000, 7300000, 7250000, -3.8e12);
+  assert.strictEqual(doc.daily.TSE.length, 1, 'در طولِ جلسه یک ردیف باقی می‌ماند');
+  assert.strictEqual(doc.daily.TSE[0][4], -3800000000000, 'جریانِ تازه‌تر جایگزین می‌شود');
+  H.addMarketPoint(doc, ms + 2 * 86400e3, 7270000, 7280000, 7260000);
+  assert.strictEqual(doc.daily.TSE[1][4], null, 'بدونِ جریان: سازگاریِ قدیم (null در JSON)');
+});
+
+t('history: appendLive جریانِ live.json را به TSE می‌رساند', () => {
+  const H = require('../scripts/history.cjs');
+  const doc = H.empty();
+  const live = {
+    generated_at: '2026-09-20T09:00:00.000Z',
+    quotes: { USD: { p: 230500 } },
+    market: { index: { p: 7290000, ts: Date.UTC(2026, 8, 20, 9, 0), day: '2026-09-20' }, flow: { netToman: -3100000000000, src: 'BourseTrader' } },
+  };
+  const r = H.appendLive(doc, live);
+  assert.ok(r.added >= 1);
+  assert.strictEqual(doc.daily.TSE[0][4], -3100000000000);
+});
+
 console.log('publish.js: ' + n + ' tests, exit=' + (process.exitCode || 0));
