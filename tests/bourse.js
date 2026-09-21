@@ -770,8 +770,12 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     await GS.data.bootAll(); await wait(300);
     const now = Date.now(), OFF = 3.5 * 3600e3;
     const dayStart = Math.floor((now + OFF) / 86400e3) * 86400e3 - OFF;
-    const el = Math.max(now - dayStart, 60000);
-    const t1 = dayStart + Math.round(el * 0.1), t2 = dayStart + Math.round(el * 0.5), t3 = dayStart + Math.round(el * 0.9);
+    // زمانِ سندِ تزریقی باید از سندِ پیش‌فرض (now − ۱ ساعت) تازه‌تر باشد؛ وگرنه
+    // نگهبانِ «انتشارِ قدیمی‌تر» آن را رد می‌کند. ساختنِ نقاط از ابتدایِ روزِ تهران
+    // باعث می‌شد این تست فقط بعد از حدود ۲۰:۰۰ تهران بشکند — ساعتِ اجرا نباید
+    // روی نتیجه اثر بگذارد؛ پس آخرین نقطه «همین الان» و بقیه عقب‌تر از آن‌اند.
+    const span = Math.min(Math.max(now - dayStart, 3600e3), 6 * 3600e3);
+    const t3 = now, t2 = t3 - Math.round(span * 0.5), t1 = t3 - Math.round(span * 0.95);
     const day = new Date(t3 + OFF).toISOString().slice(0, 10);
     const btWithQueue = Object.assign({}, MK_BT.bt, { queue: { buyToman: 5.1e12, sellToman: 2.1e12, netToman: 3.0e12, buyShare: 0.708 } });
     const market = Object.assign({}, MK_BT, {
