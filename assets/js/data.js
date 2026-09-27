@@ -959,11 +959,14 @@
     }
     // اگر انتشارِ جدیدتر از همان جلسه آمد، جایگزین؛ اگر قدیمی‌تر بود، رد شود
     if (prev && prev.ts && MARKET.ts && MARKET.ts < prev.ts - 3600000) { MARKET = prev; return false; }
-    var dayFa = (MARKET.ts && U.dateFa) ? U.dateFa(MARKET.ts) : (MARKET.day ? U.fa(MARKET.day) : '—');
+    var eff = effIndex(MARKET);
+    var dayFa = (eff.ts && U.dateFa) ? U.dateFa(eff.ts) : (eff.day ? U.fa(eff.day) : '—');
     var flowNote = MARKET.flow
       ? ' · جریانِ پول: ' + U.fa((Math.abs(MARKET.flow.netToman) / 1e12).toFixed(1)) + ' همت ' + (MARKET.flow.netToman < 0 ? 'خروج' : 'ورود')
       : ' · جریانِ پول در دسترس نیست';
-    markSrc('tse', true, 'شاخص کل ' + U.fmt(Math.round(MARKET.p)) + ' (جلسه ' + dayFa + ')' + flowNote);
+    markSrc('tse', true, 'شاخص کل ' + U.fmt(Math.round(eff.p)) +
+      (eff.src !== MARKET.src ? ' از ' + eff.src : '') +
+      ' (جلسه ' + dayFa + ')' + flowNote);
     if (MARKET.flow) markSrc('tsetmc', true, 'جریانِ پولِ حقیقی از ' + MARKET.flow.src);
     else markIdle('tsetmc', 'TSETMC از IP خارجی پاسخ نمی‌دهد — فقط از مرورگرِ داخل ایران یا منبعِ کلیددار');
     if (MARKET.bt) {
@@ -981,11 +984,14 @@
   function tseDaily() { return (HISTORY && HISTORY.daily && HISTORY.daily.TSE) || []; }
 
   /** بستنِ «آخرین جلسه‌ی متفاوت» — مرجعِ محاسبه‌ی تغییرِ شاخص */
-  function tsePrevClose() {
-    if (!MARKET || !(MARKET.p > 0)) return null;
+  function tsePrevClose(p) {
+    // p اختیاری: وقتی شاخصِ مؤثر از مکملِ بورس‌تریدر می‌آید، محاسبه روی همان
+    // عددِ مؤثر انجام می‌شود؛ بدون ورودی، از MARKET پیشفرض می‌گیرد.
+    var cur = (p != null && +p > 0) ? +p : (MARKET ? MARKET.p : 0);
+    if (!(cur > 0)) return null;
     var d = tseDaily();
     for (var i = d.length - 1; i >= 0; i--) {
-      if (d[i] && d[i][1] > 0 && Math.abs(d[i][1] - MARKET.p) / MARKET.p > 0.0002) {
+      if (d[i] && d[i][1] > 0 && Math.abs(d[i][1] - cur) / cur > 0.0002) {
         return { day: d[i][0], p: d[i][1], t: dayMs(d[i][0]) };
       }
     }
@@ -1002,27 +1008,51 @@
   }
 
   /**
+   * شاخصِ «مؤثر» برای نمایش — اگر منبعِ اصلی (TGJU، کلید bourse) کهنه مانده
+   * باشد و مکملِ بورس‌تریدر جلسه‌ی تازه‌تری داشته باشد، شاخصِ تازه‌تر نشان
+   * داده می‌شود — با برچسبِ منبعِ خودش. شرطِ سخت‌گیرانه (حداقل ۶ ساعت اختلاف
+   * + روزِ جلسه‌ی جدیدتر) تا در حالتِ عادی، وقتی هر دو از یک جلسه‌اند، هرگز
+   * جایگزینی رخ ندهد. (ایرادِ واقعی: کلید bourse در TGJU روزها متوقف شده بود
+   * و شاخصِ صفحه ثابت می‌ماند با آنکه مکمل، جلسه‌ی امروز را داشت.)
+   */
+  function effIndex(m) {
+    var e = { p: m.p, high: m.high, low: m.low, ts: m.ts, day: m.day, src: m.src };
+    var bt = m.bt;
+    if (bt && bt.index && bt.index.p > 0 && bt.ts && m.ts &&
+        bt.ts > m.ts && (bt.ts - m.ts) > 6 * 3600e3 &&
+        tehranDayStr(bt.ts) > tehranDayStr(m.ts)) {
+      e.p = Math.round(bt.index.p);
+      e.high = null; e.low = null;   // مکمل سقف/کف ندارد
+      e.ts = bt.ts;
+      e.day = tehranDayStr(bt.ts);
+      e.src = 'BourseTrader';
+    }
+    return e;
+  }
+
+  /**
    * وضعیتِ بورس برای نمایش و برای حکم.
    * chgPct از سریِ تاریخچه حساب می‌شود چون TGJU برای شاخص d/dp نمی‌فرستد.
    */
   function market() {
     if (!MARKET || !(MARKET.p > 0)) return null;
-    var pv = tsePrevClose();
+    var ix = effIndex(MARKET);
+    var pv = tsePrevClose(ix.p);
     var old = tseOldest(2);
     var ses = (U.tseSession) ? U.tseSession() : { open: false, label: 'نامشخص', next: '' };
-    var ageDays = MARKET.ts ? (Date.now() - MARKET.ts) / 86400000 : 99;
+    var ageDays = ix.ts ? (Date.now() - ix.ts) / 86400000 : 99;
     return {
-      p: MARKET.p,
-      high: MARKET.high,
-      low: MARKET.low,
-      ts: MARKET.ts,
-      day: MARKET.day,
-      src: MARKET.src,
+      p: ix.p,
+      high: ix.high,
+      low: ix.low,
+      ts: ix.ts,
+      day: ix.day,
+      src: ix.src,
       origin: MARKET.origin,
-      chgPct: (pv && pv.p > 0) ? (MARKET.p / pv.p - 1) * 100 : null,
+      chgPct: (pv && pv.p > 0) ? (ix.p / pv.p - 1) * 100 : null,
       prevClose: pv ? pv.p : null,
       prevDay: pv ? pv.day : null,
-      weekPct: (old && old.p > 0) ? (MARKET.p / old.p - 1) * 100 : null,
+      weekPct: (old && old.p > 0) ? (ix.p / old.p - 1) * 100 : null,
       weekDays: old ? old.days : null,
       session: ses,
       ageDays: ageDays,
@@ -1033,7 +1063,7 @@
       flowTrend: flowTrend(MARKET.flowSeries),
       flowFresh: !!(MARKET.flow && MARKET.flow.fresh),
       // جریانِ پول مربوط به همین جلسه است یا جلسه‌ای دیگر؟ (برچسبِ تازگی)
-      flowSameSession: !!(MARKET.flow && MARKET.flow.day && MARKET.day && MARKET.flow.day === MARKET.day),
+      flowSameSession: !!(MARKET.flow && MARKET.flow.day && ix.day && MARKET.flow.day === ix.day),
       flowSessions: tseFlowSessions(5),
       bt: MARKET.bt || null,
       btAgeH: MARKET.bt ? (Date.now() - MARKET.bt.ts) / 3600000 : null,
