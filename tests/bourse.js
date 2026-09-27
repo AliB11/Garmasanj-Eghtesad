@@ -71,6 +71,47 @@ t('tehranDay: تاریخِ جلسه از ts ساخته می‌شود', () => {
   assert.strictEqual(P.tehranDay(P.tehranMs('2026-09-19 00:00:00')), '2026-09-19');
 });
 
+/* ---- انتخابِ شاخص: کهنه‌ماندنِ کلید bourse در TGJU (ایرادِ واقعیِ ۲۰۲۶-۰۹) ---- */
+t('pickTseIndex: هر دو از یک جلسه → TGJU مقدم است (سقف/کف هم می‌ماند)', () => {
+  const ix = { p: 7274130, high: 7290000, low: 7250000, ts: Date.UTC(2026, 8, 27, 9, 0), day: '2026-09-27', src: 'TGJU' };
+  const out = P.pickTseIndex({ ix, btIndex: { p: 7274500, chgPct: 1.7 }, btTs: Date.UTC(2026, 8, 27, 9, 14) });
+  assert.strictEqual(out.src, 'TGJU');
+  assert.strictEqual(out.index.p, 7274130);
+  assert.strictEqual(out.index.high, 7290000, 'سقف/کف نباید گم شود');
+});
+
+t('pickTseIndex: TGJU کهنه (جلسه‌ی قدیمی‌تر) + مکملِ جلسه‌ی تازه‌تر → بورس‌تریدر', () => {
+  // سناریوی واقعیِ رخداده: کلید bourse در TGJU از جلسه‌ی ۲۳ شهریور متوقف ماند،
+  // در حالی که بورس‌تریدر جلسه‌ی ۲۷ شهریور را داشت.
+  const ix = { p: 7257043, high: 7273165, low: 7220264, ts: P.tehranMs('2026-09-23 00:00:00'), day: '2026-09-23', src: 'TGJU' };
+  const out = P.pickTseIndex({ ix, btIndex: { p: 7274130, chgPct: 1.6922 }, btTs: Date.UTC(2026, 8, 27, 9, 14, 28) });
+  assert.strictEqual(out.src, 'BourseTrader');
+  assert.strictEqual(out.index.p, 7274130);
+  assert.strictEqual(out.index.chgPct, 1.6922);
+  assert.strictEqual(out.index.day, '2026-09-27');
+  assert.strictEqual(out.index.ts, Date.UTC(2026, 8, 27, 9, 14, 28));
+  assert.strictEqual(out.index.src, 'BourseTrader', 'برچسبِ منبع باید صادق باشد');
+  assert.strictEqual(out.day, '2026-09-27');
+  // روزِ جلسه باید تازه شود تا «حفظِ جلسه»ی جریان پول هم از سکوت درآید
+  assert.strictEqual(P.tehranDay(out.index.ts), '2026-09-27');
+});
+
+t('pickTseIndex: مکملِ کهنه‌تر از TGJU → همچنان TGJU', () => {
+  const ix = { p: 7274130, ts: Date.UTC(2026, 8, 27, 9, 0), day: '2026-09-27', src: 'TGJU' };
+  const out = P.pickTseIndex({ ix, btIndex: { p: 7153090 }, btTs: Date.UTC(2026, 8, 26, 9, 12) });
+  assert.strictEqual(out.src, 'TGJU');
+  assert.strictEqual(out.index.p, 7274130);
+});
+
+t('pickTseIndex: TGJU نیامد → بورس‌تریدر با برچسبِ خودش؛ هیچ منبعی → null', () => {
+  const out = P.pickTseIndex({ ix: null, btIndex: { p: 7274130, chgPct: 1.6922 }, btTs: Date.UTC(2026, 8, 27, 9, 14) });
+  assert.strictEqual(out.src, 'BourseTrader');
+  assert.strictEqual(out.index.p, 7274130);
+  assert.strictEqual(P.pickTseIndex({}), null, 'بدون منبع باید سکوت کرد');
+  assert.strictEqual(P.pickTseIndex(null), null);
+  assert.strictEqual(P.pickTseIndex({ ix: null, btIndex: { p: 7274130 }, btTs: 0 }), null, 'مکمل بدون زمانِ معتبر پذیرفته نمی‌شود');
+});
+
 /* ============================================================
    ۲) تاریخچه: سریِ روزانه‌ی شاخص
    ============================================================ */
@@ -948,6 +989,74 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     assert.ok(age.indexOf('روز پیش') >= 0, 'باید بگوید چند روز پیش: ' + age);
     assert.ok(age.indexOf('آخرین جلسه') < 0, 'داده‌ی ۵ روزه «آخرین جلسه» نیست: ' + age);
     assert.ok(errors.length === 0, 'خطای پنجره: ' + errors.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('بورس: شاخصِ کهنه (TGJU متوقف) + مکملِ جلسه‌ی تازه‌تر → شاخصِ تازه نشان داده می‌شود', async () => {
+    // ایرادِ واقعیِ گزارش‌شده: کلید bourse در TGJU از جلسه‌ی ۲۳ شهریور متوقف
+    // مانده بود و بخشِ «ترمینال حرفه‌ای»/کارتِ شاخص کل ثابت می‌ماند، با آنکه
+    // مکملِ بورس‌تریدر همان روز جلسه را داشت.
+    const NOW = Date.UTC(2026, 8, 27, 17, 30);      // یکشنبه ۲۱:۰۰ تهران — بعد از جلسه
+    const BT_TS_F = Date.UTC(2026, 8, 27, 9, 14);   // یکشنبه ۱۲:۴۴ تهران — پایانِ جلسه
+    const market = {
+      index: { p: 7257043, high: 7273165, low: 7220264, ts: Date.UTC(2026, 8, 22, 20, 30), day: '2026-09-23', src: 'TGJU' },
+      day: '2026-09-23', src: 'TGJU',
+      flow: { netToman: 2.3e12, ratio: 0.031, src: 'BourseTrader', ts: Date.UTC(2026, 8, 27, 9, 12), day: '2026-09-27' },
+      bt: {
+        ts: BT_TS_F, fresh: false,
+        index: { p: 7274130, chgPct: 1.6922 },
+        equal: { p: 1950840, chgPct: 0.3 }, fara: { p: 108420, chgPct: 0.4 },
+        breadth: { pos: 240, neg: 119, equal: 60, total: 419, posPct: 57.3, queueBuy: 120, queueSell: 90 },
+      },
+    };
+    const { GS, d, window: W, errors } = boot((u) => {
+      const url = String(u);
+      if (url.includes('live.json')) return jres(liveDoc(market));
+      if (url.includes('snapshot.json')) return jres({ generated_at: '', quotes: {} });
+      return jrej();
+    }, { date: NOW });
+    await GS.data.bootAll(); await wait(300);
+    GS.data._setHistory({
+      version: 1, generated_at: new Date().toISOString(), recent: {},
+      daily: { TSE: [['2026-09-26', 7153090, 7153090, 7153090]] },
+    });
+    const mk = GS.data.market();
+    assert.strictEqual(mk.p, 7274130, 'شاخصِ تازه‌تر باید از مکمل بیاید: ' + JSON.stringify({ p: mk.p, src: mk.src }));
+    assert.strictEqual(mk.src, 'BourseTrader', 'برچسبِ منبع باید صادق باشد');
+    assert.strictEqual(mk.ts, BT_TS_F);
+    assert.strictEqual(mk.day, '2026-09-27');
+    assert.strictEqual(mk.stale, false, 'شاخصِ جلسه‌ی امروز کهنه نیست');
+    // تغییرِ همین جلسه نسبت به آخرین جلسه‌ی قبلی (از سریِ تاریخچه)
+    assert.ok(Math.abs(mk.chgPct - 1.6922) < 0.01, 'chgPct=' + mk.chgPct);
+    assert.strictEqual(mk.prevDay, '2026-09-26');
+    assert.ok(mk.flowSameSession, 'جریانِ ۲۷ شهریور باید همین جلسه حساب شود');
+    GS.ui.renderBoursePro();
+    const sec = d.querySelector('#boursePro');
+    const age = d.querySelector('#bourseProAge').textContent;
+    const title = d.querySelector('#bourseProTitle').textContent;
+    assert.strictEqual(sec.hidden, false, 'بخش باید دیده شود');
+    assert.strictEqual(age, 'آخرین جلسه ' + faDate(BT_TS_F), age);
+    assert.ok(title.indexOf('BourseTrader') >= 0, 'عنوان باید منبعِ تازه را بگوید: ' + title);
+    assert.ok(errors.length === 0, 'خطای پنجره: ' + errors.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('رادارِ سلامت: خروجِ پولِ خرد نباید امتیاز بگیرد، ورود باید بگیرد (بازبینیِ فرمول)', async () => {
+    const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(50);
+    const dim = (mk) => GS.ui.bourseRadarDims(mk, {}).filter((x) => x.label === 'جریان خرد')[0].value;
+    const none = dim({});
+    const inflow = dim({ flow: { netToman: 3.2e12 }, flowRatio: 0.12 });
+    const outflow = dim({ flow: { netToman: -3.2e12 }, flowRatio: -0.12 });
+    const heavyOut = dim({ flow: { netToman: -20e12 }, flowRatio: -0.4 });
+    assert.strictEqual(none, 50, 'بدون داده → خنثی: ' + none);
+    assert.ok(inflow > 50, 'ورود باید بالای خنثی ببرد: ' + inflow);
+    assert.ok(outflow < 50, 'خروج باید پایین بیاورد: ' + outflow);
+    assert.ok(inflow > outflow, inflow + ' > ' + outflow);
+    assert.ok(heavyOut < 50, 'خروجِ سنگین نباید امتیازِ سلامت بگیرد: ' + heavyOut);
+    const hs = GS.ui.bourseHealthScore({}, {});
+    assert.strictEqual(hs.pct, 50, 'روی داده‌ی خنثی → ۵۰');
+    assert.strictEqual(hs.label, 'متعادل');
     W.close(); GS.data.clearCache();
   });
 

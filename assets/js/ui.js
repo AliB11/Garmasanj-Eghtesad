@@ -540,7 +540,7 @@
   function btMoneySigned(v) {
     if (v == null || !isFinite(+v)) return '—';
     var a = Math.abs(+v);
-    var txt = a >= 1e12 ? U.fa((a / 1e12).toFixed(2)) + ' همت' : a >= 1e9 ? U.fa(Math.round(a / 1e9)) + ' میلیارد' : U.fmt(Math.round(a));
+    var txt = a >= 1e12 ? U.fa((a / 1e12).toFixed(2)) + ' همت' : a >= 1e9 ? U.fa(Math.round(a / 1e9)) + ' میلیارد' : U.fmt(Math.round(a)) + ' تومان';
     return (+v < 0 ? '−' : '+') + txt;
   }
 
@@ -618,9 +618,10 @@
     dims.push({ label: 'پهنا', value: breadth != null ? U.clamp(breadth, 0, 100) : 50, color: '#3ECF8E', hint: breadth != null ? U.fa(Math.round(breadth)) + '٪ مثبت' : '—' });
     var flowVal = 50;
     if (mk.flow && mk.flowRatio != null) {
-      var ar = Math.abs(mk.flowRatio);
-      flowVal = U.clamp(ar * 100 * 2.5, 0, 100);
-      if (mk.flow.netToman > 0) flowVal = U.clamp(flowVal * 0.7 + 30, 0, 100);
+      // «جریان خرد» یک بعدِ سلامت است، نه شدتِ خروج: ورود باید بالای ۵۰ ببرد،
+      // خروج باید پایین بیاورد. پیش‌نشانِ قبلی قدر مطلق نسبت را می‌سنجید؛
+      // یعنی خروجِ سنگین (مثلاً ۴۰٪ ارزش) به «۱۰۰ از ۱۰۰» می‌رسید — برعکسِ رادارِ سلامت.
+      flowVal = U.clamp(50 + (mk.flowRatio >= 0 ? 1 : -1) * Math.abs(mk.flowRatio) * 100 * 2.5, 0, 100);
     }
     dims.push({ label: 'جریان خرد', value: flowVal, color: '#E8A33D', hint: mk.flow ? btMoneySigned(mk.flow.netToman) : '—' });
     var fixedVal = 50, fixedHint = '—';
@@ -1461,6 +1462,8 @@
     summaryText: summaryText, shareSummary: shareSummary,
     refreshAllFeeds: refreshAllFeeds,
     renderPulse: renderPulse, renderMacro: renderMacro, renderBoursePro: renderBoursePro,
+    bourseRadarDims: bourseRadarDims, bourseHealthScore: bourseHealthScore,
+    bourseAgeLabel: bourseAgeLabel, tseLastSessionDay: tseLastSessionDay,
     renderTkStatus: renderTkStatus,
     openModal: openModal, closeModal: closeModal, buildDiag: buildDiag,
     openAssetModal: openAssetModal,

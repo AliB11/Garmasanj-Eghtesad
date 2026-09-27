@@ -801,6 +801,46 @@ function btQueueCurve(html) {
 }
 
 /**
+ * انتخابِ «شاخص کل» برای انتشار — جدا و مستقلاً قابل‌تست.
+ *
+ * چرا لازم شد؟ (ایرادِ واقعیِ پیداشده در ۲۰۲۶-۰۹): کلید `bourse` خودِ TGJU
+ * روزهاست که از جلسه‌ی ۲۳ شهریور به‌روز نمی‌شود (پیش می‌آید — منبعِ بیرونی
+ * است و ما مسئولیتی در برابرش نداریم)، ولی ناشر هر بار همان عددِ کهنه را
+ * با برچسب «TGJU» تازه می‌پنداشت: شاخص در صفحه ثابت می‌ماند، تاریخچه‌ی
+ * روزانه از جلسه‌ها عقب می‌ماند و «جریانِ جلسه‌ی امروز» هم به‌خاطرِ
+ * ناهماهنگیِ روزِ جلسه سکوت می‌کرد.
+ *
+ * قاعده: هر منبعی که «روزِ جلسه» (تهران) تازه‌تری دارد شاخص می‌شود؛
+ *   • روزِ برابر → TGJU مقدم است (دقیقه‌ای + سقف/کف).
+ *   • بورس‌تریدر فقط وقتی جلسه‌ی جدیدتری دارد جایگزین می‌شود (با برچسبِ خودش).
+ *   • هیچ منبعی نبود → null — سکوت، هرگز عددِ ساخته‌شده.
+ *
+ * @param {{ix: object|null, btIndex: object|null, btTs: number}} o
+ * @returns {{index: object, day: string, asOf: number, src: string}|null}
+ */
+function pickTseIndex(o) {
+  const inp = o || {};
+  const ix = (inp.ix && inp.ix.p > 0) ? inp.ix : null;
+  const bti = (inp.btIndex && inp.btIndex.p > 0) ? inp.btIndex : null;
+  const btTs = +inp.btTs || 0;
+  const outBt = () => ({
+    index: {
+      p: Math.round(bti.p),
+      chgPct: (bti.chgPct != null && isFinite(+bti.chgPct)) ? +bti.chgPct : null,
+      high: null, low: null, // مکمل سقف/کف ندارد؛ نبودن بهتر از عددِ بی‌پشتوانه است
+      ts: btTs, day: tehranDay(btTs), src: 'BourseTrader',
+    },
+    day: tehranDay(btTs), asOf: btTs, src: 'BourseTrader',
+  });
+  if (bti && btTs > 0) {
+    const ixD = (ix && ix.ts > 0) ? tehranDay(ix.ts) : null;
+    if (!ix || !ixD || tehranDay(btTs) > ixD) return outBt();
+  }
+  if (ix) return { index: ix, day: ix.day || tehranDay(ix.ts), asOf: ix.ts, src: ix.src || 'TGJU' };
+  return null;
+}
+
+/**
  * انتخابِ جریانِ پول برای انتشار — مهم‌ترین بخشِ «صداقتِ» این سامانه،
  * برای همین جدا و مستقلاً قابل‌تست نوشته شده (در main فقط صدا زده می‌شود).
  *
@@ -1102,6 +1142,7 @@ async function main() {
       const pr = parseBourseTrader(r.t);
       if (pr.ok) {
         btDoc = pr; btFresh = true;
+        pr.ts = now; // زمانِ واکشیِ همین دور — ملاکِ مقایسهِ تازگیِ جلسه در انتخابِ شاخص
         const bits = [];
         if (pr.index) bits.push('شاخص ' + faNum(pr.index.p));
         if (pr.flow) bits.push('جریان ' + (pr.flow.netToman < 0 ? 'خروج ' : 'ورود ') + faNum(Math.abs(pr.flow.netToman) / 1e12) + ' همت');
@@ -1113,31 +1154,30 @@ async function main() {
   if (!btDoc && prevBt) btDoc = prevBt;
 
   let marketOut = null;
+  let ix = null;
   if (!tgju) log('tse', false, 'TGJU بی‌پاسخ — شاخص بورس هم نرسید');
   else {
     const pm = prevDoc.market && prevDoc.market.index;
-    const ix = tgjuIndex(tgju, (pm && pm.p > 0) ? pm.p : 0);
-    if (ix) {
-      marketOut = { index: ix, day: ix.day, asOf: ix.ts, src: 'TGJU' };
-      log('tse', true, 'شاخص کل ' + faNum(ix.p) + (ix.ts ? ' · جلسه ' + faDay(ix.ts) : ''));
-    } else log('tse', false, 'کلید bourse در TGJU نبود یا از بازه بیرون بود');
+    ix = tgjuIndex(tgju, (pm && pm.p > 0) ? pm.p : 0);
+    if (ix) log('tse', true, 'شاخص کل ' + faNum(ix.p) + (ix.ts ? ' · جلسه ' + faDay(ix.ts) : ''));
+    else log('tse', false, 'کلید bourse در TGJU نبود یا از بازه بیرون بود');
+  }
+  /* تازگیِ دو منبع: اگر خودِ TGJU کهنه مانده باشد (جلسه‌ی قدیمی‌تر از مکمل)؛
+     شاخصِ جلسه‌ی تازه‌تر از بورس‌تریدر منتشر می‌شود — با برچسبِ خودش. */
+  const btTs = btDoc ? (btFresh ? now : (+btDoc.ts || 0)) : 0;
+  marketOut = pickTseIndex({ ix: ix, btIndex: btDoc && btDoc.index, btTs: btTs });
+  if (marketOut && marketOut.src === 'BourseTrader') {
+    if (ix && ix.ts > 0) log('tse', true, 'شاخص کل از بورس‌تریدر — TGJU کهنه مانده (جلسه ' + faDay(ix.ts) + ') ' + faNum(marketOut.index.p));
+    else log('tse', true, 'شاخص کل از بورس‌تریدر (TGJU نیامد) ' + faNum(marketOut.index.p));
   }
   // تطبیقِ دو منبعِ شاخص: اگر هر دو آمدند و بیش از ۱٪ اختلاف داشتند، می‌گوییم
-  if (marketOut && btDoc && btDoc.index && btDoc.index.p > 0) {
+  if (marketOut && marketOut.src === 'TGJU' && btDoc && btDoc.index && btDoc.index.p > 0) {
     const d = Math.abs(btDoc.index.p - marketOut.index.p) / marketOut.index.p;
     if (d > 0.01) {
       const pn = (SRC.btrader && SRC.btrader.note) ? SRC.btrader.note + '؛ ' : '';
       log('btrader', true, pn + 'تطبیقِ شاخص با TGJU: ' + (d * 100).toFixed(1) +
         '٪ اختلاف (یکی زنده است و دیگری آخرین جلسه)');
     }
-  }
-  // اگر TGJU نیامد، شاخصِ بورس‌تریدر جایگزین می‌شود (با برچسبِ منبعِ خودش)
-  if (!marketOut && btDoc && btDoc.index && btDoc.index.p > 0) {
-    marketOut = {
-      index: { p: Math.round(btDoc.index.p), chgPct: btDoc.index.chgPct, high: null, low: null, ts: btDoc.ts || now, day: tehranDay(btDoc.ts || now), src: 'BourseTrader' },
-      day: tehranDay(btDoc.ts || now), asOf: btDoc.ts || now, src: 'BourseTrader',
-    };
-    log('tse', true, 'شاخص کل از بورس‌تریدر (TGJU نیامد) ' + faNum(btDoc.index.p));
   }
 
   /* جریانِ پولِ حقیقیِ خرد، به ترتیبِ اعتبار:
@@ -1273,4 +1313,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('PUBLISH FATAL: ' + ((e && e.stack) || e)); process.exitCode = 1; });
 }
 
-module.exports = { num, tehranMs, tehranDay, faDay, faNum, redact, envKey, parseNavasan, aggregateFlow, parseBrsMarket, inRange, saneDayRange, sanePct, tgjuRow, tgjuIndex, pickTGJU, TGJU_MARKET_KEYS, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS, btNum, btCount, btNorm, btTable, btFind, btIndexRow, btPairRow, parseBourseTrader, tseSessionOpen, BT, flowSeries, pickMarketFlow, btChart, btDownsample, btFlowCurve, btQueueCurve };
+module.exports = { num, tehranMs, tehranDay, faDay, faNum, redact, envKey, parseNavasan, aggregateFlow, parseBrsMarket, inRange, saneDayRange, sanePct, tgjuRow, tgjuIndex, pickTGJU, TGJU_MARKET_KEYS, parseNobitex, parseWallex, parseBitpin, fitUnit, consensus, krakenChg, RANGES, TGJU_KEYS, btNum, btCount, btNorm, btTable, btFind, btIndexRow, btPairRow, parseBourseTrader, tseSessionOpen, BT, flowSeries, pickMarketFlow, pickTseIndex, btChart, btDownsample, btFlowCurve, btQueueCurve };
