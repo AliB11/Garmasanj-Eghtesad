@@ -708,7 +708,7 @@
       cards.push(idxCard('شاخص کل', mk.p, mk.chgPct, mk.high ? 'سقف ' + U.fmt(mk.high) + ' · کف ' + U.fmt(mk.low) : ''));
       if (bt.equal) cards.push(idxCard('هم‌وزن', bt.equal.p, bt.equal.chgPct, 'بدنه‌ی بازار'));
       if (bt.fara) cards.push(idxCard('فرابورس', bt.fara.p, bt.fara.chgPct, 'بازار دوم'));
-      if (bt.cap) cards.push('<div class="bp-idx-card"><small>ارزش بازار</small><b>' + U.fa((bt.cap / 1e15).toFixed(1)) + ' همت</b><span>کل بورس و فرابورس</span></div>');
+      if (bt.cap) cards.push('<div class="bp-idx-card"><small>ارزش بازار</small><b>' + U.fa((bt.cap / 1e15).toFixed(1)) + ' هزار همت</b><span>کل بورس و فرابورس</span></div>');
       idxHost.innerHTML = cards.join('');
     }
 
@@ -1276,7 +1276,7 @@
       heat: { t: 'حرارت', f: 'تغییر×۸ + شیب×۵', rows: [], n: 'در شبیه‌ساز و ترکیب‌ساز.' },
       sim: { t: 'شبیه‌ساز', f: 'اسمی = تورم + ۰٫۵×حرارت\nواقعی = سرمایه×(۱+اسمی)^سال ÷ (۱+تورم)^سال', rows: [['تورم', U.fa(INFL()) + '٪']], n: 'فرض آموزشی.' },
       verdict: { t: 'حکم امروز', f: 'امتیاز = نبض + پهنا + پول داغ + حباب + تتر + بورس (پهنا، جریان خرد، صندوق‌ها، سرانه)', rows: [], n: '۵ پله: نقد و انتظار · دفاعی · حفظ ترکیب · تعادل رشد · حمله حساب‌شده.' },
-      bourseRadar: { t: 'رادار سلامت بورس', f: '۶ بُعد ۰..۱۰۰:\n• پهنا = posPct (٪ مثبت)\n• جریان خرد = |ratio|×۲۵۰ (شدت) + ورود +۳۰\n• درآمد ثابت: خروج → ۵۰+ |net|/1T×۸ (پول از پناهگاه به سهام)\n• سهامی: ورود → ۵۰+ net/1T×۱۰\n• سرانه = ۵۰ + (buy/sell −۱)×۴۰\n• صف خرید = buy/(buy+sell)×۱۰۰',
+      bourseRadar: { t: 'رادار سلامت بورس', f: '۶ بُعد ۰..۱۰۰:\n• پهنا = posPct (٪ مثبت)\n• جریان خرد = ۵۰ + ratio×۲۵۰ (ورود بالای ۵۰، خروج پایین ۵۰)\n• درآمد ثابت: خروج → ۵۰+ |net|/1T×۸ (پول از پناهگاه به سهام)\n• سهامی: ورود → ۵۰+ net/1T×۱۰\n• سرانه = ۵۰ + (buy/sell −۱)×۴۰\n• صف خرید = buy/(buy+sell)×۱۰۰',
         rows: bt ? [
           ['پهنا', bt.breadth ? U.fa(Math.round(bt.breadth.posPct)) + '٪ (' + U.fa(bt.breadth.pos) + '/' + U.fa(bt.breadth.neg) + ')' : '—'],
           ['جریان خرد', mk && mk.flow ? btMoneySigned(mk.flow.netToman) + (mk.flowRatio != null ? ' · ' + U.fa((Math.abs(mk.flowRatio) * 100).toFixed(1)) + '٪' : '') : '—'],
@@ -1293,7 +1293,7 @@
           out.push(['تعدادِ برداشت', tk2 ? U.fa(tk2.points) + ' نقطه در ' + U.fa(tk2.spanMin) + ' دقیقه' : '—']);
           out.push(['اول جلسه', tk2 ? btMoneySigned(tk2.from) : '—']);
           out.push(['اکنون', tk2 ? btMoneySigned(tk2.to) : (mk && mk.flow ? btMoneySigned(mk.flow.netToman) : '—')]);
-          out.push(['تغییر از اول جلسه', tk2 ? btMoneySigned(tk2.delta) + ' (' + (tk2.perHour >= 0 ? '+' : '−') + U.fa(Math.abs(tk2.perHour)) + ' همت/ساعت)' : '—']);
+          out.push(['تغییر از اول جلسه', tk2 ? btMoneySigned(tk2.delta) + ' (' + btMoneySigned(tk2.perHour) + '/ساعت)' : '—']);
           out.push(['وضعیت', !tk2 ? 'دو برداشت لازم است' : tk2.accelerating ? 'شتاب‌دار در جهتِ خالص' : tk2.reversing ? 'برگشتی (خلافِ جهتِ اولیه)' : 'ثبات']);
           if (mk && mk.flowSessions && mk.flowSessions.n) {
             out.push(['چند جلسه‌ی اخیر', U.fa(mk.flowSessions.n) + ' جلسه · مجموع ' + btMoneySigned(mk.flowSessions.sum) +
@@ -1326,7 +1326,7 @@
   }
   var SHORTCUTS = [
     ['/', 'جست‌وجوی دارایی'], ['۱ تا ۵', 'تب‌های همه / ارز / طلا / سکه / رمزارز'], ['c', 'مقایسه‌ی دو دارایی'], ['s', 'اشتراک خلاصه‌ی بازار'],
-    ['t', 'تم روشن / تیره'], ['r', 'دریافت مجدد فوری'], ['p', 'سنجاق دارایی باز در مودال'], ['?', 'همین راهنما'], ['Esc', 'بستن پنجره‌ها']
+    ['t', 'تم روشن / تیره'], ['r', 'دریافت مجدد همه‌ی بازارها'], ['b', 'به‌روزرسانی آنی بورس'], ['p', 'سنجاق دارایی باز در مودال'], ['?', 'همین راهنما'], ['Esc', 'بستن پنجره‌ها']
   ];
   function openHelp() {
     var html = '<p class="dg-sub">میان‌برها وقتی فعال‌اند که در حال تایپ در فیلدی نباشی.</p><div class="kbd-list">' +

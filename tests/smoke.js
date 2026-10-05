@@ -57,8 +57,8 @@ setTimeout(() => {
   ok('macro cards=5', d.querySelectorAll('#macroStrip .mc').length === 5, 'got=' + d.querySelectorAll('#macroStrip .mc').length);
   ok('sim bars=8', d.querySelectorAll('#simBars .bar-row').length === 8, 'got=' + d.querySelectorAll('#simBars .bar-row').length);
   ok('sim report=3', d.querySelectorAll('#simReport .rp').length === 3);
-  ok('donut segments=7', d.querySelectorAll('#mixDonut .seg-c').length === 7);
-  ok('mix legend=7', d.querySelectorAll('#mixLegend .lg-row').length === 7);
+  ok('donut segments=8 (including stock market)', d.querySelectorAll('#mixDonut .seg-c').length === 8);
+  ok('mix legend=8 (including stock market)', d.querySelectorAll('#mixLegend .lg-row').length === 8);
   ok('radar options=19', d.querySelectorAll('#radarMarket option').length === 19, 'got=' + d.querySelectorAll('#radarMarket option').length);
   ok('health rows=17', d.querySelectorAll('#healthTable .h-row').length === 17, 'got=' + d.querySelectorAll('#healthTable .h-row').length);
   ok('health note', (d.querySelector('#healthNote').textContent || '').length > 20);

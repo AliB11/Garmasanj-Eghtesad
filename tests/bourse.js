@@ -1060,6 +1060,75 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     W.close(); GS.data.clearCache();
   });
 
+  await ta('ترکیب‌ساز: بورس سهم مستقل دارد، با ریسک/افق رشد می‌کند و مبلغ می‌سازد', async () => {
+    const now = Date.now();
+    const day = new Date(now + 3.5 * 3600e3).toISOString().slice(0, 10);
+    const market = {
+      index: { p: 7700000, ts: now - 10 * 60000, day, src: 'BourseTrader' }, day, src: 'BourseTrader',
+      flow: { netToman: 1.2e12, ratio: 0.08, n: 900, ts: now - 5 * 60000, day, src: 'BourseTrader' },
+      bt: {
+        ts: now - 5 * 60000, fresh: true, cap: 26e15,
+        breadth: { pos: 650, neg: 250, total: 900, posPct: 72.2, queueBuy: 180, queueSell: 70 },
+        perCapita: { buy: 130, sell: 80 },
+        queue: { buyToman: 8e12, sellToman: 2e12, netToman: 6e12, buyShare: 0.8 },
+      },
+    };
+    const { GS, d, window: W, errors } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(market)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
+    await GS.data.bootAll(); await wait(300);
+    const safe = GS.features.computePortfolioWeights(1, 1, 1).w;
+    const bold = GS.features.computePortfolioWeights(3, 3, 3).w;
+    const sum = (x) => Object.keys(x).reduce((s, k) => s + x[k], 0);
+    assert.ok(safe.stock > 0, 'حتی پروفایل محافظه‌کار سهم بورس دارد');
+    assert.ok(bold.stock > safe.stock, 'جسور/بلندمدت باید سهم بورس بیشتری بگیرد: ' + safe.stock + ' → ' + bold.stock);
+    assert.ok(Math.abs(sum(safe) - 100) < 1e-8 && Math.abs(sum(bold) - 100) < 1e-8, 'جمع وزن‌ها باید ۱۰۰ باشد');
+    GS.features.renderMix();
+    const stockRow = d.querySelector('.lg-row[data-id="stock"]');
+    assert.ok(stockRow, 'ردیف بورس در راهنما');
+    assert.ok(stockRow.querySelector('.js-a').textContent.includes('تومان'), stockRow.textContent);
+    assert.ok(d.querySelector('#mixStockSignal').textContent.includes('سیگنال بورس'), d.querySelector('#mixStockSignal').textContent);
+    assert.ok(GS.features.mixSummaryText().includes('بورس / صندوق شاخصی'));
+    GS.ui.renderBoursePro();
+    assert.ok(d.querySelector('#bourseIndices').textContent.includes('هزار همت'), 'واحد ارزش بازار باید هزار همت باشد');
+    assert.ok(errors.length === 0, errors.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('به‌روزرسانی آنی: شاخص مستقیم TGJU خوانده می‌شود و مکمل سرور حفظ می‌ماند', async () => {
+    const NOW = Date.UTC(2026, 9, 5, 7, 0);
+    const day = '2026-10-05';
+    const serverMarket = {
+      index: { p: 7680000, ts: Date.UTC(2026, 9, 5, 5, 30), day, src: 'BourseTrader' }, day, src: 'BourseTrader',
+      bt: { ts: Date.UTC(2026, 9, 5, 5, 30), breadth: { pos: 400, neg: 500, total: 900, posPct: 44.4 } },
+    };
+    const direct = {
+      current: {
+        price_dollar_rl: { p: '2,300,000', ts: '2026-10-05 10:00:00' },
+        bourse: { p: '7,700,000', h: '7,710,000', l: '7,680,000', dp: 0, ts: '2026-10-05 10:00:00' },
+      },
+    };
+    const { GS, window: W } = boot((u) => {
+      const url = String(u);
+      if (url.includes('assets/data/live.json')) return jres(liveDoc(serverMarket));
+      if (url.includes('tgju.org')) return jres(direct);
+      return jrej();
+    }, { date: NOW, scripts: ['config.js', 'utils.js', 'data.js'] });
+    GS.data._mirrorStagger(1); GS.data._irDelay(1);
+    const parsed = GS.data.parseTgjuMarket(direct.current);
+    assert.ok(parsed && parsed.p === 7700000, JSON.stringify(parsed));
+    assert.strictEqual(parsed.chgPct, null, 'dp=0 نباید تغییر صفر جعلی بسازد');
+    const result = await GS.data.refreshBourse({ includeRegional: false, timeoutMs: 4000 });
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.ok(result.sources.includes('انتشار سرور'));
+    assert.ok(result.sources.includes('TGJU مستقیم'));
+    const mk = GS.data.market();
+    assert.strictEqual(mk.p, 7700000, 'شاخص مستقیم باید روی انتشار بنشیند');
+    assert.ok(mk.bt && mk.bt.breadth, 'مکمل سرور نباید با شاخص مستقیم پاک شود');
+    const staleAccepted = GS.data.setMarketIndex({ p: 7650000, ts: Date.UTC(2026, 9, 5, 5, 45), day, src: 'stale-test' });
+    assert.strictEqual(staleAccepted, false, 'برداشت قدیمی‌ترِ همان جلسه نباید شاخص را عقب ببرد');
+    assert.strictEqual(GS.data.market().p, 7700000);
+    W.close(); GS.data.clearCache();
+  });
+
   console.log('\nbourse.js: ' + n + ' tests, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();
