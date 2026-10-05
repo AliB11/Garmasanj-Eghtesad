@@ -58,6 +58,7 @@
     GS.features.renderHealth();
 
     bindSettings();
+    bindBourseRefresh();
     var dg = U.$('#diagBtn');
     if (dg) dg.addEventListener('click', function () { GS.ui.buildDiag(); GS.ui.openModal('#diagModal'); });
     U.$$('#diagModal [data-dg-close]').forEach(function (el) {
@@ -154,8 +155,48 @@
         case 'c': case 'C': case 'ز': e.preventDefault(); GS.ui.openCompare(); break;
         case 't': case 'T': case 'ف': e.preventDefault(); GS.ui.toggleTheme(); break;
         case 'r': case 'R': case 'ق': e.preventDefault(); fastAt = Date.now(); slowAt = Date.now(); GS.ui.toast('info', 'در حال دریافت', 'مسیرهای سریع چند ثانیه‌ای نتیجه می‌دهند.'); break;
+        case 'b': case 'B': case 'ذ':
+          e.preventDefault();
+          var br = U.$('#bourseRefreshBtn');
+          if (br) { br.click(); try { U.$('#boursePro').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (err2) {} }
+          break;
         default: break;
       }
+    });
+  }
+
+  /** دکمه‌ی اختصاصی بورس: همه‌ی مسیرها را همان لحظه امتحان می‌کند و
+      نتیجه را کنار خود دکمه، با وضعیت دسترس‌پذیر، گزارش می‌دهد. */
+  function bindBourseRefresh() {
+    var btn = U.$('#bourseRefreshBtn'), state = U.$('#bourseRefreshState');
+    if (!btn || btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', function () {
+      if (GS.data.isBourseBusy && GS.data.isBourseBusy()) return;
+      btn.disabled = true;
+      btn.classList.add('busy');
+      btn.setAttribute('aria-busy', 'true');
+      if (state) { state.className = 'bp-refresh-state'; state.textContent = 'استعلام ۴ مسیر…'; }
+      GS.data.refreshBourse().then(function (r) {
+        btn.disabled = false;
+        btn.classList.remove('busy');
+        btn.removeAttribute('aria-busy');
+        renderAll();
+        var mk = r && r.market;
+        if (r && r.ok && mk) {
+          var age = GS.ui.bourseAgeLabel ? GS.ui.bourseAgeLabel(mk.ts) : U.relLabel(mk.ts);
+          if (state) { state.className = 'bp-refresh-state ok'; state.textContent = 'بررسی شد · ' + age; }
+          GS.ui.toast('ok', 'بورس به‌روز شد', (r.sources || []).join(' + ') + ' · شاخص ' + U.fmt(Math.round(mk.p)));
+        } else {
+          if (state) { state.className = 'bp-refresh-state warn'; state.textContent = 'منبع تازه پاسخ نداد'; }
+          GS.ui.toast('warn', 'به‌روزرسانی بورس کامل نشد', 'آخرین داده‌ی معتبر حفظ شد؛ وضعیت مسیرها را در «سلامت داده» ببین.');
+        }
+      }).catch(function () {
+        btn.disabled = false;
+        btn.classList.remove('busy');
+        btn.removeAttribute('aria-busy');
+        if (state) { state.className = 'bp-refresh-state warn'; state.textContent = 'خطای شبکه؛ داده حفظ شد'; }
+      });
     });
   }
 

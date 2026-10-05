@@ -244,6 +244,33 @@
     function divH(v) { var n = U.num(v); return (n == null ? null : n / div); }
   }
 
+  /**
+   * شاخص کل از پاسخ مستقیم TGJU در مرورگر.
+   * پیش‌تر ajax.json هر ۴۵ ثانیه دریافت می‌شد اما کلید `bourse` کاملاً نادیده
+   * گرفته می‌شد؛ در نتیجه بورس فقط منتظر انتشار سرور می‌ماند. این پارسر با
+   * timestamp اجباری و نگهبان مقیاس، همان مسیر مستقیم را برای تازه‌سازی آنی
+   * فعال می‌کند. dp=0 در TGJU به معنی «تغییر نامعلوم» است، نه صفر واقعی.
+   */
+  function tgjuMarket(current) {
+    var e = current && current.bourse;
+    if (!e || typeof e !== 'object') return null;
+    var p = U.num(e.p), ts = tehranTs(e.ts);
+    if (!(p >= 1e5 && p <= 5e8) || !ts) return null;
+    if (MARKET && MARKET.p > 0) {
+      var ratio = p / MARKET.p;
+      if (ratio < 1 / 6 || ratio > 6) return null;
+    }
+    var pct = U.num(e.dp);
+    if (pct == null || !isFinite(pct) || Math.abs(pct) > 20 || Math.abs(pct) < 0.0001) pct = null;
+    else if (e.dt === 'low' && pct > 0) pct = -pct;
+    var sr = saneRange(p, U.num(e.h), U.num(e.l));
+    return {
+      p: Math.round(p), high: sr.high == null ? null : Math.round(sr.high),
+      low: sr.low == null ? null : Math.round(sr.low), chgPct: pct,
+      ts: ts, day: tehranDayStr(ts), src: 'TGJU'
+    };
+  }
+
   /* ----- نوبیتکس: دو GET موازی ----- */
   function nbOne(src) {
     return fetchIranian('https://api.nobitex.ir/market/stats?srcCurrency=' + src + '&dstCurrency=rls', {
@@ -902,6 +929,32 @@
       // برگشت یعنی بازار در طولِ جلسه خلافِ جهتِ اولیه رفته
       reversing: (a[1] > 0 && b[1] < 0) || (a[1] < 0 && b[1] > 0)
     };
+  }
+
+  /**
+   * فقط شاخص را با برداشت مستقیم تازه می‌کند و مکمل‌های ارزشمند سرور
+   * (پهنا، صندوق‌ها، جریان پول و منحنی‌ها) را دست‌نخورده نگه می‌دارد.
+   * برداشت قدیمی‌تر هرگز روی جلسه‌ی تازه‌تر نمی‌نشیند.
+   */
+  function setMarketIndex(ix, origin) {
+    if (!ix || !(+ix.p > 0) || !(+ix.ts > 0)) return false;
+    if (!MARKET) return setMarket({ index: ix, asOf: ix.ts, src: ix.src }, origin || 'direct');
+    var inDay = ix.day || tehranDayStr(ix.ts);
+    var curDay = MARKET.day || tehranDayStr(MARKET.ts || 0);
+    if (curDay && inDay < curDay) return false;
+    // فقط یک دقیقه تلورانسِ اختلاف ساعت؛ برداشت مستقیمِ قدیمی‌تر نباید صرفاً
+    // چون «همان روز» است، عدد تازه‌تر بورس‌تریدر را عقب ببرد.
+    if (curDay === inDay && MARKET.ts && +ix.ts < MARKET.ts - 60000) return false;
+    MARKET.p = +ix.p;
+    var hl = saneRange(MARKET.p, +ix.high, +ix.low);
+    MARKET.high = hl.high;
+    MARKET.low = hl.low;
+    MARKET.ts = +ix.ts;
+    MARKET.day = inDay;
+    MARKET.src = ix.src || 'TGJU';
+    MARKET.origin = origin || 'direct';
+    markSrc('tse', true, 'شاخص کل ' + U.fmt(Math.round(MARKET.p)) + ' مستقیم از ' + MARKET.src + ' (جلسه ' + U.dateFa(MARKET.ts) + ')');
+    return true;
   }
 
   function setMarket(m, origin) {
@@ -1602,8 +1655,12 @@
         };
       });
     }
-    // بورس: شاخص از همان انتشار (جریانِ پول فقط اگر سرور توانسته باشد بیاورد)
+    // بورس: ابتدا مکملِ کاملِ انتشار سرور، سپس شاخص مستقیم TGJU اگر همان
+    // جلسه یا جلسه‌ی تازه‌تری دارد. ترتیب مهم است: مسیر مستقیم نباید پهنا،
+    // صندوق‌ها و جریان پولِ انتشار را پاک کند.
     if (lvRaw && lvRaw.market) setMarket(lvRaw.market, 'live');
+    var directMarket = tgjuMarket(tgRaw && tgRaw.current);
+    if (directMarket) setMarketIndex(directMarket, 'direct');
 
     /* ---- دلار (ورود دستی بر همه مقدم است) ---- */
     var man = manualUsd();
@@ -1952,6 +2009,53 @@
   }
 
   /* ============================================================
+     به‌روزرسانی آنی بورس — مسیر اختصاصی و پیش‌رونده
+     ============================================================
+     انتشار سرور و TGJU همان لحظه روی صفحه می‌نشینند؛ دو مسیر منطقه‌ای نیز
+     با نیت صریح کاربر دوباره امتحان می‌شوند. گزینه‌ی includeRegional=false
+     فقط برای محیط تست/شبکه‌ی محدود است و در رابط کاربری استفاده نمی‌شود. */
+  var bourseBusy = false;
+  function refreshBourse(opt) {
+    opt = opt || {};
+    if (bourseBusy) return Promise.resolve({ ok: false, busy: true, sources: [], ms: 0, market: market() });
+    bourseBusy = true;
+    var t0 = Date.now(), hits = [];
+    emit('bourseRefresh', { start: true });
+
+    var jobs = [
+      safeCall(fetchLive).then(function (d) {
+        if (d != null) { ingest('live', d); hits.push('انتشار سرور'); }
+        return d;
+      }),
+      safeCall(fetchTGJU).then(function (d) {
+        if (d != null) { ingest('tgju', d); if (tgjuMarket(d.current)) hits.push('TGJU مستقیم'); }
+        return d;
+      })
+    ];
+    if (opt.includeRegional !== false) {
+      jobs.push(safeCall(function () { return fetchBrsFlow(true); }).then(function (d) { if (d) hits.push('BrsApi'); return d; }));
+      jobs.push(safeCall(function () { return fetchTablokhani(true); }).then(function (d) { if (d) hits.push('تابلوخوانی'); return d; }));
+    }
+
+    // رابط بیش از ۶٫۵ ثانیه منتظر مسیرهای منطقه‌ای نمی‌ماند؛ درخواست‌های کند
+    // در پس‌زمینه ادامه می‌دهند و با رسیدن پاسخ، خودشان رویداد quotes می‌فرستند.
+    return withCap(Promise.all(jobs), opt.timeoutMs || 6500).then(function () {
+      bourseBusy = false;
+      cacheSave();
+      var out = { ok: hits.length > 0, busy: false, sources: hits, ms: Date.now() - t0, market: market() };
+      emit('bourseRefresh', { start: false, result: out });
+      // حتی اگر عدد تغییری نکرده باشد، سن/منبع و وضعیت تلاش باید بازنقاشی شود.
+      emit('quotes', { bourseRefresh: true });
+      return out;
+    }).catch(function () {
+      bourseBusy = false;
+      var out = { ok: false, busy: false, sources: hits, ms: Date.now() - t0, market: market() };
+      emit('bourseRefresh', { start: false, result: out });
+      return out;
+    });
+  }
+
+  /* ============================================================
      تاریخچه‌ی بلندمدت — از انتشارهای سرور (assets/data/history.json)
      recent: نقاط خام ۱۴ روز اخیر، daily: خلاصه‌ی روزانه [day, close, high, low]
      ============================================================ */
@@ -2088,9 +2192,13 @@
     mood: mood,
     market: market,
     setMarket: setMarket,
+    setMarketIndex: setMarketIndex,
     setMarketFlow: setMarketFlow,
+    parseTgjuMarket: tgjuMarket,
     tickFast: tickFast,
     tickSlow: tickSlow,
+    refreshBourse: refreshBourse,
+    isBourseBusy: function () { return bourseBusy; },
     snapshotLoad: snapshotLoad,
     bootAll: bootAll,
     on: on, emit: emit,

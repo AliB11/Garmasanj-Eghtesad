@@ -175,14 +175,14 @@
       var n = +U.toEn(amountIn.value);
       simState.P = n > 0 ? Math.min(n, 1e13) : 0;
       amountIn.value = n > 0 ? U.fmt(n) : '';
-      U.$$('.chip[data-v]').forEach(function (ch) { ch.classList.toggle('on', +ch.dataset.v === simState.P); });
+      U.$$('#sim .chip[data-v]').forEach(function (ch) { ch.classList.toggle('on', +ch.dataset.v === simState.P); });
       renderSim();
     });
-    U.$$('.chip[data-v]').forEach(function (ch) {
+    U.$$('#sim .chip[data-v]').forEach(function (ch) {
       ch.addEventListener('click', function () {
         simState.P = +ch.dataset.v;
         if (amountIn) amountIn.value = U.fmt(simState.P);
-        U.$$('.chip[data-v]').forEach(function (c) { c.classList.toggle('on', c === ch); });
+        U.$$('#sim .chip[data-v]').forEach(function (c) { c.classList.toggle('on', c === ch); });
         renderSim();
       });
     });
@@ -219,6 +219,7 @@
   var P_ASSETS = [
     { id: 'cash', sym: null, base: -18, name: 'نقد', role: 'پل هزینه‌های پیش‌رو', color: '#8B949C' },
     { id: 'fixed', sym: null, base: -4, name: 'صندوق درآمد ثابت', role: 'ترمز امن پرتفوی', color: '#4E8F8B' },
+    { id: 'stock', sym: null, base: 6, name: 'بورس / صندوق شاخصی', role: 'موتور رشد تولیدی با سیگنال زنده', color: '#3ECF8E' },
     { id: 'gold', sym: 'G18', base: 8, name: 'طلای ۱۸ / صندوق طلا', role: 'هسته‌ی ضدتورمی', color: '#E3A93C' },
     { id: 'coin', sym: 'EMAMI', base: 10, name: 'سکه (حجم کم)', role: 'پناهگاه داغ با حباب', color: '#D97E32' },
     { id: 'eur', sym: 'EUR', base: 2, name: 'یورو', role: 'تنوع ارزی', color: '#7E97A3' },
@@ -227,8 +228,49 @@
   ];
   var segMap = {};
   var DONUT_C = 2 * Math.PI * 74;
+  var mixState = { amount: 100000000, weights: null, pulse: null };
+
+  /**
+   * نبض اختصاصی بورس برای ترکیب‌ساز؛ فقط شاخص کافی نیست. پهنا، جریان پول،
+   * نسبت سرانه و ارزش صف‌ها هم‌جهت می‌شوند و هر کدام سقف اثر دارد تا یک
+   * فیلدِ پرت نتواند وزن سبد را به‌تنهایی جابه‌جا کند.
+   */
+  function boursePulse() {
+    var mk = null;
+    try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+    if (!mk || !(mk.p > 0)) return { score: 0, reliable: false, label: 'بدون داده', reasons: ['شاخص بورس هنوز نرسیده'] };
+    var score = 0, reasons = [], n = 0;
+    if (mk.chgPct != null && isFinite(mk.chgPct)) {
+      score += U.clamp(mk.chgPct * 12, -28, 28); n++;
+      reasons.push('شاخص ' + U.pct(mk.chgPct, 1));
+    }
+    var bt = mk.bt || null;
+    if (bt && bt.breadth && bt.breadth.posPct != null) {
+      score += U.clamp((bt.breadth.posPct - 50) * 0.7, -24, 24); n++;
+      reasons.push('پهنا ' + U.fa(Math.round(bt.breadth.posPct)) + '٪');
+    }
+    if (mk.flowRatio != null && isFinite(mk.flowRatio)) {
+      score += U.clamp(mk.flowRatio * 40, -12, 12); n++;
+      reasons.push((mk.flowRatio >= 0 ? 'ورود' : 'خروج') + ' پول خرد');
+    }
+    if (bt && bt.perCapita && bt.perCapita.buy > 0 && bt.perCapita.sell > 0) {
+      var pc = bt.perCapita.buy / bt.perCapita.sell;
+      score += U.clamp((pc - 1) * 20, -12, 12); n++;
+      reasons.push('قدرت خریدار ' + U.fa(pc.toFixed(2)) + '×');
+    }
+    if (bt && bt.queue && bt.queue.buyShare != null) {
+      score += U.clamp((bt.queue.buyShare - 0.5) * 30, -9, 9); n++;
+      reasons.push('سهم صف خرید ' + U.fa(Math.round(bt.queue.buyShare * 100)) + '٪');
+    }
+    score = Math.round(U.clamp(score, -60, 60));
+    var reliable = !mk.stale && n >= 2;
+    if (!reliable) score = 0; // داده‌ی ناکافی وزن را نمی‌چرخاند؛ فقط وزن پایه می‌ماند
+    var label = !reliable ? 'داده ناکافی' : score >= 18 ? 'مثبت' : score <= -18 ? 'دفاعی' : 'خنثی';
+    return { score: score, reliable: reliable, label: label, reasons: reasons, ts: mk.ts, n: n };
+  }
 
   function pHeat(p) {
+    if (p.id === 'stock') return boursePulse().score;
     if (!p.sym) return p.base;
     var q = D().quote(p.sym);
     if (!q || !(q.p > 0)) return p.base;
@@ -258,7 +300,7 @@
       return '<div class="lg-row" data-id="' + a.id + '">' +
         '<span class="lg-sw" style="background:' + a.color + '"></span>' +
         '<span class="lg-n"><b>' + U.esc(a.name) + '</b><small>' + U.esc(a.role) + '</small></span>' +
-        '<span class="lg-p js-w">۰٪</span></div>';
+        '<span class="lg-p"><b class="js-w">۰٪</b><small class="js-a">—</small></span></div>';
     }).join('');
   }
 
@@ -272,6 +314,9 @@
     var w = {
       cash: 14 - risky * 5 - long * 4 + liqNeed * 11,
       fixed: 26 - risky * 10 - long * 8 + liqNeed * 9,
+      // بورس هیچ‌وقت صفر نمی‌شود: از ۲٪ برای محافظه‌کارِ کوتاه‌مدت تا حدود
+      // ۳۰٪ برای جسورِ بلندمدت، پیش از چرخشِ داده‌های زنده.
+      stock: 6 + risky * 14 + long * 10 - liqNeed * 4,
       gold: 30 + long * 3 - liqNeed * 4,
       coin: 8 - risky * 2,
       eur: 4,
@@ -303,10 +348,25 @@
       w.fixed += cold * 0.55;
       w.gold += cold * 0.45;
     }
+
+    // چرخش مستقل بورس: نبض عمومی ارز/طلا نباید به‌جای وضعیت خودِ سهام تصمیم
+    // بگیرد. حداکثر جابه‌جایی محدود و از/به نقد و درآمد ثابت تأمین می‌شود.
+    var bp = boursePulse();
+    if (bp.reliable && bp.score !== 0) {
+      var stockMove = U.clamp(bp.score / 60 * (5 + risky * 5 + long * 2), -9, 10);
+      w.stock = Math.max(2, w.stock + stockMove);
+      if (stockMove > 0) {
+        w.cash = Math.max(2, w.cash - stockMove * 0.35);
+        w.fixed = Math.max(4, w.fixed - stockMove * 0.65);
+      } else {
+        w.cash += -stockMove * 0.3;
+        w.fixed += -stockMove * 0.7;
+      }
+    }
     Object.keys(w).forEach(function (key) { w[key] = U.clamp(w[key], 0, 45); });
     var s = Object.keys(w).reduce(function (a, b) { return a + w[b]; }, 0) || 1;
     Object.keys(w).forEach(function (key) { w[key] = w[key] / s * 100; });
-    return { w: w, tilt: tilt };
+    return { w: w, tilt: tilt, bourse: bp };
   }
 
   function renderMix() {
@@ -314,6 +374,8 @@
     initDonut();
     var rk = profileVal('rk'), hz = profileVal('hz'), lq = profileVal('lq');
     var out = computeWeights(rk, hz, lq), w = out.w;
+    mixState.weights = w;
+    mixState.pulse = out.bourse;
     var acc = 0;
     P_ASSETS.forEach(function (a) {
       var len = DONUT_C * w[a.id] / 100;
@@ -324,6 +386,8 @@
       if (row) {
         row.classList.toggle('off', w[a.id] < 1);
         U.animateNum(row.querySelector('.js-w'), w[a.id], function (v) { return U.fa(v.toFixed(1)) + '٪'; }, 500);
+        var amountEl = row.querySelector('.js-a');
+        if (amountEl) amountEl.textContent = mixState.amount > 0 ? U.fmtMoney(mixState.amount * w[a.id] / 100) + ' تومان' : 'مبلغ وارد نشده';
       }
     });
     var mixT = P_ASSETS.reduce(function (s, a) { return s + w[a.id] * pHeat(a); }, 0) / 100;
@@ -342,20 +406,67 @@
       var tiltTxt = out.tilt > 0.25 ? 'چون بازار داغ است، وزن موتورهای رشد بیشتر شد' :
         out.tilt < -0.25 ? 'چون بازار سرد است، وزن امن‌ها (طلا و درآمد ثابت) بیشتر شد' :
         'رژیم بازار خنثی است؛ ترکیب نزدیک به پروفایل پایه‌ی توست';
-      why.innerHTML = 'چرا این ترکیب؟ ' + tiltTxt + (hot ? ' — الان پول داغ در <b>' + U.esc(hot) + '</b> می‌چرخد.' : '.');
+      var stockTxt = out.bourse.reliable ?
+        ' سهم بورس هم با نبض ' + out.bourse.label + ' خودش روی ' + U.fa(w.stock.toFixed(1)) + '٪ تنظیم شد.' :
+        ' برای بورس داده‌ی کافی نیست؛ وزن پایه‌ی پروفایل بدون حدس حفظ شد.';
+      why.innerHTML = 'چرا این ترکیب؟ ' + tiltTxt + (hot ? ' — الان پول داغ در <b>' + U.esc(hot) + '</b> می‌چرخد.' : '.') + stockTxt;
+    }
+    var stockSignal = U.$('#mixStockSignal');
+    if (stockSignal) {
+      var bp = out.bourse;
+      var tone = !bp.reliable ? '' : bp.score >= 18 ? 'hot' : bp.score <= -18 ? 'cold' : '';
+      stockSignal.className = 'mix-stock-signal ' + tone;
+      stockSignal.innerHTML = '<b>سیگنال بورس: ' + U.esc(bp.label) + (bp.reliable ? ' (' + (bp.score >= 0 ? '+' : '−') + U.fa(Math.abs(bp.score)) + ')' : '') + '</b><br>' +
+        U.esc(bp.reasons.length ? bp.reasons.join(' · ') : 'تا رسیدن حداقل دو مؤلفه‌ی معتبر، وزن بورس فقط از پروفایل تو می‌آید.');
     }
     var risk = U.$('#mixRisk');
     if (risk) {
-      var riskScore = U.clamp((w.btc * 1 + w.coin * 0.6 + w.usd * 0.4 + w.eur * 0.3) / 45 * 10, 1, 10);
+      var riskScore = U.clamp((w.btc * 1 + w.stock * 0.65 + w.coin * 0.6 + w.usd * 0.4 + w.eur * 0.3) / 55 * 10, 1, 10);
       risk.innerHTML = '<span>ریسک پرتفوی</span><b>' + U.fa(riskScore.toFixed(0)) + ' از ۱۰</b>' +
         '<div class="risk-track"><i style="width:' + (riskScore * 10) + '%"></i></div>';
     }
+    var total = U.$('#mixTotal');
+    if (total) total.textContent = mixState.amount > 0 ? 'جمع برنامه: ' + U.fmt(mixState.amount) + ' تومان · ' + U.fa(P_ASSETS.length) + ' بخش' : 'برای دیدن مبلغ هر بخش، سرمایه را وارد کن.';
+  }
+
+  var LS_MIX_AMOUNT = 'garmasanj_mix_amount_v1';
+  function mixSummaryText() {
+    if (!mixState.weights) renderMix();
+    var w = mixState.weights || {};
+    var lines = ['گرماسنج — برنامه‌ی تخصیص پرتفوی', 'سرمایه: ' + U.fmt(mixState.amount) + ' تومان'];
+    P_ASSETS.forEach(function (a) {
+      if (w[a.id] == null) return;
+      lines.push('• ' + a.name + ': ' + U.fa(w[a.id].toFixed(1)) + '٪ — ' + U.fmt(Math.round(mixState.amount * w[a.id] / 100)) + ' تومان');
+    });
+    if (mixState.pulse) lines.push('سیگنال بورس: ' + mixState.pulse.label + (mixState.pulse.reliable ? ' (' + (mixState.pulse.score >= 0 ? '+' : '−') + U.fa(Math.abs(mixState.pulse.score)) + ')' : ''));
+    lines.push('آموزشی است، نه توصیه‌ی خرید یا فروش.');
+    return lines.join('\n');
   }
 
   function initMix() {
     if (!U.$('#mixDonut')) return;
     U.$$('input[name=rk],input[name=hz],input[name=lq]').forEach(function (r) {
       r.addEventListener('change', renderMix);
+    });
+    var amount = U.$('#mixAmount');
+    var saved = +U.store.get(LS_MIX_AMOUNT, mixState.amount);
+    if (saved > 0 && saved <= 1e15) mixState.amount = Math.round(saved);
+    if (amount) {
+      amount.value = U.fmt(mixState.amount);
+      amount.addEventListener('input', function () {
+        var n = +U.toEn(amount.value || '');
+        mixState.amount = n > 0 ? Math.min(Math.round(n), 1e15) : 0;
+        if (n > 0) amount.value = U.fmt(mixState.amount);
+        U.store.set(LS_MIX_AMOUNT, mixState.amount);
+        renderMix();
+      });
+    }
+    var copy = U.$('#mixCopyBtn');
+    if (copy) copy.addEventListener('click', function () {
+      U.copyText(mixSummaryText()).then(function (ok) {
+        if (ok) GS.ui.toast('ok', 'برنامه‌ی تخصیص کپی شد', 'وزن و مبلغ هر ' + U.fa(P_ASSETS.length) + ' بخش آماده‌ی ارسال است.');
+        else GS.ui.toast('warn', 'کپی ممکن نشد', 'مرورگر اجازه‌ی دسترسی به کلیپ‌بورد نداد.');
+      });
     });
     renderMix();
   }
@@ -927,6 +1038,7 @@
     hotScores: hotScores, regimeOf: regimeOf, renderHotmoney: renderHotmoney,
     renderSim: renderSim, initSim: initSim,
     renderMix: renderMix, initMix: initMix,
+    computePortfolioWeights: computeWeights, boursePulse: boursePulse, mixSummaryText: mixSummaryText,
     initRadar: initRadar, renderRadars: renderRadars, checkRadars: checkRadars, askNotify: askNotify,
     renderHealth: renderHealth,
     verdict: verdict, renderVerdict: renderVerdict,
