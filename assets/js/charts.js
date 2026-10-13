@@ -14,8 +14,9 @@
     w = w || 120; h = h || 34;
     pts = (pts || []).filter(function (x) { return x && x.p > 0; }).slice(-60);
     if (pts.length < 2) {
+      // رنگِ خطِ پایه از متغیرهای تم می‌آید تا در تم روشن هم دیده شود
       return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
-        '<line x1="0" y1="' + (h / 2) + '" x2="' + w + '" y2="' + (h / 2) + '" stroke="#3A332A" stroke-width="1.5" stroke-dasharray="3 3"/></svg>';
+        '<line x1="0" y1="' + (h / 2) + '" x2="' + w + '" y2="' + (h / 2) + '" stroke="var(--track)" stroke-width="1.5" stroke-dasharray="3 3"/></svg>';
     }
     var ps = pts.map(function (x) { return x.p; });
     var lo = Math.min.apply(null, ps), hi = Math.max.apply(null, ps);
@@ -349,13 +350,13 @@
     var dots = pts.map(function (p, i) {
       return '<circle cx="' + X(i) + '" cy="' + Y(+p[1]) + '" r="' + (i === pts.length - 1 ? 3 : 1.8) + '" fill="' + col + '" opacity="' + (i === pts.length - 1 ? 1 : 0.65) + '"/>';
     }).join('');
-    var head = '<text x="' + X(0) + '" y="' + (h - 1) + '" font-size="8" fill="#7E97A3" text-anchor="start">اول جلسه</text>';
-    var tail = '<text x="' + X(pts.length - 1) + '" y="' + (h - 1) + '" font-size="8" fill="#7E97A3" text-anchor="end">اکنون</text>';
+    var head = '<text x="' + X(0) + '" y="' + (h - 1) + '" font-size="8" fill="var(--dim)" text-anchor="start">اول جلسه</text>';
+    var tail = '<text x="' + X(pts.length - 1) + '" y="' + (h - 1) + '" font-size="8" fill="var(--dim)" text-anchor="end">اکنون</text>';
     var delta = last - first;
     var arrow = Math.abs(delta) < 1e9 ? 'ثبات' : (delta > 0 ? '▲ ورودیِ رو‌به‌رشد' : '▼ خروجیِ رو‌به‌رشد');
     return '<div class="mf-chart">' +
       '<svg class="mf-svg" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="روند خالص پول حقیقی در جلسه">' +
-      '<line x1="0" y1="' + zeroY + '" x2="' + w + '" y2="' + zeroY + '" stroke="#3A332A" stroke-width="1" stroke-dasharray="4 3"/>' +
+      '<line x1="0" y1="' + zeroY + '" x2="' + w + '" y2="' + zeroY + '" stroke="var(--line2)" stroke-width="1" stroke-dasharray="4 3"/>' +
       area +
       '<path d="' + d + '" fill="none" stroke="' + col + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
       dots + head + tail + '</svg>' +
@@ -388,19 +389,19 @@
     var area = '<path d="' + d + 'L' + X(pts.length - 1) + ' ' + zeroY + 'L' + X(0) + ' ' + zeroY + 'Z" fill="' + col + '" opacity="0.12"/>';
     // نقطه‌یِ کمینه و بیشینه را نشان بده (دو سرِ ماجرا)
     var iMin = pts.indexOf(Math.min.apply(null, pts)), iMax = pts.indexOf(Math.max.apply(null, pts));
-    var marks = '<circle cx="' + X(iMin) + '" cy="' + Y(pts[iMin]) + '" r="2" fill="#7E97A3" opacity=".8"/>' +
-      '<circle cx="' + X(iMax) + '" cy="' + Y(pts[iMax]) + '" r="2" fill="#7E97A3" opacity=".8"/>';
+    var marks = '<circle cx="' + X(iMin) + '" cy="' + Y(pts[iMin]) + '" r="2" fill="var(--mut)" opacity=".8"/>' +
+      '<circle cx="' + X(iMax) + '" cy="' + Y(pts[iMax]) + '" r="2" fill="var(--mut)" opacity=".8"/>';
     var delta = last - first;
     var dir = Math.abs(delta) < 1 ? 'ثبات' : (delta > 0 ? '▲ ورودی در جریان' : '▼ خروجی در جریان');
     return '<div class="mf-chart">' +
       '<svg class="mf-svg" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="منحنی ورود و خروج پول حقیقی در جلسه">' +
-      '<line x1="0" y1="' + zeroY + '" x2="' + w + '" y2="' + zeroY + '" stroke="#3A332A" stroke-width="1" stroke-dasharray="4 3"/>' +
+      '<line x1="0" y1="' + zeroY + '" x2="' + w + '" y2="' + zeroY + '" stroke="var(--line2)" stroke-width="1" stroke-dasharray="4 3"/>' +
       area +
       '<path d="' + d + '" fill="none" stroke="' + col + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
       marks +
       '<circle cx="' + X(pts.length - 1) + '" cy="' + Y(last) + '" r="3" fill="' + col + '"/>' +
-      '<text x="' + X(0) + '" y="' + (h - 1) + '" font-size="8" fill="#7E97A3" text-anchor="start">شروع جلسه</text>' +
-      '<text x="' + X(pts.length - 1) + '" y="' + (h - 1) + '" font-size="8" fill="#7E97A3" text-anchor="end">اکنون</text>' +
+      '<text x="' + X(0) + '" y="' + (h - 1) + '" font-size="8" fill="var(--dim)" text-anchor="start">شروع جلسه</text>' +
+      '<text x="' + X(pts.length - 1) + '" y="' + (h - 1) + '" font-size="8" fill="var(--dim)" text-anchor="end">اکنون</text>' +
       '</svg>' +
       '<div class="mf-foot"><b style="color:' + col + '">' + signedMoney(last * 1e9) + '</b>' +
       '<span>' + dir + '</span>' +

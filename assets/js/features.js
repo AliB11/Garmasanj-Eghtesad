@@ -556,6 +556,7 @@
       });
     });
     prefsLoad();
+    initRadarNotify();
     var rp = U.$('#radarRepeat'), so = U.$('#radarSound');
     if (rp) rp.addEventListener('change', function () { RPREF.repeat = rp.checked; prefsSave(); });
     if (so) so.addEventListener('change', function () {
@@ -643,10 +644,58 @@
     else if (ALERTS.length) renderRadars();
   }
 
+  /**
+   * اجازه‌ی اعلان مرورگر — هم از مسیر ثبتِ رادار صدا زده می‌شود و هم از دکمه‌ی
+   * اختصاصیِ کنارِ فرمِ رادار (کاربری که می‌خواهد از قبل مطمئن شود).
+   * خروجی: Promise با وضعیت نهایی ('granted' | 'denied' | 'default' | 'unsupported').
+   */
   function askNotify() {
     try {
-      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(function () {});
-    } catch (e) {}
+      if (!('Notification' in window)) return Promise.resolve('unsupported');
+      if (Notification.permission !== 'default') return Promise.resolve(Notification.permission);
+      var r = Notification.requestPermission();
+      return (r && r.then) ? r.catch(function () { return 'default'; }) : Promise.resolve('default');
+    } catch (e) { return Promise.resolve('unsupported'); }
+  }
+
+  /** برچسبِ دکمه‌ی اعلان‌ها بر پایه‌ی وضعیتِ واقعیِ مرورگر (صادق، نه خوش‌بینانه) */
+  function radarNotifyLabel(btn) {
+    if (!btn) return;
+    btn.classList.remove('on', 'warn-state');
+    btn.removeAttribute('disabled');
+    btn.removeAttribute('aria-pressed');
+    if (!('Notification' in window)) {
+      btn.textContent = 'اعلان مرورگر در این مرورگر پشتیبانی نمی‌شود';
+      btn.setAttribute('disabled', '');
+      return;
+    }
+    var p = Notification.permission;
+    if (p === 'granted') {
+      btn.textContent = 'اعلان مرورگر فعال است ✓';
+      btn.classList.add('on');
+      btn.setAttribute('aria-pressed', 'true');
+    } else if (p === 'denied') {
+      btn.textContent = 'اعلان رد شده — از تنظیمات مرورگر اجازه بده';
+      btn.classList.add('warn-state');
+    } else {
+      btn.textContent = 'فعال‌کردن اعلان مرورگر (برای خبرِ رادارها)';
+    }
+  }
+
+  function initRadarNotify() {
+    var btn = U.$('#radarNotifyBtn');
+    if (!btn || btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    radarNotifyLabel(btn);
+    btn.addEventListener('click', function () {
+      askNotify().then(function (st) {
+        radarNotifyLabel(btn);
+        if (st === 'granted') GS.ui.toast('ok', 'اعلان روشن شد', 'وقتی راداری فعال شود، مرورگر خبر می‌دهد — حتی اگر روی تبِ دیگری باشی.');
+        else if (st === 'denied') GS.ui.toast('warn', 'اجازه داده نشد', 'اعلان‌ها را از تنظیمات همین سایت در مرورگر آزاد کن؛ رادار و صدا در همین صفحه کار می‌کند.');
+      });
+    });
+    // وضعیت ممکن است از بیرونِ صفحه (تنظیمات مرورگر) عوض شود — با برگشت به تب تازه‌سازی کن
+    window.addEventListener('focus', function () { radarNotifyLabel(btn); });
   }
 
   /* ================= سلامت داده ================= */
@@ -686,6 +735,185 @@
       note.textContent = 'الان ' + U.fa(oks) + ' از ' + U.fa(CFG().SOURCES.length) + ' منبع پاسخ می‌دهند. هر کوت فقط از مسیر راستی‌آزمایی‌شده می‌آید و منبع و تازگی‌اش زیر قیمت نوشته شده؛ اگر همه‌ی مسیرهای یک دارایی قطع شد، آخرین مقدار معتبر با برچسب «کش» می‌ماند — هرگز عدد ساختگی نمایش داده نمی‌شود.';
     }
   }
+
+  /* ================= دفتر و کارنامه‌ی حکم (خودسنجی) =================
+     مسئله‌ی واقعی: «حکم امروز» عددی می‌دهد ولی هیچ‌جا سنجیده نمی‌شود که آیا
+     حکمِ دیروز با بازارِ بعدش هم‌جهت بوده یا نه. بدونِ این خودسنجی، کاربر
+     راهی ندارد بفهمد به این عدد چقدر می‌شود اعتماد کرد.
+     راه‌حل (بدونِ سرور، بدونِ ادعای اضافه):
+       • هر روز یک بار، حکم + قیمتِ «لنگر»ها (دلار، طلای ۱۸، سکه، بیت‌کوین، شاخص)
+         در localStorage همان مرورگر ثبت می‌شود؛
+       • برای هر روزِ گذشته، حرکتِ میانگینِ لنگرها از آن روز تا امروز حساب
+         و با جهتِ حکم مقایسه می‌شود (امتیازِ صفر = بی‌طرف، سنجیده نمی‌شود)؛
+       • کارنامه صادقانه می‌گوید «نمونه کوچک است و توصیه نیست». */
+
+  var LS_JOURNAL = 'garmasanj_journal_v1';
+  var JOURNAL = [];
+  var JOURNAL_MAX = 120;   // سقفِ نگه‌داری (۴ ماه) تا حافظه‌ی مرورگر پر نشود
+
+  /** کلید روز به وقت تهران — مرجعِ «یک بار در روز» */
+  function tehranDayKey(ms) {
+    return new Date((ms || Date.now()) + 3.5 * 3600e3).toISOString().slice(0, 10);
+  }
+  function journalLoad() {
+    var a = U.store.get(LS_JOURNAL, []);
+    JOURNAL = Array.isArray(a) ? a.filter(function (x) {
+      return x && /^\d{4}-\d{2}-\d{2}$/.test(String(x.day)) && isFinite(+x.score) && x.a && typeof x.a === 'object';
+    }).slice(-JOURNAL_MAX) : [];
+    return JOURNAL;
+  }
+  function journalSave() {
+    try { U.store.set(LS_JOURNAL, JOURNAL.slice(-JOURNAL_MAX)); } catch (e) {}
+  }
+
+  /** قیمتِ لنگر برای سنجش: دارایی‌ها از کوت‌ها، شاخص از بازارِ مؤثر */
+  function anchorPrice(sym) {
+    if (sym === 'TSE') {
+      var mk = null;
+      try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+      return (mk && mk.p > 0) ? mk.p : null;
+    }
+    var q = D().quote(sym);
+    return (q && q.p > 0) ? q.p : null;
+  }
+  var ANCHORS = ['USD', 'G18', 'EMAMI', 'BTC_USD', 'TSE'];
+
+  function anchorSnapshot() {
+    var out = {};
+    ANCHORS.forEach(function (s) {
+      var p = anchorPrice(s);
+      if (p > 0) out[s] = p;
+    });
+    return out;
+  }
+
+  /**
+   * ثبتِ حکم امروز. اگر امروز قبلاً ثبت شده، همان سطر «به‌روز» می‌شود
+   * (آخرین وضعیتِ روز) — نه اینکه روزی چند سطر ساخته شود.
+   */
+  function journalRecord(v) {
+    if (!v || !v.action) return false;
+    var day = tehranDayKey(), snap = anchorSnapshot();
+    if (Object.keys(snap).length < 2) return false;   // بدونِ لنگر، سنجش بی‌معناست
+    var entry = {
+      day: day, score: Math.round(v.score * 10) / 10, action: v.action.t, tone: v.action.tone,
+      conf: v.conf, a: snap, ts: Date.now()
+    };
+    var i = -1;
+    for (var k = 0; k < JOURNAL.length; k++) if (JOURNAL[k].day === day) { i = k; break; }
+    if (i >= 0) JOURNAL[i] = entry; else JOURNAL.push(entry);
+    if (JOURNAL.length > JOURNAL_MAX) JOURNAL = JOURNAL.slice(-JOURNAL_MAX);
+    journalSave();
+    return true;
+  }
+
+  /** فاصله‌ی روزها بر پایه‌ی کلیدِ تاریخ (هر دو به وقت تهران ساخته شده‌اند) */
+  function dayDiff(a, b) {
+    try { return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000); }
+    catch (e) { return 0; }
+  }
+
+  /**
+   * کارنامه: برای هر روزِ گذشته، حرکتِ سبدِ لنگرها و هم‌جهتی با حکم.
+   * آستانه‌ها: |امتیاز| ≥ ۱ برای سنجش (امتیازِ نزدیکِ صفر یعنی «تصمیم نگرفته»)،
+   * حداقل ۲ لنگرِ موجود، و حداقل یک روز فاصله.
+   */
+  function journalScorecard() {
+    var today = tehranDayKey();
+    var rows = [];
+    JOURNAL.forEach(function (e) {
+      var age = dayDiff(e.day, today);
+      if (!(age >= 1)) return;
+      var moves = [], used = 0;
+      Object.keys(e.a || {}).forEach(function (sym) {
+        var prev = +e.a[sym];
+        if (!(prev > 0)) return;
+        var cur = anchorPrice(sym);
+        if (!(cur > 0)) return;
+        moves.push(cur / prev - 1);
+        used++;
+      });
+      if (used < 2) return;
+      var basket = moves.reduce(function (s, v) { return s + v; }, 0) / moves.length * 100;
+      var neutral = Math.abs(+e.score) < 1;
+      rows.push({
+        day: e.day, age: age, score: +e.score, action: e.action || '—', tone: e.tone || '',
+        basket: basket, anchors: used,
+        agree: neutral ? null : ((+e.score > 0) === (basket > 0))
+      });
+    });
+    var scored = rows.filter(function (r) { return r.agree !== null; });
+    var agree = scored.filter(function (r) { return r.agree; }).length;
+    var bull = scored.filter(function (r) { return r.score > 0; });
+    var bear = scored.filter(function (r) { return r.score < 0; });
+    function avg(list, key) {
+      if (!list.length) return null;
+      return list.reduce(function (s, r) { return s + r[key]; }, 0) / list.length;
+    }
+    return {
+      today: today, rows: rows, scored: scored.length, agree: agree,
+      rate: scored.length ? agree / scored.length * 100 : null,
+      bullN: bull.length, bearN: bear.length,
+      bullAvg: avg(bull, 'basket'), bearAvg: avg(bear, 'basket'),
+      days: JOURNAL.length
+    };
+  }
+
+  function journalZoneFa(zone) {
+    return zone === 'nearHigh' ? 'نزدیکِ سقفِ بازه' : zone === 'high' ? 'نیمه‌ی بالای بازه'
+      : zone === 'low' ? 'نیمه‌ی پایینِ بازه' : zone === 'nearLow' ? 'نزدیکِ کفِ بازه' : 'میانه‌ی بازه';
+  }
+
+  function journalDetailsHTML() {
+    var sc = journalScorecard();
+    var head = '<p class="micro">این جدول خودسنجی است، نه وعده: هر روز یک بار حکم ثبت می‌شود و با حرکتِ میانگینِ لنگرها ' +
+      '(دلار، طلای ۱۸، سکه امامی، بیت‌کوین دلاری، شاخص بورس — هرکدام که آن روز موجود بوده) از همان روز تا امروز مقایسه می‌شود. ' +
+      'امتیازِ نزدیکِ صفر (|امتیاز| < ۱) «بی‌طرف» شمرده و سنجیده نمی‌شود؛ روزِ امروز هم تا فردا سنجیده نمی‌شود.</p>';
+    if (!sc.rows.length) return head + '<p class="dg-empty">هنوز روزِ گذشته‌ی قابلِ سنجشی نداریم؛ فردا صبح دوباره سر بزن.</p>';
+    var body = sc.rows.slice().reverse().slice(0, 45).map(function (r) {
+      var tag = r.agree === null ? '<span class="jt-n">بی‌طرف</span>'
+        : r.agree ? '<span class="jt-y">هم‌جهت</span>' : '<span class="jt-x">ناهمسو</span>';
+      return '<tr><td>' + U.dateFa(Date.parse(r.day + 'T12:00:00Z') - 3.5 * 3600e3) + '</td>' +
+        '<td>' + U.esc(r.action) + '</td>' +
+        '<td dir="ltr">' + (r.score >= 0 ? '+' : '−') + U.fa(Math.abs(r.score).toFixed(1)) + '</td>' +
+        '<td dir="ltr" class="' + (r.basket > 0.05 ? 'up' : r.basket < -0.05 ? 'down' : 'z') + '">' + U.pct(r.basket, 1) + '</td>' +
+        '<td>' + U.fa(r.anchors) + ' لنگر</td><td>' + tag + '</td></tr>';
+    }).join('');
+    return head + '<div class="jt-wrap"><table class="jt"><thead><tr><th>روز</th><th>حکم</th><th>امتیاز</th><th>حرکتِ سبد</th><th>پوشش</th><th>نتیجه</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+
+  function renderJournal() {
+    var host = U.$('#verdictJournal');
+    if (!host) return;
+    var sc = journalScorecard();
+    if (!JOURNAL.length) {
+      host.innerHTML = '<div class="vj empty"><b>کارنامه‌ی حکم</b>' +
+        '<span>از امروز، هر روز یک بار حکمِ گرماسنج با قیمتِ همان لحظه ثبت می‌شود تا فردا بتوان سنجید که چقدر با بازار هم‌جهت بوده — خودسنجی، نه وعده.</span></div>';
+      return;
+    }
+    var rateCls = sc.rate == null ? '' : sc.rate >= 60 ? 'hot' : sc.rate >= 40 ? 'mid' : 'cold';
+    host.innerHTML = '<div class="vj">' +
+      '<div class="vj-head"><b>کارنامه‌ی حکم <button class="f-help" type="button" data-formula="journal" aria-label="کارنامه چطور سنجیده می‌شود؟" title="روشِ سنجش">؟</button></b>' +
+      '<span>' + U.fa(sc.days) + ' روز ثبت‌شده · ' + U.fa(sc.scored) + ' روزِ قابلِ سنجش</span></div>' +
+      '<div class="vj-stats">' +
+      '<div class="vj-stat"><small>هم‌جهت با بازار</small><b class="' + rateCls + '">' + (sc.rate == null ? '—' : U.fa(Math.round(sc.rate)) + '٪') + '</b><span>' + U.fa(sc.agree) + ' از ' + U.fa(sc.scored) + '</span></div>' +
+      '<div class="vj-stat"><small>بعد از حکمِ رشد‌خواه</small><b dir="ltr">' + (sc.bullAvg == null ? '—' : U.pct(sc.bullAvg, 1)) + '</b><span>' + U.fa(sc.bullN) + ' روز</span></div>' +
+      '<div class="vj-stat"><small>بعد از حکمِ دفاعی</small><b dir="ltr">' + (sc.bearAvg == null ? '—' : U.pct(sc.bearAvg, 1)) + '</b><span>' + U.fa(sc.bearN) + ' روز</span></div>' +
+      '<div class="vj-actions"><button class="btn btn-ghost sm" type="button" id="vjMore">جدولِ روزها</button>' +
+      '<button class="btn btn-ghost sm" type="button" id="vjClear" title="پاک‌کردنِ دفترِ محلی">پاک‌کردن</button></div>' +
+      '</div>' +
+      '<p class="vj-note">سنجش با حرکتِ میانگینِ لنگرهای همان روز تا امروز انجام می‌شود. نمونه‌ی کوچک و بازارِ پرنوسان یعنی این عدد خودش هم خطا دارد — <b>هیچ‌چیز توصیه‌ی خرید یا فروش نیست</b>.</p>' +
+      '</div>';
+    var more = U.$('#vjMore');
+    if (more) more.addEventListener('click', function () { GS.ui.openInfo('کارنامه‌ی حکم — جدولِ روزها', journalDetailsHTML()); });
+    var clr = U.$('#vjClear');
+    if (clr) clr.addEventListener('click', function () {
+      JOURNAL = []; journalSave(); renderJournal();
+      GS.ui.toast('info', 'کارنامه پاک شد', 'دفترِ محلیِ حکم‌ها خالی شد؛ از امروز دوباره ساخته می‌شود.');
+    });
+  }
+
+  journalLoad();
 
   /* ================= حکم امروز (موتور تصمیم) ================= */
   function verdict() {
@@ -934,6 +1162,8 @@
     var host = U.$('#verdictBody');
     if (!host) return;
     var v = verdict();
+    // خودسنجی: حکمِ امروز یک بار (به‌وقت تهران) در دفترِ محلی ثبت می‌شود
+    try { journalRecord(v); } catch (e) {}
     var col = TONE_C[v.action.tone] || '#E8833A';
     var ang = U.clamp(v.score, -8, 8) / 8 * 80;
     var rad = (ang - 90) * Math.PI / 180;
@@ -1040,8 +1270,12 @@
     renderMix: renderMix, initMix: initMix,
     computePortfolioWeights: computeWeights, boursePulse: boursePulse, mixSummaryText: mixSummaryText,
     initRadar: initRadar, renderRadars: renderRadars, checkRadars: checkRadars, askNotify: askNotify,
+    radarNotifyLabel: radarNotifyLabel,
     renderHealth: renderHealth,
     verdict: verdict, renderVerdict: renderVerdict,
+    journal: journalScorecard, journalRecord: journalRecord, journalLoad: journalLoad, renderJournal: renderJournal,
+    journalHTML: journalDetailsHTML, _journal: function () { return JOURNAL.slice(); },
+    _setJournal: function (a) { JOURNAL = Array.isArray(a) ? a.slice(0, JOURNAL_MAX) : []; journalSave(); },
     renderChain: renderChain, renderHeatmap: renderHeatmap, initHeatmap: initHeatmap
   };
 })();

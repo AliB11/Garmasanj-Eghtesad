@@ -275,7 +275,9 @@ function boot(fetchFn, opts) {
     ok('8e no empty <label></label>', !/<label><\/label>/.test(html));
     ok('8f canonical is absolute', /rel="canonical" href="https:\/\//.test(html));
     ok('8g theme-color matches manifest', /theme-color" content="#0B0F14"/.test(html));
-    ok('8h sw cache bumped', /garmasanj-shell-v1\d/.test(sw));
+    // هدفِ این گزاره: نامِ کش نسخه‌دار باشد تا هر تغییرِ پوسته کشِ قدیمی را دور بزند
+    // (الگوی قبلی فقط v1x را می‌پذیرفت و با ارتقای به v20 بی‌دلیل می‌شکست)
+    ok('8h sw cache bumped', /garmasanj-shell-v\d{2,}/.test(sw));
     ok('8i dead proxy layer removed from utils', !/PROXIES|raceFetch|tsetmc/i.test(utils));
     const dimHex = (css.match(/--dim:(#[0-9A-Fa-f]{6})/) || [])[1];
     const lum = (hex) => { const c = hex.slice(1).match(/../g).map((h) => parseInt(h, 16) / 255).map((v) => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };

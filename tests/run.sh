@@ -48,6 +48,10 @@ step "bourse.js (شاخص بورس، جریان پول با نگهبان، عا�
 node tests/bourse.js | tail -n 3 || fail=1
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail=1
 
+step "gen6.js (کارنامه‌ی حکم، جایگاه در بازه، برون‌بری CSV، دکمه‌ی اعلان)"
+node tests/gen6.js | tail -n 3 || fail=1
+[ "${PIPESTATUS[0]}" -eq 0 ] || fail=1
+
 echo
 if [ "$fail" -eq 0 ]; then echo "✔ همه‌ی تست‌ها سبز"; else echo "✘ شکست در تست‌ها"; fi
 exit $fail

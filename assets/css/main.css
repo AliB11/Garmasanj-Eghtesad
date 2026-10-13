@@ -97,6 +97,7 @@ h2 span{color:var(--gold2)}
 .btn-ghost:hover{border-color:var(--gold);background:var(--gold-dim)}
 .btn.sm{padding:7px 14px;font-size:.83rem;border-radius:10px}
 .btn.on{border-color:var(--gold);color:var(--gold2)}
+.btn.warn-state{border-color:var(--down);color:var(--down)}
 .icon-btn{padding:9px 11px}
 .field{width:100%;background:var(--field);border:1px solid var(--line2);border-radius:12px;color:var(--txt);
   font-family:var(--font);font-size:.95rem;padding:11px 14px;transition:border-color .2s}
@@ -923,6 +924,57 @@ kbd{display:inline-block;min-width:26px;text-align:center;font-family:inherit;fo
 .tk-hint{font-size:.7rem;color:var(--dim);width:100%;line-height:1.7}
 .tk-link{font-size:.72rem;color:var(--gold2);text-decoration:none;border:1px solid var(--line2);border-radius:999px;padding:3px 10px;background:var(--tint2);white-space:nowrap}
 .tk-link:hover{border-color:var(--gold);background:var(--gold-dim)}
+
+/* ============ کارنامه‌ی حکم (خودسنجیِ روزانه) ============ */
+.vj{
+  margin-top:14px;padding:14px 16px;border-radius:var(--rad);
+  background:linear-gradient(135deg,var(--tint2),var(--field));
+  border:1px solid var(--line);
+}
+.vj.empty{display:flex;flex-direction:column;gap:6px}
+.vj.empty b{font-size:.92rem;font-weight:800}
+.vj.empty span{font-size:.78rem;color:var(--mut);line-height:1.9}
+.vj-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.vj-head b{font-size:.92rem;font-weight:800}
+.vj-head span{font-size:.74rem;color:var(--dim)}
+.vj-stats{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.vj-stat{
+  flex:1 1 150px;min-width:140px;background:var(--card);border:1px solid var(--line);
+  border-radius:12px;padding:9px 12px;display:flex;flex-direction:column;gap:2px;
+}
+.vj-stat small{font-size:.68rem;color:var(--dim)}
+.vj-stat b{font-size:1rem;font-weight:900}
+.vj-stat b.hot{color:var(--up)} .vj-stat b.mid{color:var(--gold2)} .vj-stat b.cold{color:var(--down)}
+.vj-stat span{font-size:.68rem;color:var(--mut)}
+.vj-actions{display:flex;gap:8px;flex-wrap:wrap}
+.vj-note{font-size:.72rem;color:var(--dim);line-height:2;margin:10px 0 0}
+.vj-note b{color:var(--mut)}
+.jt-wrap{overflow-x:auto;margin-top:10px}
+table.jt{width:100%;border-collapse:collapse;font-size:.76rem}
+table.jt th,table.jt td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+table.jt th{color:var(--dim);font-weight:700;font-size:.7rem;background:var(--tint2)}
+table.jt td.up{color:var(--up)} table.jt td.down{color:var(--down)} table.jt td.z{color:var(--mut)}
+.jt-y{color:var(--up);font-weight:800}
+.jt-x{color:var(--down);font-weight:800}
+.jt-n{color:var(--dim)}
+
+/* ============ نوارِ جایگاه قیمت در بازه (صدک) ============ */
+.pct-bar{
+  position:relative;height:8px;border-radius:5px;background:var(--track);
+  overflow:hidden;margin-top:8px;
+}
+.pct-bar::before{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(to left,rgba(255,107,94,.30),rgba(62,207,142,.30) 55%,rgba(62,207,142,.45));
+  opacity:.55;
+}
+.pct-bar i{
+  position:absolute;top:-2px;width:3px;height:12px;border-radius:2px;background:var(--gold2);
+  box-shadow:0 0 0 1px rgba(0,0,0,.35);translate:50% 0;
+}
+.am-hist-pct{display:flex;flex-direction:column;gap:2px;margin-top:6px;font-size:.76rem;color:var(--mut)}
+.am-hist-pct b{color:var(--txt)}
+.am-hist-pct .dim{color:var(--dim)}
 
 @media (max-width:900px){
   .bp-money-grid{grid-template-columns:1fr}
