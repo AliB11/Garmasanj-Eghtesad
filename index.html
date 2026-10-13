@@ -146,6 +146,8 @@
       <p class="sec-sub">موتور تصمیم، نبض بازار، پهنا، جریان پول داغ، حباب سکه و پریمیوم تتر را هر چرخه با داده‌ی زنده می‌سنجد و یک حکم روشن با دلیل و اقدام مشخص صادر می‌کند.</p>
     </div>
     <div class="rv" data-d="2" id="verdictBody" aria-live="polite"></div>
+    <!-- کارنامه‌ی حکم: خودسنجیِ روزانه — آیا حکمِ دیروز با بازارِ بعدش هم‌جهت بود؟ -->
+    <div class="rv" data-d="2" id="verdictJournal" aria-live="polite"></div>
     <div class="rv">
       <h3 class="sub-h">زنجیره‌ی اقتصاد — از اونس تا سکه</h3>
       <p class="sub-s">هر حلقه از حلقه‌ی قبلی ساخته می‌شود؛ اگر حلقه‌ای از زنجیره جدا شد، یعنی یا فرصت ارزشی است یا هیجان.</p>
@@ -255,6 +257,7 @@
       <div class="markets-tools">
         <label class="search"><svg class="ic s14"><use href="#i-search"/></svg><input id="qsearch" type="search" placeholder="جست‌وجو (/)" autocomplete="off" aria-label="جست‌وجوی دارایی"></label>
         <button class="btn btn-ghost sm" id="compareBtn" type="button" title="مقایسه‌ی دو دارایی روی یک نمودار (c)"><svg class="ic s16"><use href="#i-cmp"/></svg>مقایسه</button>
+        <button class="btn btn-ghost sm" id="csvBtn" type="button" title="برون‌بری همه‌ی کوت‌های فعلی به‌صورت CSV" aria-label="برون‌بری CSV"><svg class="ic s16"><use href="#i-code"/></svg>CSV</button>
       </div>
       <div class="markets-meta"><span id="quotesCount"></span><span id="marketsUpdated">—</span></div>
     </div>
@@ -407,6 +410,7 @@
         </div>
         <label class="check"><input type="checkbox" id="radarRepeat"><span>تکرارشونده — بعد از هر عبور، با برگشت قیمت دوباره مسلح شود</span></label>
         <label class="check"><input type="checkbox" id="radarSound"><span>صدا و لرزش هنگام فعال‌شدن (موبایل می‌لرزد)</span></label>
+        <button type="button" class="btn btn-ghost sm btn-wide" id="radarNotifyBtn">اعلان مرورگر…</button>
         <div class="spacer" aria-hidden="true"></div>
         <button class="btn btn-primary btn-wide" id="radarAdd" type="button"><svg class="ic s16"><use href="#i-bell"/></svg>فعال‌سازی رادار</button>
         <p class="micro">قیمت‌ها هر ۴۵ ثانیه تازه می‌شوند. برای تست، هدفی نزدیک قیمت فعلی بگذار و چند چرخه صبر کن تا رادار فعال شود. اجازه‌ی اعلان مرورگر فقط هنگام ثبت اولین رادار پرسیده می‌شود. رادار تکرارشونده بعد از فعال‌شدن، وقتی قیمت ۰٫۳٪ به آن‌سوی هدف برگردد دوباره مسلح می‌شود.</p>

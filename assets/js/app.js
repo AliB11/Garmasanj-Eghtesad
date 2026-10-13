@@ -16,6 +16,7 @@
     GS.features.renderHotmoney();
     GS.features.renderMix();
     GS.features.renderVerdict();
+    GS.features.renderJournal();
     GS.features.renderChain();
     GS.features.renderHeatmap();
     GS.features.renderHealth();
@@ -49,6 +50,7 @@
     GS.ui.initCounters();
     GS.features.initHeatmap();
     GS.features.renderVerdict();
+    GS.features.renderJournal();
     GS.features.renderChain();
     GS.features.renderHeatmap();
     GS.features.initSim();
@@ -104,6 +106,7 @@
     // تاریخچه‌ی بلندمدت رسید → حکم («این هفته») و مودال باز را تازه کن
     GS.data.on('history', function () {
       GS.features.renderVerdict();
+      GS.features.renderJournal();
       var am = U.$('#assetModal');
       if (am && am.classList.contains('show')) {
         var box = U.$('#amHist');
@@ -144,7 +147,13 @@
       var k = e.key;
       var digit = /^[1-5]$/.test(k) ? +k : (FA_DIGITS[k] || 0);
       if (k === '/' ) { e.preventDefault(); closeAllModals(); GS.ui.focusSearch(); return; }
-      if (k === '?' || k === '؟') { e.preventDefault(); if (U.$('#infoModal').classList.contains('show')) closeAllModals(); else { closeAllModals(); GS.ui.openHelp(); } return; }
+      if (k === '?' || k === '؟') {
+        e.preventDefault();
+        var im = U.$('#infoModal');
+        if (im && im.classList.contains('show')) closeAllModals();
+        else { closeAllModals(); GS.ui.openHelp(); }
+        return;
+      }
       if (anyModalOpen()) {
         if ((k === 'p' || k === 'P') && currentModalAsset()) { e.preventDefault(); var pb = U.$('#amPinBtn'); if (pb) pb.click(); }
         return;

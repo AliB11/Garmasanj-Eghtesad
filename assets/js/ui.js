@@ -301,6 +301,19 @@
     toast('info', i >= 0 ? 'سنجاق برداشته شد' : 'سنجاق شد', i >= 0 ? '«' + a.fa + '» به جای خودش برگشت.' : '«' + a.fa + '» بالای فهرست و اول تیکر می‌آید.');
     return true;
   }
+  /** متنِ راهنمای سنجاق: تا وقتی چیزی سنجاق نشده راهنما، بعدش فهرستِ زنده */
+  function renderPinNote() {
+    var el = U.$('#pinNote');
+    if (!el) return;
+    if (!PINS.length) {
+      el.textContent = 'با ستاره‌ی هر کارت، دارایی‌های مهمت را سنجاق کن تا بالای فهرست و اول تیکر بیایند.';
+      return;
+    }
+    var names = PINS.map(function (k) { var a = D().asset(k); return a ? a.short : k; }).join('، ');
+    el.textContent = 'سنجاق‌شده (' + U.fa(PINS.length) + ' از ' + U.fa(PIN_MAX) + '): ' + names +
+      ' — با کلیک دوباره روی ستاره برمی‌گردد؛ همین فهرست، ترتیبِ ویجتِ قابل‌جاسازی را هم می‌سازد.';
+  }
+
   function applyPins() {
     var grid = U.$('#assetGrid');
     if (!grid) return;
@@ -315,6 +328,7 @@
       var b = card.querySelector('.qc-pin');
       if (b) { b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.title = on ? 'برداشتن سنجاق' : 'سنجاق به بالای فهرست و اول تیکر'; }
     });
+    renderPinNote();
   }
 
   function normFa(x) {
@@ -373,6 +387,8 @@
       btn.setAttribute('aria-selected', btn.classList.contains('on') ? 'true' : 'false');
       btn.addEventListener('click', function () { setCategory(btn.dataset.cat || 'all'); });
     });
+    var csvBtn = U.$('#csvBtn');
+    if (csvBtn && !csvBtn.dataset.wired) { csvBtn.dataset.wired = '1'; csvBtn.addEventListener('click', exportCsv); }
     initSearch();
     applyPins();
     applyCatFilter();
@@ -406,6 +422,60 @@
         empty.style.display = 'block';
       } else if (empty) empty.style.display = 'none';
     }
+  }
+
+  /* ---------------- برون‌بری CSV (بدونِ سرور، برای صفحه‌گسترده) ----------------
+     چرا؟ کاربرهای حرفه‌ای می‌خواهند همین اعداد را در اکسل/گوگل‌شیت ادامه بدهند.
+     ستون‌ها انگلیسی و ثابت‌اند (قابلِ ماشین‌خوان)، نام‌ها فارسی و خوانا.
+     صداقت: «state» می‌گوید زنده/تخمین/کهنه و «age_min» سن را دقیقه‌ای می‌دهد. */
+  function csvCell(v) {
+    var s = String(v == null ? '' : v);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function csvText() {
+    var rows = [];
+    rows.push(['symbol', 'name', 'price_toman_or_usd', 'unit', 'change_pct', 'source', 'state', 'age_min', 'updated_at']);
+    CFG().ASSETS.forEach(function (a) {
+      var q = D().quote(a.sym) || {};
+      var has = q.p > 0;
+      rows.push([
+        a.sym, a.fa, has ? q.p : '', a.unit,
+        (has && q.chgPct != null && isFinite(q.chgPct)) ? (+q.chgPct).toFixed(2) : '',
+        has ? (q.srcFa || q.src || '') : '',
+        !has ? 'none' : q.live ? 'live' : (q.est ? 'estimate' : (q.src === 'snapshot' ? 'snapshot' : 'stale')),
+        has && q.ts ? Math.round((Date.now() - q.ts) / 60000) : '',
+        has && q.ts ? new Date(q.ts).toISOString() : ''
+      ]);
+    });
+    // بخشِ بورس: خط‌های پیشونددار تا ستون‌ها یک‌دست بمانند
+    var mk = null;
+    try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+    if (mk && mk.p > 0) {
+      rows.push(['TSE', 'شاخص کل بورس', Math.round(mk.p), 'واحد', (mk.chgPct != null ? (+mk.chgPct).toFixed(2) : ''),
+        mk.src || 'TGJU', mk.stale ? 'stale' : 'live', Math.round((Date.now() - (mk.ts || Date.now())) / 60000), mk.ts ? new Date(mk.ts).toISOString() : '']);
+      if (mk.flow) {
+        rows.push(['TSE_FLOW', 'خالصِ پولِ حقیقی (تومان)', Math.round(mk.flow.netToman), 'تومان', '',
+          mk.flow.src || 'TSETMC', mk.flowFresh ? 'live' : 'session', Math.round((Date.now() - (mk.flow.ts || Date.now())) / 60000), mk.flow.ts ? new Date(mk.flow.ts).toISOString() : '']);
+      }
+    }
+    return rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n');
+  }
+  function exportCsv() {
+    var csv = '\ufeff' + csvText();   // BOM: اکسلِ ویندوز فارسی را درست بخواند
+    var name = 'garmasanj-quotes-' + new Date().toISOString().slice(0, 10) + '.csv';
+    var ok = false;
+    try {
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = name; a.style.display = 'none';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 5000);
+      ok = true;
+    } catch (e) { ok = false; }
+    toast(ok ? 'ok' : 'warn', ok ? 'فایل CSV ساخته شد' : 'برون‌بری ممکن نشد',
+      ok ? 'ستون‌ها: نماد، قیمت، تغییر، منبع، وضعیت، سن — ' + U.fa(CFG().ASSETS.length) + ' کوت.' : 'مرورگر اجازه‌ی ساخت فایل نداد.');
+    return ok;
   }
 
   function ensureCardVisible(sym) {
@@ -468,6 +538,7 @@
       if (sr) sr.textContent = feedText(a.sym);
       var bd = F('badge');
       if (bd) {
+        bd.removeAttribute('title');   // توضیحِ کهنه (مثلاً «آخرین جلسه») نباید روی بجِ بعدی بماند
         if (!has) { bd.className = 'qc-badge'; bd.textContent = ''; }
         else if (q.est) { bd.className = 'qc-badge snap'; bd.textContent = 'تخمین'; }
         else if (!q.live) { bd.className = 'qc-badge snap'; bd.textContent = q.src === 'snapshot' ? 'اسنپ‌شات' : 'کش'; }
@@ -1005,6 +1076,15 @@
       metrics.push({ k: 'بیشترین قیمت امروز', v: (a.kind === 'usd' ? U.fa(q.high.toFixed(a.dec || 0)) : U.fmt(q.high)) + ' ' + a.unit });
       metrics.push({ k: 'کمترین قیمت امروز', v: (a.kind === 'usd' ? U.fa(q.low.toFixed(a.dec || 0)) : U.fmt(q.low)) + ' ' + a.unit });
     }
+    // جایگاه قیمت در بازه‌ی ۹۰ روزه — صدکِ توصیفی (نه پیش‌بینی)
+    var pctile = (D().percentile ? D().percentile(sym, 90) : null);
+    if (pctile && a.kind) {
+      metrics.push({
+        k: 'جایگاه در بازه‌ی ۹۰ روزه',
+        v: 'صدک ' + U.fa(Math.round(pctile.pct)) + ' · ' + zoneFa(pctile.zone) +
+          ' <small class="dim">(' + U.fa(pctile.points) + ' نقطه)</small>'
+      });
+    }
     var simP = (GS.features && GS.features.simAmount) ? GS.features.simAmount() : 0;
     if (simP > 0 && q.p > 0 && a.kind === 'toman') {
       var units = simP / q.p;
@@ -1088,6 +1168,17 @@
   function priceFmtFor(a) {
     return function (v) { return a.kind === 'usd' ? fmtDec(v, a.dec != null ? a.dec : 0) : (v >= 1e9 ? U.fmtCompact(v) : U.fmt(v)); };
   }
+  /** برچسبِ فارسیِ منطقه‌ی صدک (توصیفی؛ هیچ بارِ توصیه‌ای ندارد) */
+  function zoneFa(zone) {
+    return zone === 'nearHigh' ? 'نزدیکِ سقفِ ۹۰ روز' : zone === 'high' ? 'نیمه‌ی بالای بازه'
+      : zone === 'low' ? 'نیمه‌ی پایینِ بازه' : zone === 'nearLow' ? 'نزدیکِ کفِ ۹۰ روز' : 'میانه‌ی بازه';
+  }
+  /** نوارِ کوچکِ جایگاه در بازه: کف … قیمت … سقف */
+  function pctBar(pc) {
+    if (!pc) return '';
+    var k = U.clamp(pc.pct, 0, 100);
+    return '<div class="pct-bar" title="از ' + U.fa(pc.points) + ' نقطه در ' + U.fa(pc.days) + ' روز"><i style="right:' + k.toFixed(1) + '%"></i></div>';
+  }
   function historyBlock(sym, days) {
     var a = D().asset(sym);
     if (!a) return '';
@@ -1114,9 +1205,13 @@
     var note = '';
     if (!hm.ok) note = '<p class="micro">تاریخچه‌ی بلندمدت از ' + (hm.from ? U.dateFa(hm.from) : '۲۵ شهریور ۱۴۰۵') + ' با هر انتشار سرور جمع می‌شود' + (hm.days ? ' — فعلاً ' + U.fa(hm.days) + ' روز.' : '.') + ' نمودار زیر فقط نشست فعلی مرورگر توست.</p>';
     else if (hm.days < days) note = '<p class="micro">تاریخچه از ' + U.dateFa(hm.from) + ' جمع‌آوری می‌شود؛ بازه‌های بلندتر با گذشت زمان پر می‌شوند.</p>';
+    // جایگاه قیمت در همین بازه — همان چیزی که در کارت و مودال دیده می‌شود
+    var pc = (D().percentile ? D().percentile(sym, Math.max(days, 30)) : null);
+    var pctRow = pc ? '<div class="am-hist-pct"><span>جایگاه در بازه: <b>صدک ' + U.fa(Math.round(pc.pct)) + '</b> · ' + U.esc(zoneFa(pc.zone)) +
+      ' <button class="f-help" type="button" data-formula="percentile" aria-label="فرمول جایگاه در بازه" title="این عدد چطور حساب می‌شود؟">؟</button></span>' + pctBar(pc) + '</div>' : '';
     var chartPts = pts.length >= 2 ? pts : D().hist(sym);
     var chart = GS.charts.lineChart(chartPts, { fmt: priceFmtFor(a), label: 'نمودار ' + a.fa, emptyText: 'هنوز داده‌ای برای نمودار نداریم' });
-    return head + chart + stat + note;
+    return head + chart + stat + pctRow + note;
   }
 
   var LS_THEME = 'garmasanj_theme_v1';
@@ -1232,6 +1327,7 @@
     if (/پریمیوم/.test(label)) return 'usdtPrem';
     if (/ضمنی بیت|انحراف از دلار آزاد/.test(label)) return 'btcGap';
     if (/برابری ضمنی/.test(label)) return 'eurImplied';
+    if (/جایگاه در بازه/.test(label)) return 'percentile';
     if (/رادار سلامت/.test(label)) return 'bourseRadar';
     if (/بورس/.test(label)) return 'bourseRadar';
     return null;
@@ -1276,6 +1372,38 @@
       heat: { t: 'حرارت', f: 'تغییر×۸ + شیب×۵', rows: [], n: 'در شبیه‌ساز و ترکیب‌ساز.' },
       sim: { t: 'شبیه‌ساز', f: 'اسمی = تورم + ۰٫۵×حرارت\nواقعی = سرمایه×(۱+اسمی)^سال ÷ (۱+تورم)^سال', rows: [['تورم', U.fa(INFL()) + '٪']], n: 'فرض آموزشی.' },
       verdict: { t: 'حکم امروز', f: 'امتیاز = نبض + پهنا + پول داغ + حباب + تتر + بورس (پهنا، جریان خرد، صندوق‌ها، سرانه)', rows: [], n: '۵ پله: نقد و انتظار · دفاعی · حفظ ترکیب · تعادل رشد · حمله حساب‌شده.' },
+      percentile: {
+        t: 'جایگاه در بازه (صدک)',
+        f: 'صدک = (تعدادِ نقطه‌های بازه که قیمتشان ≤ قیمتِ فعلی) ÷ (کلِ نقطه‌های بازه) × ۱۰۰\n' +
+          'بازه = پیش‌فرض ۹۰ روزِ اخیر از تاریخچه‌ی انتشارها (در مودالِ هر دارایی همین الگو، با همان بازه‌ی نمایش‌داده‌شده، حساب می‌شود)',
+        rows: (function () {
+          var mk = null; try { mk = D().market ? D().market() : null; } catch (e) { mk = null; }
+          var u = q('USD'), g = q('G18');
+          return [
+            ['مثال · دلار', (u && D().percentile) ? (function () { var p = D().percentile('USD', 90); return p ? 'صدک ' + U.fa(Math.round(p.pct)) + ' · ' + zoneFa(p.zone) + ' (' + U.fa(p.points) + ' نقطه)' : 'تاریخچه کافی نیست'; })() : '—'],
+            ['مثال · طلای ۱۸', (g && D().percentile) ? (function () { var p = D().percentile('G18', 90); return p ? 'صدک ' + U.fa(Math.round(p.pct)) + ' · ' + zoneFa(p.zone) : 'تاریخچه کافی نیست'; })() : '—'],
+            ['شاخص بورس', (mk && mk.p > 0) ? U.fmt(Math.round(mk.p)) : '—']
+          ];
+        })(),
+        n: 'این عدد توصیفی است، نه پیش‌بینی: می‌گوید امروز کجای بازه ایستاده‌ای، نه اینکه فردا چه می‌شود. صدکِ بالا یعنی بازار گران‌تر از گذشته‌ی نزدیک معامله می‌شود — که می‌تواند هفته‌ها ادامه داشته باشد.'
+      },
+      journal: {
+        t: 'کارنامه‌ی حکم (خودسنجی)',
+        f: 'هم‌جهتی = جهتِ امتیازِ حکم == جهتِ حرکتِ میانگینِ لنگرها (از آن روز تا امروز)\n' +
+          'لنگرها: دلار · طلای ۱۸ · سکه امامی · بیت‌کوین دلاری · شاخص بورس (هرکدام که آن روز داده داشته)',
+        rows: (function () {
+          var sc = (GS.features && GS.features.journal) ? GS.features.journal() : null;
+          if (!sc) return [];
+          return [
+            ['روزهای ثبت‌شده', U.fa(sc.days)],
+            ['روزهای قابلِ سنجش', U.fa(sc.scored) + ' (امتیازِ |x| < ۱ بی‌طرف شمرده می‌شود)'],
+            ['هم‌جهت', U.fa(sc.agree) + (sc.rate != null ? ' (' + U.fa(Math.round(sc.rate)) + '٪)' : '')],
+            ['بعد از حکمِ رشد‌خواه', sc.bullAvg == null ? '—' : U.pct(sc.bullAvg, 1) + ' (میانگین ' + U.fa(sc.bullN) + ' روز)'],
+            ['بعد از حکمِ دفاعی', sc.bearAvg == null ? '—' : U.pct(sc.bearAvg, 1) + ' (میانگین ' + U.fa(sc.bearN) + ' روز)']
+          ];
+        })(),
+        n: 'دفتر فقط در همین مرورگر ذخیره می‌شود و هیچ‌جا فرستاده نمی‌شود. نمونه‌ی کوچک و بازارِ پرنوسان یعنی همین درصد هم خطای نمونه‌گیری دارد؛ این ابزار شفافیت است، نه وعده.'
+      },
       bourseRadar: { t: 'رادار سلامت بورس', f: '۶ بُعد ۰..۱۰۰:\n• پهنا = posPct (٪ مثبت)\n• جریان خرد = ۵۰ + ratio×۲۵۰ (ورود بالای ۵۰، خروج پایین ۵۰)\n• درآمد ثابت: خروج → ۵۰+ |net|/1T×۸ (پول از پناهگاه به سهام)\n• سهامی: ورود → ۵۰+ net/1T×۱۰\n• سرانه = ۵۰ + (buy/sell −۱)×۴۰\n• صف خرید = buy/(buy+sell)×۱۰۰',
         rows: bt ? [
           ['پهنا', bt.breadth ? U.fa(Math.round(bt.breadth.posPct)) + '٪ (' + U.fa(bt.breadth.pos) + '/' + U.fa(bt.breadth.neg) + ')' : '—'],
@@ -1471,6 +1599,7 @@
     dayHTML: dayHTML, dispPrice: dispPrice, feedText: feedText,
     pins: function () { return PINS.slice(); }, isPinned: isPinned, togglePin: togglePin, applyPins: applyPins,
     setQuery: setQuery, focusSearch: focusSearch,
+    csvText: csvText, exportCsv: exportCsv, renderPinNote: renderPinNote,
     getTheme: getTheme, applyTheme: applyTheme, toggleTheme: toggleTheme, initTheme: initTheme,
     initCompare: initCompare, openCompare: openCompare, renderCompare: renderCompare,
     openInfo: openInfo, openFormula: openFormula, formulaHTML: formulaHTML, openHelp: openHelp, openEmbed: openEmbed, embedCode: embedCode,

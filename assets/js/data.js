@@ -974,21 +974,20 @@
     };
     var f = m.flow;
     if (f && isFinite(+f.netToman)) {
-      var r = (f.ratio != null && isFinite(+f.ratio)) ? +f.ratio : null;
-      // نگهبانِ نسبت: خالص نمی‌تواند از کلِ ارزش بیشتر باشد
-      if (r != null && Math.abs(r) > 1) r = null;
-      MARKET.flow = {
-        netToman: +f.netToman,
-        ratio: r,
-        n: f.n || null,
-        src: f.src || 'TSETMC',
-        ts: f.ts || m.asOf || Date.now(),
-        day: f.day || tehranDayStr(f.ts || m.asOf || Date.now()),
-        fresh: f.fresh !== false
-      };
-      if (MARKET.flow.ratio == null && r == null && f.ratio != null) {
-        // اگر نسبت ناممکن بود، جریان را نگه ندار — سکوت به‌جای عددِ غلط
-        if (Math.abs(+f.ratio) > 1) MARKET.flow = null;
+      // نگهبانِ نسبت: نسبتِ ناممکن (بیش از ۱ = بیشتر از کلِ ارزشِ معاملات)
+      // یعنی پارس یا واحدِ منبع خراب است؛ در آن حالت کلِ جریان رد می‌شود
+      // (سکوت بهتر از عددِ غلط است) — به‌جای نگه‌داشتنِ جریانی با نسبتِ ناقص.
+      var badRatio = (f.ratio != null) && (!isFinite(+f.ratio) || Math.abs(+f.ratio) > 1);
+      if (!badRatio) {
+        MARKET.flow = {
+          netToman: +f.netToman,
+          ratio: (f.ratio != null) ? +f.ratio : null,
+          n: f.n || null,
+          src: f.src || 'TSETMC',
+          ts: f.ts || m.asOf || Date.now(),
+          day: f.day || tehranDayStr(f.ts || m.asOf || Date.now()),
+          fresh: f.fresh !== false
+        };
       }
     }
     // مکملِ بورس‌تریدر (هم‌وزن/فرابورس/صندوق‌ها/پهنا) — با نگهبانِ شکل و واحد
@@ -1571,7 +1570,15 @@
   function fetchLive() {
     return fetchJSON('assets/data/live.json', {
       timeout: 6000,
-      validate: function (j) { return j && j.quotes && U.num(j.quotes.USD && j.quotes.USD.p) > 0; }
+      // صداقت: وجودِ «دلار» شرط نیست؛ اگر ناشر دلار را نگرفته باشد ولی بقیه‌ی
+      // کوت‌ها سالم باشند، دور ریختنِ کلِ فایل، صفحه را بی‌دلیل خالی می‌کند.
+      // شرط این است که دست‌کم یک کوتِ عددیِ معتبر در فایل باشد.
+      validate: function (j) {
+        if (!j || !j.quotes) return false;
+        return Object.keys(j.quotes).some(function (k) {
+          return U.num(j.quotes[k] && j.quotes[k].p) > 0;
+        });
+      }
     }).then(function (r) {
       var age = '';
       try { age = U.relLabel(Date.parse(r.j.generated_at) || 0); } catch (e) {}
@@ -2142,6 +2149,33 @@
     return { pct: (q.p / oldest.p - 1) * 100, from: oldest.t, fromP: oldest.p, days: Math.round(age) };
   }
 
+  /**
+   * صدکِ توصیفی «جایگاه در بازه»: چند درصد از نقطه‌های بازه‌ی اخیر، قیمتی ≤ قیمت فعلی داشته‌اند.
+   * توصیفی است، نه پیش‌بینی؛ حداقل ۵ نقطه و پوشش زمانی ≥ ۱ روز لازم است وگرنه null.
+   */
+  function percentile(sym, days) {
+    days = days || 90;
+    var q = QUOTES[sym];
+    if (!HISTORY || !q || !(q.p > 0)) return null;
+    var pts = series(sym, days).filter(function (x) { return x.p > 0; });
+    if (pts.length < 5) return null;
+    var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    if (t1 - t0 < 86400000) return null;
+    var le = 0, mn = Infinity, mx = -Infinity;
+    for (var i = 0; i < pts.length; i++) {
+      var p = pts[i].p;
+      if (p <= q.p) le++;
+      if (p < mn) mn = p;
+      if (p > mx) mx = p;
+    }
+    var pct = le / pts.length * 100;
+    var zone = pct >= 85 ? 'nearHigh' : pct >= 60 ? 'high' : pct <= 15 ? 'nearLow' : pct <= 40 ? 'low' : 'mid';
+    return {
+      pct: pct, zone: zone, points: pts.length, days: Math.max(1, Math.round((t1 - t0) / 86400000)),
+      lo: mn, hi: mx, price: q.p
+    };
+  }
+
   /** خلاصه‌ی هفتگی برای حکم: تغییر ۷ روزه‌ی دارایی‌های کلیدی (یا کوتاه‌ترین بازه‌ی موجود، ≥۲ روز) + حباب سکه‌ی آن زمان */
   function weekly() {
     if (!HISTORY) return null;
@@ -2155,13 +2189,17 @@
       var a = asset(s);
       out.rows.push({ sym: s, fa: a ? a.short : s, pct: c.pct, days: c.days });
     });
-    // شاخصِ بورس: سری‌اش روزانه است و کوت ندارد، برای همین جدا حساب می‌شود
-    if (MARKET && MARKET.p > 0) {
+    // شاخصِ بورس: سری‌اش روزانه است و کوت ندارد، برای همین جدا حساب می‌شود.
+    // نکته: عددِ مبنای مقایسه باید همان شاخصِ «مؤثر»ی باشد که صفحه نشان می‌دهد
+    // (اگر کلیدِ TGJU کهنه مانده و مکملِ تازه‌تر است، مخلوط‌کردنِ دو منبع
+    // درصدی می‌ساخت که به هیچ‌کدام از دو عددِ نمایش‌داده‌شده نمی‌خورد).
+    var effMk = MARKET ? effIndex(MARKET) : null;
+    if (effMk && effMk.p > 0) {
       var mo = tseOldest(2);
       if (mo && mo.p > 0) {
         any = true;
         out.days = Math.max(out.days, mo.days);
-        out.rows.push({ sym: 'TSE', fa: 'شاخص بورس', pct: (MARKET.p / mo.p - 1) * 100, days: mo.days });
+        out.rows.push({ sym: 'TSE', fa: 'شاخص بورس', pct: (effMk.p / mo.p - 1) * 100, days: mo.days });
       }
     }
     if (!any) return null;
@@ -2225,7 +2263,7 @@
     okSources: function () { return Object.keys(SRC).filter(function (id) { return SRC[id] && SRC[id].ok && id !== 'snapshot'; }).length; },
     sinceLastVisit: sinceLastVisit,
     history: function () { return HISTORY; },
-    historyMeta: historyMeta, series: series, changeOver: changeOver, weekly: weekly, fetchHistory: fetchHistory,
+    historyMeta: historyMeta, series: series, changeOver: changeOver, percentile: percentile, weekly: weekly, fetchHistory: fetchHistory,
     _setHistory: function (h) { HISTORY = h; emit('history', h); },
     isFastBusy: function () { return fastBusy; },
     isSlowBusy: function () { return slowBusy; },

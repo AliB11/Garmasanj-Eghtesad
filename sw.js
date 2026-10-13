@@ -1,7 +1,11 @@
 /* گرماسنج — Service Worker: پوسته و داده هر دو «شبکه اول، کش به‌عنوان پشتیبان».
    چرا شبکه اول؟ چون با کش-اول، تا وقتی نام کش عوض نشود کاربر کد قدیمی را
-   می‌بیند و هر انتشارِ جدیدِ پوسته پشتِ کش گیر می‌کرد. کش فقط برای آفلاین است. */
-var CACHE = 'garmasanj-shell-v19';
+   می‌بیند و هر انتشارِ جدیدِ پوسته پشتِ کش گیر می‌کرد. کش فقط برای آفلاین است.
+   نکته‌ی نصب: پیش‌تر از `cache.addAll` استفاده می‌شد که «همه‌یا‌هیچ» است؛
+   یک فایلِ ۴۰۴ (مثلاً history.json در نسخه‌ی تازه) کلِ کشِ آفلاین را می‌سوزاند
+   و کاربرِ بی‌شبکه صفحه‌ی خالی می‌گرفت. حالا هر فایل جدا کش می‌شود و
+   شکستِ یکی، بقیه را از بین نمی‌برد. */
+var CACHE = 'garmasanj-shell-v20';
 var SHELL = [
   './',
   './index.html',
@@ -24,8 +28,12 @@ var SHELL = [
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
-    caches.open(CACHE).then(function (c) { return c.addAll(SHELL); })
-      .then(function () { return self.skipWaiting(); })
+    caches.open(CACHE).then(function (c) {
+      return Promise.all(SHELL.map(function (u) {
+        // هر فایل جدا: نبودِ یک فایل نباید کلِ پوسته‌ی آفلاین را از کار بیندازد
+        return c.add(new Request(u, { cache: 'reload' })).catch(function () {});
+      }));
+    }).then(function () { return self.skipWaiting(); })
       .catch(function () {})
   );
 });
