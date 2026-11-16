@@ -294,7 +294,8 @@ t('tseSessionOpen: فقط شنبه تا چهارشنبه در ساعتِ باز�
   assert.strictEqual(P.tseSessionOpen(tehran(2026, 9, 20, 6, 0)), false, 'قبل از بازگشایی');
 });
 
-const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.now() - 3600000, day: '2026-09-19', src: 'TGJU' }, day: '2026-09-19', src: 'TGJU' };
+const MK_SESSION_DAY = new Date(Date.now() + 3.5 * 3600e3).toISOString().slice(0, 10);
+const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.now() - 3600000, day: MK_SESSION_DAY, src: 'TGJU' }, day: MK_SESSION_DAY, src: 'TGJU' };
 
 (async () => {
 
@@ -1041,15 +1042,152 @@ const MK_SESSION = { index: { p: 7448839, high: 7619210, low: 7448839, ts: Date.
     W.close(); GS.data.clearCache();
   });
 
+  await ta('امتیاز بورس: مکملِ جلسه‌ی قبل حذف می‌شود؛ داده‌ی هم‌جلسه بعد از ساعت بازار معتبر می‌ماند', async () => {
+    const NOW = Date.UTC(2026, 8, 27, 17, 30);       // یکشنبه ۲۱:۰۰ تهران — بعد از بسته‌شدن
+    const OLD_TS = Date.UTC(2026, 8, 26, 9, 0);      // جلسه‌ی قبل
+    const IDX_TS = Date.UTC(2026, 8, 27, 9, 0);      // آخرین برداشتِ شاخص از جلسه‌ی امروز
+    const OLD_DAY = '2026-09-26', DAY = '2026-09-27';
+    const { GS, d, window: W, errors } = boot((u) => {
+      const url = String(u);
+      if (url.includes('live.json')) return jres(liveDoc());
+      if (url.includes('snapshot.json')) return jres({ generated_at: '', quotes: {} });
+      return jrej();
+    }, { date: NOW });
+    await GS.data.bootAll(); await wait(50);
+    GS.data._setHistory({
+      version: 1, generated_at: new Date().toISOString(), recent: {},
+      daily: { TSE: [[OLD_DAY, 7153090, 7153090, 7153090]] },
+    });
+    const old = {
+      index: { p: 7153090, ts: OLD_TS, day: OLD_DAY, src: 'TGJU' },
+      flow: { netToman: -8e12, ratio: -0.8, ts: OLD_TS, day: OLD_DAY, fresh: false },
+      bt: {
+        ts: OLD_TS, fresh: false,
+        breadth: { pos: 900, neg: 0, total: 900, posPct: 100, queueBuy: 900, queueSell: 0 },
+        perCapita: { buy: 200, sell: 50 },
+        queue: { buyToman: 9e12, sellToman: 1e12, buyShare: 0.9 },
+        funds: { fixed: { netToman: -3e12 }, equity: { netToman: 2e12 } },
+      },
+    };
+    const current = { index: { p: 7274130, ts: IDX_TS, day: DAY, src: 'TGJU' } };
+    // انتشارِ تازه فقط شاخص را دارد؛ setMarket عمداً مکمل قبلی را نگه می‌دارد.
+    GS.data.setMarket(old, 'live');
+    GS.data.setMarket(current, 'live');
+    const prior = GS.data.market();
+    assert.strictEqual(prior.flow.day, OLD_DAY, 'جریانِ قبل برای نمایش حفظ می‌شود');
+    assert.strictEqual(prior.flowSameSession, false);
+    assert.strictEqual(prior.btSameSession, false);
+    const pulseOld = GS.features.boursePulse();
+    assert.strictEqual(pulseOld.reliable, false, 'شاخص تنها برای چرخاندنِ وزن کافی نیست');
+    assert.strictEqual(pulseOld.n, 1, 'جریان/مکملِ جلسه‌ی قبل شمرده نشوند');
+    assert.strictEqual(pulseOld.score, 0);
+    const staleDims = GS.ui.bourseRadarDims(prior, prior.bt);
+    assert.ok(staleDims.every((x) => x.value === 50), 'رادارِ سلامت نباید از مکملِ جلسه‌ی قبل امتیاز بگیرد');
+    GS.ui.renderMacro();
+    const macroCards = d.querySelectorAll('#macroStrip .mc');
+    assert.ok(macroCards[macroCards.length - 1].textContent.includes('ناهم‌جلسه/نامعلوم'), macroCards[macroCards.length - 1].textContent);
+    assert.ok(!macroCards[macroCards.length - 1].textContent.includes('خروج ۸.۰ همت'), macroCards[macroCards.length - 1].textContent);
+    const oldFlowStrip = d.querySelector('#bourseStrip').textContent;
+    assert.ok(oldFlowStrip.includes('جلسه‌ی داده ناهم‌تراز/نامعلوم'), oldFlowStrip);
+    assert.ok(!oldFlowStrip.includes('خروج ۸.۰ همت'), oldFlowStrip);
+    GS.ui.renderBoursePro();
+    const staleAlignment = d.querySelector('#bourseProAlignment').textContent;
+    assert.ok(staleAlignment.includes('ناهم‌جلسه/نامعلوم') && staleAlignment.includes('کنار گذاشته شد'), staleAlignment);
+    const staleVerdict = GS.features.verdict();
+    assert.ok(!staleVerdict.reasons.some((x) => x.includes('۸.۰ همت') || x.includes('پهنا ۱۰۰٪')),
+      'حکم نباید جریان/پهنایِ جلسه‌ی قبل را نقل کند: ' + staleVerdict.reasons.join(' | '));
+
+    // timestamp شاخص نباید برای جریانِ بی‌تاریخ قرض گرفته شود.
+    GS.data.setMarket({
+      index: current.index, asOf: IDX_TS,
+      flow: { netToman: -8e12, ratio: -0.8 },
+      bt: { breadth: { pos: 10, neg: 10, total: 20, posPct: 50 } },
+    }, 'live');
+    const unknown = GS.data.market();
+    assert.strictEqual(unknown.flow.day, null, 'جریانِ بی‌timestamp/day باید نامعلوم بماند');
+    assert.strictEqual(unknown.flowSameSession, false, 'تاریخِ شاخص نباید جریان را هم‌جلسه جلوه دهد');
+    assert.strictEqual(unknown.btSameSession, false, 'مکملِ بی‌timestamp باید نامعلوم بماند');
+    const pulseUnknown = GS.features.boursePulse();
+    assert.strictEqual(pulseUnknown.reliable, false);
+    assert.ok(pulseUnknown.reasons.some((x) => x.includes('نامعلوم')), pulseUnknown.reasons.join(' | '));
+
+    // تازه‌نشدنِ برچسب (fresh=false) با هم‌جلسه‌بودن تناقض ندارد: بعد از بسته‌شدن
+    // همان روز، داده‌ی نهاییِ امروز همچنان معتبر است.
+    GS.data.setMarket({
+      index: current.index,
+      flow: { netToman: -8e12, ratio: -0.8, ts: Date.UTC(2026, 8, 27, 9, 12), day: DAY, fresh: false },
+      bt: {
+        ts: Date.UTC(2026, 8, 27, 9, 14), fresh: false,
+        breadth: { pos: 900, neg: 0, total: 900, posPct: 100, queueBuy: 900, queueSell: 0 },
+        perCapita: { buy: 200, sell: 50 },
+        queue: { buyToman: 9e12, sellToman: 1e12, buyShare: 0.9 },
+      },
+    }, 'live');
+    const afterClose = GS.data.market();
+    assert.strictEqual(afterClose.flowFresh, false, 'برچسب تازگی حفظ شود');
+    assert.strictEqual(afterClose.flowSameSession, true, 'جریانِ نهاییِ امروز هم‌جلسه است');
+    assert.strictEqual(afterClose.btSameSession, true, 'مکملِ نهاییِ امروز هم‌جلسه است');
+    const pulseToday = GS.features.boursePulse();
+    assert.strictEqual(pulseToday.reliable, true, 'داده‌ی هم‌جلسه بعد از بسته‌شدن همچنان معتبر است');
+    assert.strictEqual(pulseToday.n, 5);
+    assert.ok(pulseToday.score > 0, 'شواهدِ همین جلسه باید امتیاز بسازند: ' + pulseToday.score);
+    GS.ui.renderBoursePro();
+    const currentAlignment = d.querySelector('#bourseProAlignment').textContent;
+    assert.ok(currentAlignment.includes('جریان خرد · هم‌جلسه'), currentAlignment);
+    assert.ok(currentAlignment.includes('مکمل بورس‌تریدر · هم‌جلسه'), currentAlignment);
+    assert.ok(errors.length === 0, errors.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
+  await ta('نبض و رتبه‌بندی پول داغ: کوت‌های کش/اسنپ‌شات وارد امتیاز زنده نشوند', async () => {
+    const { GS, d, window: W, errors } = boot((u) => {
+      const url = String(u);
+      if (url.includes('live.json')) return jres(liveDoc());
+      if (url.includes('snapshot.json')) return jres({ generated_at: '', quotes: {} });
+      return jrej();
+    });
+    await GS.data.bootAll(); await wait(50);
+    GS.config.ASSETS.forEach((a) => {
+      const q = GS.data.quote(a.sym);
+      q.stale = true; q.live = false; // همان وضعیتِ boot از کش/اسنپ‌شات
+    });
+    assert.strictEqual(GS.data.mood().n, 0, 'نبض نباید از تغییرِ کشِ کهنه ساخته شود');
+    assert.strictEqual(GS.features.hotScores().length, 0, 'رتبه‌ی پول داغ نباید کوتِ stale داشته باشد');
+    assert.strictEqual(GS.features.heatOf('USD'), 0, 'حرارتِ سبد هم از کوتِ stale صفر شود');
+    const staleVerdict = GS.features.verdict();
+    assert.strictEqual(staleVerdict.liveN, 0, 'کشِ stale پوششِ زنده حساب نشود');
+    assert.strictEqual(staleVerdict.top, undefined, 'داراییِ داغِ stale به حکم نرود');
+    assert.ok(!staleVerdict.reasons.concat(staleVerdict.warns).some((x) => /حباب سکه|پریمیوم تتر|انحراف طلا|شکاف بیت‌کوین/.test(x)),
+      'سیگنالِ مشتق از کوتِ stale واردِ حکم نشود: ' + staleVerdict.reasons.join(' | '));
+    GS.features.renderHotmoney();
+    assert.ok(d.querySelector('#flowBars .radar-empty'), 'رابط باید روشن بگوید داده‌ی تازه‌ای برای رتبه‌بندی نیست');
+    GS.ui.renderPulse();
+    assert.ok(d.querySelector('#pulseCards .pulse-skel').textContent.includes('فقط برای نمایش‌اند'));
+    GS.ui.updateMood();
+    assert.ok(d.querySelector('#moodMsg').textContent.includes('در امتیاز حساب نمی‌شوند'));
+    const usd = GS.data.quote('USD'); usd.stale = false; usd.live = true;
+    assert.strictEqual(GS.data.mood().n, 1, 'داده‌ی تازه‌ی منفرد می‌تواند در نبض شمرده شود');
+    assert.strictEqual(GS.features.hotScores().length, 1, 'فقط همان داراییِ تازه رتبه بگیرد');
+    GS.features.renderHeatmap();
+    const staleTile = d.querySelector('.heat-tile[data-heat="G18"]');
+    assert.ok(staleTile.classList.contains('stale'), 'قیمتِ snapshot می‌ماند اما کاشی خنثی می‌شود');
+    assert.strictEqual(staleTile.querySelector('.ht-d').textContent, '', 'تغییرِ stale نباید مرتب/نمایش داده شود');
+    assert.ok(staleTile.title.includes('در رتبه‌بندی لحاظ نمی‌شود'), staleTile.title);
+    assert.ok(errors.length === 0, errors.join(' | '));
+    W.close(); GS.data.clearCache();
+  });
+
   await ta('رادارِ سلامت: خروجِ پولِ خرد نباید امتیاز بگیرد، ورود باید بگیرد (بازبینیِ فرمول)', async () => {
     const { GS, window: W } = boot((u) => String(u).includes('live.json') ? jres(liveDoc(MK_SESSION)) : String(u).includes('snapshot.json') ? jres({ generated_at: '', quotes: {} }) : jrej());
     await GS.data.bootAll(); await wait(50);
     const dim = (mk) => GS.ui.bourseRadarDims(mk, {}).filter((x) => x.label === 'جریان خرد')[0].value;
     const none = dim({});
-    const inflow = dim({ flow: { netToman: 3.2e12 }, flowRatio: 0.12 });
-    const outflow = dim({ flow: { netToman: -3.2e12 }, flowRatio: -0.12 });
-    const heavyOut = dim({ flow: { netToman: -20e12 }, flowRatio: -0.4 });
+    const inflow = dim({ flowSameSession: true, flow: { netToman: 3.2e12 }, flowRatio: 0.12 });
+    const outflow = dim({ flowSameSession: true, flow: { netToman: -3.2e12 }, flowRatio: -0.12 });
+    const heavyOut = dim({ flowSameSession: true, flow: { netToman: -20e12 }, flowRatio: -0.4 });
+    const oldFlow = dim({ flowSameSession: false, flow: { netToman: 8e12 }, flowRatio: 0.8 });
     assert.strictEqual(none, 50, 'بدون داده → خنثی: ' + none);
+    assert.strictEqual(oldFlow, 50, 'جریانِ ناهم‌جلسه در رادار خنثی بماند');
     assert.ok(inflow > 50, 'ورود باید بالای خنثی ببرد: ' + inflow);
     assert.ok(outflow < 50, 'خروج باید پایین بیاورد: ' + outflow);
     assert.ok(inflow > outflow, inflow + ' > ' + outflow);
