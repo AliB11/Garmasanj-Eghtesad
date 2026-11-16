@@ -791,7 +791,12 @@
       if (val != null && Math.abs(+v.netToman) > val * 1.05) return null;
       return { netToman: +v.netToman, valueToman: val };
     }
-    var out = { ts: +x.ts || Date.now(), src: x.src || 'BourseTrader', fresh: x.fresh !== false };
+    var sourceTs = +x.ts || 0;
+    var out = {
+      ts: sourceTs || Date.now(),
+      sessionDay: sourceTs > 0 ? tehranDayStr(sourceTs) : null,
+      src: x.src || 'BourseTrader', fresh: x.fresh !== false
+    };
     out.index = idx(x.index, 1e5, 5e8);
     out.equal = idx(x.equal, 1e3, 5e8);
     out.fara = idx(x.fara, 1e2, 5e8);
@@ -985,7 +990,9 @@
           n: f.n || null,
           src: f.src || 'TSETMC',
           ts: f.ts || m.asOf || Date.now(),
-          day: f.day || tehranDayStr(f.ts || m.asOf || Date.now()),
+          // `m.asOf` timestamps the index, not necessarily the flow. If the flow
+          // has neither its own session day nor timestamp, keep its session unknown.
+          day: f.day || (+f.ts > 0 ? tehranDayStr(+f.ts) : null),
           fresh: f.fresh !== false
         };
       }
@@ -1093,6 +1100,13 @@
     var old = tseOldest(2);
     var ses = (U.tseSession) ? U.tseSession() : { open: false, label: 'نامشخص', next: '' };
     var ageDays = ix.ts ? (Date.now() - ix.ts) / 86400000 : 99;
+    var ixDay = ix.day || (ix.ts ? tehranDayStr(ix.ts) : null);
+    var flowDay = MARKET.flow && MARKET.flow.day;
+    var btDay = MARKET.bt && MARKET.bt.sessionDay;
+    var series = MARKET.flowSeries || null;
+    var seriesDay = series && series.length && series[0][0] ? tehranDayStr(series[0][0]) : null;
+    var tk = tablokhani();
+    var tkDay = tk && tk.ts ? tehranDayStr(tk.ts) : null;
     return {
       p: ix.p,
       high: ix.high,
@@ -1111,15 +1125,19 @@
       stale: ageDays > 4,          // بیش از ۴ روز یعنی حتی یک جلسه هم عقب نیستیم... بلکه خیلی عقبیم
       flow: MARKET.flow || null,
       flowRatio: (MARKET.flow && MARKET.flow.ratio != null) ? MARKET.flow.ratio : null,
-      flowSeries: MARKET.flowSeries || null,
-      flowTrend: flowTrend(MARKET.flowSeries),
+      flowSeries: series,
+      flowTrend: flowTrend(series),
       flowFresh: !!(MARKET.flow && MARKET.flow.fresh),
-      // جریانِ پول مربوط به همین جلسه است یا جلسه‌ای دیگر؟ (برچسبِ تازگی)
-      flowSameSession: !!(MARKET.flow && MARKET.flow.day && ix.day && MARKET.flow.day === ix.day),
+      // اعتبارِ امتیازها به هم‌جلسه‌بودنِ هر مکمل با شاخصِ مؤثر بستگی دارد؛
+      // «fresh=false» بعد از بسته‌شدن، به‌تنهایی داده را نامعتبر نمی‌کند.
+      flowSameSession: !!(flowDay && ixDay && flowDay === ixDay),
+      flowTrendSameSession: !!(seriesDay && ixDay && seriesDay === ixDay),
       flowSessions: tseFlowSessions(5),
       bt: MARKET.bt || null,
+      btSameSession: !!(btDay && ixDay && btDay === ixDay),
       btAgeH: MARKET.bt ? (Date.now() - MARKET.bt.ts) / 3600000 : null,
-      tk: tablokhani()
+      tk: tk,
+      tkSameSession: !!(tkDay && ixDay && tkDay === ixDay)
     };
   }
 
@@ -1265,12 +1283,14 @@
   function setMarketFlow(f) {
     if (!MARKET) MARKET = { p: null, ts: Date.now(), src: 'TSETMC', origin: 'client', flow: null, high: null, low: null, day: null };
     if (!f || !isFinite(+f.netToman)) { MARKET.flow = null; try { recompute(); } catch (e) {} emit('quotes', {}); return false; }
+    var flowTs = +f.ts || Date.now();
     MARKET.flow = {
       netToman: +f.netToman,
       ratio: (f.ratio != null && isFinite(+f.ratio)) ? +f.ratio : null,
       n: f.n || null,
       src: f.src || 'TSETMC',
-      ts: f.ts || Date.now()
+      ts: flowTs,
+      day: f.day || tehranDayStr(flowTs)
     };
     try { recompute(); } catch (e) {}
     emit('quotes', {});
@@ -1897,7 +1917,7 @@
   function mood() {
     var act = CFG.ASSETS.filter(function (a) {
       var q = QUOTES[a.sym];
-      return !a.derived && q && q.p > 0 && q.chgPct != null && isFinite(q.chgPct);
+      return !a.derived && q && q.p > 0 && !q.stale && q.chgPct != null && isFinite(q.chgPct);
     });
     if (!act.length) return { n: 0, ups: 0, downs: 0, flat: 0, part: 0, breadth: 50, avg: 0, score: 0, best: null, worst: null, label: '—', quiet: true };
     var upN = act.filter(function (a) { return QUOTES[a.sym].chgPct > 0.05; }).length;

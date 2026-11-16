@@ -14,7 +14,7 @@
   /** نبض لحظه‌ای یک دارایی از تغییر امروز + شیب نشست (‎-40..+60) */
   function heatOf(sym) {
     var q = D().quote(sym);
-    if (!q || !(q.p > 0)) return 0;
+    if (!q || !(q.p > 0) || q.stale) return 0;
     var day = (q.chgPct != null && isFinite(q.chgPct)) ? q.chgPct : 0;
     var sl = D().slope(sym);
     sl = isFinite(sl) ? sl : 0;
@@ -27,7 +27,7 @@
     return CFG().ASSETS
       .filter(function (a) {
         var q = D().quote(a.sym);
-        return q && q.p > 0 && !a.derived;
+        return q && q.p > 0 && !q.stale && !a.derived;
       })
       .map(function (a) {
         var q = D().quote(a.sym), sl = D().slope(a.sym);
@@ -70,7 +70,7 @@
         '<div class="bm-track bm-tri"><i class="bm-up" style="width:' + U.clamp(m.ups, 0, 100) + '%"></i><i class="bm-down" style="width:' + U.clamp(m.downs || 0, 0, 100) + '%"></i></div>';
     }
     if (!rows.length) {
-      host.innerHTML = '<div class="radar-empty">هنوز داده‌ی زنده‌ای برای ردیابی جریان پول نرسیده.<br>چند ثانیه صبر کن…</div>';
+      host.innerHTML = '<div class="radar-empty">داده‌ی تازه‌ای برای رتبه‌بندی پول داغ نیست.<br>قیمت‌های کش و اسنپ‌شات فقط برای نمایش‌اند و در امتیاز حساب نمی‌شوند.</div>';
       return;
     }
     var max = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.score); }).concat([1]));
@@ -244,15 +244,19 @@
       score += U.clamp(mk.chgPct * 12, -28, 28); n++;
       reasons.push('شاخص ' + U.pct(mk.chgPct, 1));
     }
-    var bt = mk.bt || null;
+    // مکملِ دیروز می‌تواند برای نمایش/شناسنامه بماند، اما امروز را امتیاز نمی‌دهد.
+    var bt = mk.btSameSession ? mk.bt : null;
     if (bt && bt.breadth && bt.breadth.posPct != null) {
       score += U.clamp((bt.breadth.posPct - 50) * 0.7, -24, 24); n++;
       reasons.push('پهنا ' + U.fa(Math.round(bt.breadth.posPct)) + '٪');
     }
-    if (mk.flowRatio != null && isFinite(mk.flowRatio)) {
+    if (mk.flowSameSession && mk.flowRatio != null && isFinite(mk.flowRatio)) {
       score += U.clamp(mk.flowRatio * 40, -12, 12); n++;
       reasons.push((mk.flowRatio >= 0 ? 'ورود' : 'خروج') + ' پول خرد');
+    } else if (mk.flow && !mk.flowSameSession) {
+      reasons.push('جریانِ خردِ ناهم‌جلسه/نامعلوم کنار گذاشته شد');
     }
+    if (mk.bt && !mk.btSameSession) reasons.push('مکملِ بورس‌تریدرِ ناهم‌جلسه/نامعلوم کنار گذاشته شد');
     if (bt && bt.perCapita && bt.perCapita.buy > 0 && bt.perCapita.sell > 0) {
       var pc = bt.perCapita.buy / bt.perCapita.sell;
       score += U.clamp((pc - 1) * 20, -12, 12); n++;
@@ -273,7 +277,7 @@
     if (p.id === 'stock') return boursePulse().score;
     if (!p.sym) return p.base;
     var q = D().quote(p.sym);
-    if (!q || !(q.p > 0)) return p.base;
+    if (!q || !(q.p > 0) || q.stale) return p.base;
     return p.base * 0.5 + heatOf(p.sym) * 0.5;
   }
 
@@ -920,10 +924,13 @@
     var m = D().mood(), dv = D().derived();
     var rows = hotScores();
     var total = CFG().ASSETS.length;
-    var liveN = CFG().ASSETS.filter(function (a) { return D().quote(a.sym).live; }).length;
+    var liveN = CFG().ASSETS.filter(function (a) {
+      var q = D().quote(a.sym);
+      return q && q.live && !q.stale;
+    }).length;
     var freshN = CFG().ASSETS.filter(function (a) {
       var q = D().quote(a.sym);
-      return q.live && q.p > 0 && (Date.now() - q.ts < 3 * 60000);
+      return q && q.live && !q.stale && q.p > 0 && (Date.now() - q.ts < 3 * 60000);
     }).length;
     var coverage = total ? freshN / total : 0;
     var ses = U.marketSession();
@@ -931,6 +938,10 @@
     var top = rows[0], low = rows[rows.length - 1];
     function f1(v) { return U.fa(Math.abs(v).toFixed(1)); }
     function sg(v) { return v >= 0 ? '+' : '−'; }
+    function usableQuote(sym) {
+      var q = D().quote(sym);
+      return !!(q && q.p > 0 && !q.stale);
+    }
     // ۱) نبض بازار
     if (m.score >= 50) { score += 3; reasons.push('نبض بازار ' + sg(m.score) + f1(m.score) + ' — طوفانی و پرشتاب.'); }
     else if (m.score >= 20) { score += 2; reasons.push('نبض بازار ' + sg(m.score) + f1(m.score) + ' — داغ و همراه.'); }
@@ -951,23 +962,23 @@
     // ۳) پول داغ
     if (top && top.score > 20) { score += 1; reasons.push('پول داغ به «' + top.a.short + '» سرازیر شده (امتیاز ' + sg(top.score) + f1(top.score) + ').'); }
     if (low && low.score < -20) { reasons.push('«' + low.a.short + '» سردترین نقطه است — برای خرید عجله نکن.'); }
-    // ۴) حباب سکه
-    if (dv.bubble != null) {
+    // ۴) حباب سکه — فقط با ورودی‌هایِ غیرکش
+    if (dv.bubble != null && usableQuote('G24') && usableQuote('EMAMI')) {
       if (dv.bubble > 30) { score -= 2; warns.push('حباب سکه ' + f1(dv.bubble) + '٪ — خرید سکه در اوج هیجان است؛ مثقال کم‌ریسک‌تر است.'); }
       else if (dv.bubble > 22) { score -= 1; reasons.push('حباب سکه ' + f1(dv.bubble) + '٪ — سنگین؛ در خرید سکه پله‌ای عمل کن.'); }
       else if (dv.bubble < 8) { score += 1; reasons.push('حباب سکه سبک (' + f1(dv.bubble) + '٪) — ریسک حبابی پایین است.'); }
     }
     // ۵) پریمیوم تتر
-    if (dv.usdtPrem != null) {
+    if (dv.usdtPrem != null && usableQuote('USD') && usableQuote('USDT')) {
       if (dv.usdtPrem > 1.5) { score -= 1; warns.push('پریمیوم تتر ' + f1(dv.usdtPrem) + '٪ — عجله برای خروج از ریال؛ احتمال نوسان ارزی.'); }
       else if (dv.usdtPrem < -1) { reasons.push('تتر ' + f1(dv.usdtPrem) + '٪ زیر دلار — فشار فروش در بازار ارز.'); }
     }
     // ۶) انحراف طلا
-    if (dv.goldPrem != null && Math.abs(dv.goldPrem) > 4) {
+    if (dv.goldPrem != null && usableQuote('G18') && usableQuote('OUNCE_USD') && usableQuote('USD') && Math.abs(dv.goldPrem) > 4) {
       warns.push('طلا ' + f1(dv.goldPrem) + '٪ ' + (dv.goldPrem > 0 ? 'بالاتر' : 'پایین‌تر') + ' از ارزش جهانی — ' + (dv.goldPrem > 0 ? 'گران‌فروشی داخلی.' : 'فرصت ارزشی در مثقال.'));
     }
     // ۷) شکاف بیت‌کوین صرافی‌ها
-    if (dv.btcUsdGap != null && Math.abs(dv.btcUsdGap) > 2) {
+    if (dv.btcUsdGap != null && usableQuote('BTC_TM') && usableQuote('BTC_USD') && usableQuote('USD') && Math.abs(dv.btcUsdGap) > 2) {
       warns.push('نرخ دلاریِ ضمنی بیت‌کوین صرافی‌ها ' + f1(dv.btcUsdGap) + '٪ با دلار آزاد فاصله دارد — نشانه‌ی هیجان یا اختلال در یک سمت.');
     }
     // ۸) «این هفته» — از تاریخچه‌ی انتشارهای سرور (بدون سرور)
@@ -994,7 +1005,7 @@
       var MF = CFG().MARKETFLOW || { strong: 0.10, mild: 0.04 };
       var idxTxt = 'شاخص کلِ بورس ' + U.fmt(Math.round(mk.p)) + (mk.chgPct != null ? ' (' + U.pct(mk.chgPct, 1) + ')' : '');
       // جریان خرد
-      if (mk.flow && mk.flowRatio != null && !mk.stale) {
+      if (mk.flow && mk.flowRatio != null && mk.flowSameSession && !mk.stale) {
         var rr = mk.flowRatio, ar = Math.abs(rr);
         var netTxt = U.fa((Math.abs(mk.flow.netToman) / 1e12).toFixed(1)) + ' همت';
         var agree = (mk.chgPct == null) || (rr < 0 && mk.chgPct < 0) || (rr > 0 && mk.chgPct > 0);
@@ -1010,7 +1021,9 @@
           bourseBits.push('جریان خرد خفیف ' + netTxt + ' (' + U.fa(Math.round(ar * 100)) + '٪)');
         }
       }
-      var bt = mk.bt;
+      if (mk.flow && !mk.flowSameSession) bourseBits.push('جریانِ خردِ ناهم‌جلسه/نامعلوم از امتیاز کنار گذاشته شد');
+      var bt = mk.btSameSession ? mk.bt : null;
+      if (mk.bt && !mk.btSameSession) bourseBits.push('مکملِ بورس‌تریدرِ ناهم‌جلسه/نامعلوم از امتیاز کنار گذاشته شد');
       if (bt) {
         // پهنا
         if (bt.breadth && bt.breadth.posPct != null) {
@@ -1070,7 +1083,7 @@
       }
       /* ۱۰) شیبِ جلسه: یک عددِ لحظه‌ای نمی‌گوید پول «در حالِ رفتن» است یا «رفته».
             این همان چیزی است که با سریِ درون‌جلسه‌ای اندازه می‌گیریم. */
-      var tr = mk.flowTrend;
+      var tr = mk.flowTrendSameSession ? mk.flowTrend : null;
       if (tr && tr.points >= 2 && !mk.stale) {
         var slopeAbs = Math.abs(tr.perHour);
         if (slopeAbs >= 5e11) {              // ۰٫۵ همت در ساعت و بیشتر
@@ -1084,7 +1097,8 @@
         }
       }
       /* ۱۱) پولِ پشتِ صف: تعدادِ صف نمی‌گوید چقدر پول پشتش ایستاده؛ ارزش می‌گوید. */
-      var btq = (mk.tk && mk.tk.queue) ? mk.tk.queue : (bt && bt.queue ? bt.queue : null);
+      var tk = mk.tkSameSession ? mk.tk : null;
+      var btq = (tk && tk.queue) ? tk.queue : (bt && bt.queue ? bt.queue : null);
       if (btq && btq.buyShare != null) {
         var shareTxt = U.fa(Math.round(btq.buyShare * 100)) + '٪';
         if (btq.buyShare >= 0.7) { bourseScore += 0.5; bourseBits.push('پولِ پشتِ صفِ خرید ' + shareTxt + ' — فشارِ تقاضا'); }
@@ -1230,18 +1244,24 @@
   function renderHeatmap() {
     var grid = U.$('#heatGrid');
     if (!grid) return;
+    function dayChange(q) { return q && !q.stale && q.chgPct != null && isFinite(q.chgPct) ? q.chgPct : null; }
     var arr = CFG().ASSETS.filter(function (a) { return !a.derived; }).slice()
-      .sort(function (a, b) { return (D().quote(b.sym).chgPct || -999) - (D().quote(a.sym).chgPct || -999); });
+      .sort(function (a, b) {
+        var ca = dayChange(D().quote(a.sym)), cb = dayChange(D().quote(b.sym));
+        return (cb == null ? -999 : cb) - (ca == null ? -999 : ca);
+      });
     grid.innerHTML = arr.map(function (a) {
       var q = D().quote(a.sym);
-      var chg = q.chgPct || 0, has = q.p > 0;
-      var col = !has ? '#5A636C' : GS.charts.dirColor(chg);
-      var price = !has ? '—' : GS.ui.dispPrice(a, q);
-      var dayCls = !has || Math.abs(chg) < 0.05 ? 'z' : chg > 0 ? 'up' : 'down';
-      return '<button class="heat-tile" data-heat="' + a.sym + '" style="border-color:' + col + '55;background:' + col + '14">' +
+      var chg = dayChange(q), hasPrice = q.p > 0, hasChange = hasPrice && chg != null;
+      var col = !hasPrice ? '#5A636C' : !hasChange ? '#7A838B' : GS.charts.dirColor(chg);
+      var price = !hasPrice ? '—' : GS.ui.dispPrice(a, q);
+      var dayCls = !hasChange || Math.abs(chg) < 0.05 ? 'z' : chg > 0 ? 'up' : 'down';
+      var title = q.stale ? 'قیمت از کش/اسنپ‌شات است؛ تغییر روز در رتبه‌بندی لحاظ نمی‌شود.' : '';
+      return '<button class="heat-tile' + (!hasChange && hasPrice ? ' stale' : '') + '" data-heat="' + a.sym + '"' +
+        (title ? ' title="' + title + '"' : '') + ' style="border-color:' + col + '55;background:' + col + '14">' +
         '<span class="ht-n">' + U.esc(a.short) + '</span>' +
         '<b class="ht-p">' + price + '</b>' +
-        '<span class="ht-d ' + dayCls + '" dir="ltr">' + (has ? U.pct(chg) : '') + '</span></button>';
+        '<span class="ht-d ' + dayCls + '" dir="ltr">' + (hasChange ? U.pct(chg) : '') + '</span></button>';
     }).join('');
   }
 
